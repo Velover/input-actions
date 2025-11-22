@@ -30,8 +30,16 @@ export namespace MouseController {
 
 		constructor(
 			private readonly action_: Exclude<EMouseLockAction, EMouseLockAction.None>,
-			private readonly priority_: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[action_],
+			private priority_: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[action_],
 		) {}
+
+		AdjustPriority(new_priority: number) {
+			if (this.priority_ === new_priority) return;
+			const was_active = this.active_;
+			if (this.active_) this.SetActive(false);
+			this.priority_ = new_priority;
+			if (was_active) this.SetActive(true);
+		}
 
 		SetActive(active: boolean) {
 			if (this.active_ === active) return;
