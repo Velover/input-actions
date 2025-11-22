@@ -1,6 +1,6 @@
 {
 	"name": "@rbxts/input-actions",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"description": "A flexible input system for Roblox TypeScript inspired by Godot's input handling, providing action mapping, context switching, and advanced input utilities.",
 	"main": "out/init.lua",
 	"types": "out/index.d.ts",
