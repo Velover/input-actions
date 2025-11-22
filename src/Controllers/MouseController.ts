@@ -58,16 +58,18 @@ export namespace MouseController {
 		[EMouseLockAction.None]: false,
 	};
 
-	export function SetMouseLockActionStrictMode(action: EMouseLockAction, value: boolean) {
+	export function SetMouseLockActionStrictMode(
+		action: Exclude<EMouseLockAction, EMouseLockAction.None>,
+		value: boolean,
+	) {
 		StrictMode[action] = value;
 	}
 
 	function GetCurrentMouseLockAction() {
-		if (
+		const is_debug_mode =
 			ActionsController.IsExisting(EDefaultInputAction.MouseDebugMode) &&
-			ActionsController.IsPressed(EDefaultInputAction.MouseDebugMode)
-		)
-			return EMouseLockAction.UnlockMouse;
+			ActionsController.IsPressed(EDefaultInputAction.MouseDebugMode);
+		if (is_debug_mode) return EMouseLockAction.UnlockMouse;
 
 		if (
 			unlockedStack.size() === 0 &&
