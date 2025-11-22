@@ -15,19 +15,21 @@ export namespace MouseController {
 		[EMouseLockAction.UnlockMouse]: EMouseLockActionPriority.UnlockMouse,
 		[EMouseLockAction.LockMouseCenter]: EMouseLockActionPriority.LockMouseCenter,
 		[EMouseLockAction.LockMouseAtPosition]: EMouseLockActionPriority.LockMouseAtPosition,
+		[EMouseLockAction.None]: 0,
 	};
 
 	const mouseLockActionStacks = {
 		[EMouseLockAction.UnlockMouse]: unlockedStack,
 		[EMouseLockAction.LockMouseCenter]: lockedCenterPrioritiesStack,
 		[EMouseLockAction.LockMouseAtPosition]: lockedAtPositionStack,
+		[EMouseLockAction.None]: [],
 	};
 
 	export class MouseLockAction {
 		private active_ = false;
 
 		constructor(
-			private readonly action_: EMouseLockAction,
+			private readonly action_: Exclude<EMouseLockAction, EMouseLockAction.None>,
 			private readonly priority_: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[action_],
 		) {}
 
@@ -50,9 +52,10 @@ export namespace MouseController {
 	 * without it, mouse behaviour and visibility can be changed during the process and action like unlock the mouse will be applied only at change
 	 */
 	const StrictMode = {
-		[EMouseLockAction.LockMouseAtPosition]: false,
-		[EMouseLockAction.LockMouseCenter]: false,
-		[EMouseLockAction.UnlockMouse]: false,
+		[EMouseLockAction.LockMouseAtPosition]: true,
+		[EMouseLockAction.LockMouseCenter]: true,
+		[EMouseLockAction.UnlockMouse]: true,
+		[EMouseLockAction.None]: false,
 	};
 
 	export function SetMouseLockActionStrictMode(action: EMouseLockAction, value: boolean) {
@@ -65,6 +68,14 @@ export namespace MouseController {
 			ActionsController.IsPressed(EDefaultInputAction.MouseDebugMode)
 		)
 			return EMouseLockAction.UnlockMouse;
+
+		if (
+			unlockedStack.size() === 0 &&
+			lockedCenterPrioritiesStack.size() === 0 &&
+			lockedAtPositionStack.size() === 0
+		) {
+			return EMouseLockAction.None;
+		}
 
 		//sets unlock mouse on top
 		const unlockMouseMaxPriority = unlockedStack[0] ?? 0;
@@ -92,6 +103,10 @@ export namespace MouseController {
 			UserInputService.MouseIconEnabled = false;
 		} else if (action === EMouseLockAction.LockMouseAtPosition) {
 			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition;
+			UserInputService.MouseIconEnabled = true;
+		} else if (action === EMouseLockAction.None) {
+			//reset to default behaviour
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default;
 			UserInputService.MouseIconEnabled = true;
 		}
 	}
