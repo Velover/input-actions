@@ -144,6 +144,10 @@ export namespace MouseController {
 	export function Initialize() {
 		if (initialized) return;
 		initialized = true;
-		RunService.RenderStepped.Connect(Update);
+		RunService.BindToRenderStep(
+			"MouseControllerUpdate",
+			Enum.RenderPriority.Input.Value - 1,
+			Update,
+		);
 	}
 }
