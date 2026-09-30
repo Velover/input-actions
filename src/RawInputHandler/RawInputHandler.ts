@@ -1,4 +1,5 @@
 import { Players, StarterPlayer, UserInputService, Workspace } from "@rbxts/services";
+import { NEUTRAL_VALUES } from "../InputActions/Internal";
 import { EveryFrame } from "../Internal/EveryFrame";
 import { ICameraInputModule } from "./CameraInput/ICameraInputModule";
 
@@ -82,11 +83,39 @@ export namespace RawInputHandler {
 		return iasActions !== undefined;
 	}
 
+	/**
+	 * Under Server Authority, disabling a context releases the client's state only: the server keeps
+	 * the last value it received, so the character would keep walking there (probed). A same-frame
+	 * pair on a Scriptable binding, the held value then the value at rest, releases both sides; the
+	 * binding goes at once, and Roblox's own bindings are left untouched.
+	 */
+	function ReleaseOnServer(context: InputContext) {
+		if (!context.Enabled || !context.IsDescendantOf(localPlayer)) return;
+		for (const action of context.GetChildren()) {
+			// RotationAction carries a setting (the rotation type), not input
+			if (!action.IsA("InputAction") || !action.Enabled || action.Name === "RotationAction") continue;
+			const state = action.GetState();
+			const neutral = NEUTRAL_VALUES[action.Type.Name];
+			if (state === neutral) continue;
+			const binding = new Instance("InputBinding");
+			binding.Name = "RawInputHandlerRelease";
+			binding.Type = Enum.InputBindingType.Scriptable;
+			binding.Parent = action;
+			pcall(() => {
+				binding.Fire(state);
+				binding.Fire(neutral);
+			});
+			binding.Destroy();
+		}
+	}
+
 	export function ControlSetEnabled(value: boolean) {
 		const actions = GetActions();
-		// The PlayerModule never toggles CharacterContext itself
-		if (actions !== undefined) actions.CharacterContext.Enabled = value;
-		else controlModule?.Enable(value);
+		if (actions !== undefined) {
+			if (!value) ReleaseOnServer(actions.CharacterContext);
+			// The PlayerModule never toggles CharacterContext itself
+			actions.CharacterContext.Enabled = value;
+		} else controlModule?.Enable(value);
 	}
 
 	export function MouseInputSetEnabled(value: boolean) {

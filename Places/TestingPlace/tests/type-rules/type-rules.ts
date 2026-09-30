@@ -88,6 +88,9 @@ export function TypeRules() {
 		Cancel: [Enum.KeyCode.Backspace],
 	});
 	Move.Bindings.Keyboard.Capture("Left", () => {});
+	Jump.Bindings.Keyboard.Clear();
+	Jump.Bindings.Keyboard.Clear("PrimaryModifier"); // Ctrl+Space becomes Space
+	Move.Bindings.Keyboard.Clear("Up");
 	const release: () => void = Input.Ui.Request(true);
 	const linked: boolean = Input.Gameplay.IsLinkedToServer(); // a Server Authority context
 	Input.Gameplay.LinkedToServer.Connect(() => {});
@@ -157,6 +160,10 @@ export function TypeRules() {
 	Move.Bindings.Virtual.Fire(true);
 	// @ts-expect-error Capture only takes the slots of the action type
 	Jump.Bindings.Keyboard.Capture("Up", () => {});
+	// @ts-expect-error Clear only takes the slots of the action type
+	Jump.Bindings.Keyboard.Clear("Up");
+	// @ts-expect-error a Scriptable binding has nothing to clear
+	Move.Bindings.Virtual.Clear();
 	// @ts-expect-error unknown binding names are compile errors
 	Jump.Bindings.Touch.Set(Enum.KeyCode.E);
 	// @ts-expect-error unknown action names are compile errors

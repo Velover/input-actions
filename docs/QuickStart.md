@@ -96,7 +96,7 @@ pauseGameplay();
 ```
 
 A `false` request always wins over `true` requests and the base state (`SetEnabled`). Disabling a
-context releases its held actions.
+context releases its held actions (on the server too, for Server Authority contexts).
 
 ## 5. Let players rebind
 

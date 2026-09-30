@@ -41,7 +41,11 @@ RunService.RenderStepped.Connect(() => {
     Roblox's CameraModule already applies the sensitivity and invert settings to those bindings; this
     module only reads them.
   - `ControlSetEnabled` sets `CharacterContext.Enabled` (the PlayerModule never toggles that
-    context itself). `MouseInputSetEnabled` only gates what `GetRotation`/`GetZoomDelta` return;
+    context itself). Under Server Authority, disabling it on the client alone would leave the
+    server's actions held (the character would keep walking there), so `ControlSetEnabled(false)`
+    first releases them: a temporary Scriptable binding fires the held value then the value at
+    rest, and is removed in the same frame. `RotationAction`, which carries a setting, is left
+    alone. `MouseInputSetEnabled` only gates what `GetRotation`/`GetZoomDelta` return;
     Roblox's instances are left alone.
 - **Legacy player scripts:** it uses `PlayerModule:GetControls()` for the move vector and
   `ControlSetEnabled`, and a fork of the legacy `CameraInput` module for rotation and zoom. That fork
@@ -49,4 +53,4 @@ RunService.RenderStepped.Connect(() => {
   [UI navigation preset](../Advanced.md#ui-navigation-preset)).
 
 The per-frame read runs at render priority `Input + 1`. In frames where the client renders nothing
-(a Studio window that isn't drawn), it runs on Heartbeat instead.
+(a Studio window that isn't drawn), it runs on `RunService.PreAnimation` instead.

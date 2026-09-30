@@ -216,8 +216,11 @@ export interface IBindingHandle<T extends Enum.InputActionType> {
 	Set(binding: BindingShape<T>): void;
 	/** Back to the binding right after `Create` */
 	Reset(): void;
-	/** Unbinds: KeyCode and composite directions become `None` */
-	Clear(): void;
+	/**
+	 * Unbinds: KeyCode, composite directions and modifiers become `None`. With a slot, clears only
+	 * that one (e.g. `"PrimaryModifier"` turns Ctrl+S into S)
+	 */
+	Clear(slot?: CaptureSlot<T>): void;
 	/** Waits for the next key legal for `slot`, applies it, then calls `callback`. Returns a cancel function */
 	Capture(
 		slot: CaptureSlot<T>,
@@ -254,7 +257,10 @@ export interface IBoolActionHandle<B> extends IActionHandle<Enum.InputActionType
 	readonly Pressed: RBXScriptSignal<() => void>;
 	readonly Released: RBXScriptSignal<() => void>;
 	IsPressed(): boolean;
-	/** Fires `true`, then `false` on the next frame */
+	/**
+	 * Fires `true`, then `false` on the next frame. On the server's copy of a Server Authority
+	 * context, `false` waits until the press shows in the state, so the server sees it
+	 */
 	Tap(): void;
 	/** Adds a UIButton binding for this button; the returned function removes it */
 	AttachButton(button: GuiButton): () => void;

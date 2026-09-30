@@ -268,6 +268,35 @@ export class SaveTests implements OnStart {
 				);
 			});
 
+			test("ResponseCurve is saved and imported only with a thumbstick KeyCode", () => {
+				const input = createTestInput();
+				const actions = input.Gameplay.Actions;
+				// the default KeyCode is a thumbstick: an entry with the curve alone applies
+				let result = input.ImportBindings(encode({ "Gameplay/Move/Gamepad": { ResponseCurve: 3 } }));
+				expectArrayEqual(result.Applied, ["Gameplay/Move/Gamepad"]);
+				expectTrue(nearlyEqual(actions.Move.Bindings.Gamepad.Instance.ResponseCurve, 3));
+				// a composite clears the KeyCode, so the curve would act on nothing
+				result = input.ImportBindings(
+					encode({ "Gameplay/Move/Gamepad": { Up: "W", ResponseCurve: 3 } }),
+				);
+				expectArrayEqual(result.Applied, []);
+				const reason = reasonFor(result, "Gameplay/Move/Gamepad") ?? "";
+				expectTrue(reason.find("ResponseCurve", 1, true)[0] !== undefined, reason);
+				// the entry's own thumbstick KeyCode makes the curve legal on a mouse binding
+				result = input.ImportBindings(
+					encode({ "Gameplay/Look/Mouse": { KeyCode: "Thumbstick2", ResponseCurve: 3 } }),
+				);
+				expectArrayEqual(result.Applied, ["Gameplay/Look/Mouse"]);
+
+				// a curve left behind beside a mouse key does nothing, and isn't saved
+				const look = actions.Look.Bindings.Mouse;
+				look.Set(Enum.KeyCode.MouseDelta);
+				expectTrue(nearlyEqual(look.Instance.ResponseCurve, 3));
+				const json = input.ExportBindings();
+				expectEqual(decode(json).Bindings["Gameplay/Look/Mouse"], undefined);
+				expectArrayEqual(input.ImportBindings(json).Skipped, []);
+			});
+
 			test("context handles export, import and reset their own bindings", () => {
 				const input = createTestInput();
 				input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);

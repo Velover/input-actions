@@ -208,10 +208,13 @@ function DecodeNumbers(value: unknown, count: number): number[] | undefined {
 /**
  * Decodes one saved entry (`{ "KeyCode": "F", "Scale": 2 }`) for a binding on an action of this
  * type. Returns the decoded properties, or the reason (a string) the entry must be skipped.
+ * @param defaultKeyCode the binding's default KeyCode, which an entry without one keeps: the
+ * import starts from the defaults
  */
 export function DecodeSavedEntry(
 	actionType: ActionTypeName,
 	entry: unknown,
+	defaultKeyCode: Enum.KeyCode = Enum.KeyCode.None,
 ): Map<SavedProperty, SavedValue> | string {
 	if (!typeIs(entry, "table")) return "the entry is not an object";
 	const decoded = new Map<SavedProperty, SavedValue>();
@@ -254,5 +257,12 @@ export function DecodeSavedEntry(
 		}
 	}
 	if (hasKeyCode && hasComposite) return "KeyCode and composite directions can't share a binding";
+	if (decoded.has("ResponseCurve")) {
+		// The KeyCode the binding ends up with: a composite direction clears it
+		const keyCode = (decoded.get("KeyCode") as Enum.KeyCode | undefined) ??
+			(hasComposite ? Enum.KeyCode.None : defaultKeyCode);
+		if (GetKeyGroup(keyCode) !== EKeyGroup.Stick)
+			return "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode";
+	}
 	return decoded;
 }

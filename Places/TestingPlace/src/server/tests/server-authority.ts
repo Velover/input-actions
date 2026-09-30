@@ -60,7 +60,8 @@ type AnyServerHandle = Record<
 /**
  * The server side of the client's "server-authority" section. On request it provides SA_SCHEMA
  * ("sa") or SA_LATE_SCHEMA ("late"), and reads that player's state back, so the client can check
- * what reached the server.
+ * what reached the server. `("playerModule", _, context, action)` reads Roblox's PlayerModule
+ * action under `player.InputContexts` instead.
  */
 function hostServerAuthorityFixture() {
 	const fixtures: Record<string, IFixture> = {
@@ -77,6 +78,14 @@ function hostServerAuthorityFixture() {
 	remote.OnServerInvoke = (player, command, fixtureName, contextName, actionName) => {
 		const fixture = fixtures[fixtureName as string];
 		if (command === "templates") return templates();
+		// The state of Roblox's own PlayerModule action on the server: `player.InputContexts`
+		if (command === "playerModule") {
+			const action = player
+				.FindFirstChild("InputContexts")
+				?.FindFirstChild(contextName as string)
+				?.FindFirstChild(actionName as string);
+			return action !== undefined && action.IsA("InputAction") ? action.GetState() : undefined;
+		}
 		if (command === "provide") {
 			if (!provided.has(fixtureName as string)) {
 				provided.add(fixtureName as string);

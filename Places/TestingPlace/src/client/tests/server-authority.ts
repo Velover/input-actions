@@ -211,6 +211,42 @@ export class ServerAuthorityClientTests implements OnStart {
 				expectTrue(input.SaNever.Actions.Poke.GetState());
 			});
 
+			test("a copy without every schema action: the Timeout warning names what it lacks", () => {
+				const warnings = recordWarnings();
+				const schema = InputActions.Schema({
+					SaPartial: {
+						ServerAuthority: true,
+						Actions: { Poke: InputActions.Bool(), Prod: InputActions.Bool() },
+					},
+				});
+				// the server's copy, played on the client: an older schema, without Prod
+				const playerFolder = new Instance("Folder");
+				playerFolder.Name = "InputsPartial";
+				const copy = new Instance("InputContext");
+				copy.Name = "SaPartial";
+				const poke = new Instance("InputAction");
+				poke.Name = "Poke";
+				poke.Parent = copy;
+				copy.Parent = playerFolder;
+				playerFolder.Parent = Players.LocalPlayer;
+				defer(() => playerFolder.Destroy());
+				const input = InputActions.Create(schema, {
+					Folder: templates(),
+					PlayerFolderName: "InputsPartial",
+					Timeout: 0.3,
+				});
+				defer(() => input.Destroy());
+				expectFalse(input.SaPartial.IsLinkedToServer());
+				eventually(
+					() => warnings.some((message) => message.find("SaPartial", 1, true)[0] !== undefined),
+					"the Timeout warning",
+				);
+				const message = warnings.find((text) => text.find("SaPartial", 1, true)[0] !== undefined)!;
+				expectTrue(message.find("lacks Prod", 1, true)[0] !== undefined, message);
+				input.SaPartial.Actions.Prod.Fire(true);
+				expectTrue(input.SaPartial.Actions.Prod.GetState(), "the stand-in works");
+			});
+
 			test("the server reads the state the client drives", () => {
 				if (getProject() !== "authority") return;
 				const input = createSaInput();

@@ -42,8 +42,8 @@ InputActions.Schema(contexts): { readonly Contexts }
 `contexts` is a record of context name to
 `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`. The
 defaults are the IAS ones (Priority 1000, Sink false, Enabled true). `Schema` checks the bindings at
-runtime too, and throws on names the handles can't hold (a context named like a root member, or a
-name with `/`). The result is frozen and creates no instances: require it on both realms.
+runtime too, and throws on names the handles can't hold (a context named like one of the root
+handle's five members, or a name with `/`). The result is frozen and creates no instances: require it on both realms.
 
 ### Create
 
@@ -131,7 +131,7 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save; never throws |
 | `ResetBindings()` | every binding back to its defaults |
-| `Destroy()` | disconnects, releases what it held, destroys what it created; adopted instances stay |
+| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing |
 
 ### Context handle
 
@@ -167,7 +167,7 @@ All action types:
 | `GetState(): V` | the current value (`boolean`, `number`, `Vector2`, `Vector3`) |
 | `StateChanged: RBXScriptSignal<(value: V) => void>` | forwards the IAS signal |
 | `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use |
-| `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state |
+| `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
 | `Bindings` | the binding handles, by slot name |
 
@@ -177,8 +177,8 @@ Bool actions add:
 | --- | --- |
 | `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals |
 | `IsPressed(): boolean` | |
-| `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame |
-| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding; the function (or destroying the button) removes it |
+| `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
+| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it |
 
 Actions with `TrackPrevious: true` add `GetPrevious(): V` and `HasChanged(): boolean`; tracked Bool
 actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](Advanced.md#trackprevious).
@@ -193,7 +193,7 @@ A slot with keys:
 | `Get(): BindingData<A>` | the binding as plain data in the schema's shape |
 | `Set(binding: BindingShape<A>)` | rebinds; objects merge; throws on what the action type doesn't allow |
 | `Reset()` | back to the binding right after `Create` |
-| `Clear()` | unbinds: `KeyCode` and composites become `None` |
+| `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
 | `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot`, applies it, calls `callback(key)`; `options.Cancel` keys stop it |
 
 A slot declared `InputActions.Scriptable`: `Instance`, `Name`, `Fire(value: V)`.

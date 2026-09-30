@@ -162,6 +162,46 @@ export class RebindingTests implements OnStart {
 				expectArrayEqual(sortedKeys(move.Bindings.KeyboardAndMouse.Get()), []);
 			});
 
+			test("Clear() clears the modifiers too; Clear(slot) clears only that slot", () => {
+				const actions = createTestInput().Gameplay.Actions;
+				const save = actions.QuickSave.Bindings.KeyboardAndMouse;
+				// Ctrl+S becomes S
+				save.Clear("PrimaryModifier");
+				expectEqual(save.Instance.KeyCode, Enum.KeyCode.S);
+				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.None);
+				expectArrayEqual(sortedKeys(save.Get()), ["KeyCode"]);
+				save.Reset();
+				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.LeftControl);
+				save.Clear();
+				expectEqual(save.Instance.KeyCode, Enum.KeyCode.None);
+				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.None);
+				expectArrayEqual(sortedKeys(save.Get()), []);
+
+				const move = actions.Move.Bindings.KeyboardAndMouse;
+				move.Clear("Up");
+				expectEqual(move.Instance.Up, Enum.KeyCode.None);
+				expectEqual(move.Instance.Down, Enum.KeyCode.S);
+				const jump = actions.Jump.Bindings.KeyboardAndMouse;
+				jump.Clear("KeyCode");
+				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.None);
+				const message = expectThrows(() =>
+					(jump as unknown as { Clear(slot: string): void }).Clear("Up"),
+				);
+				expectTrue(message.find("Gameplay/Jump/KeyboardAndMouse", 1, true)[0] !== undefined, message);
+			});
+
+			test("a cleared modifier round-trips through a save", () => {
+				const input = createTestInput();
+				const save = input.Gameplay.Actions.QuickSave.Bindings.KeyboardAndMouse;
+				save.Clear("PrimaryModifier");
+				const json = input.ExportBindings();
+				input.ResetBindings();
+				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.LeftControl);
+				expectArrayEqual(input.ImportBindings(json).Applied, ["Gameplay/QuickSave/KeyboardAndMouse"]);
+				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.None);
+				expectEqual(save.Instance.KeyCode, Enum.KeyCode.S);
+			});
+
 			test("Get returns the binding as plain data in the schema's shape", () => {
 				const actions = createTestInput().Gameplay.Actions;
 				const jump = actions.Jump.Bindings.KeyboardAndMouse.Get();

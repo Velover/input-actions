@@ -25,14 +25,17 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   `Request(true)` is held, else the base state. The base state starts as the instance's `Enabled`
   after get-or-create. Calling a release function twice does nothing.
 - The handle owns `InputContext.Enabled`: set it through the handle, not on the instance.
-- Disabling a context releases its held actions: IAS fires `Released`.
+- Disabling a context releases its held actions: IAS fires `Released`. Under Server Authority the
+  package makes that release reach the server too (see
+  [Releasing on the server](#releasing-on-the-server)).
 - **Focus loss.** A key held when a TextBox takes focus, the window loses focus or the Roblox menu
   opens can have its release swallowed, and stay stuck. By default `Create` holds every context
   disabled for one frame on `UserInputService.TextBoxFocused`, `WindowFocusReleased` and
   `GuiService.MenuOpened`. Listeners see one `false`/`true` pair on contexts that were enabled, and
   the base state doesn't change. Turn it off with `Create(schema, { ResetOnFocusLoss: false })`.
 - Actions have `SetEnabled`/`IsEnabled` too, which pass through to `InputAction.Enabled`; IAS resets
-  an action's state when it is disabled.
+  an action's state when it is disabled (and the package releases it on the server first, as for
+  contexts).
 
 ## Get-or-create in detail
 
@@ -44,9 +47,16 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
 - Instances the schema doesn't mention are left alone (IAS still runs them) and are not typed. In
   Studio, each gets one `warn`. That includes bindings whose names match no slot, such as the
   Manager's default name `InputBinding`, because they run beside the package's own binding.
-- `Create` twice on the same folder adopts the same instances and creates nothing twice.
+- `Create` twice on the same folder adopts the same instances and creates nothing twice. The
+  handles then share them: a context has one enabled state (base state and requests) whichever
+  handle changes it, every handle on a binding has the same defaults, and destroying one handle
+  leaves what another still uses (instances, held input, requests). What the package made goes
+  with the last handle.
 - `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
-  what it created. Adopted instances stay, and adopted contexts get their base state back.
+  what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
+  bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
+  After `Destroy` the handles change nothing: `Fire`, `AttachButton`, requests, rebinding and
+  imports are ignored.
 
 ## Driving actions from code
 
@@ -58,6 +68,9 @@ Jump.Tap(); // Fire(true), then Fire(false) on the next frame
 
 - The value goes straight into the action state: IAS applies no `Scale`, clamp or `Vector2Scale` to
   fired values.
+- On the server's copy of a Server Authority context the state moves on simulation steps, which
+  can be several frames apart. `Tap` waits for its press to show in the state before it releases,
+  so the server sees the press; your own quick true/false pairs should do the same.
 - A fired value stays until something changes it: fire the value at rest (`false`, `0`,
   `Vector2.zero`) when your on-screen control is released.
 - Several bindings on one action are not combined: the last one to change wins (see
@@ -70,10 +83,11 @@ const detach = Jump.AttachButton(jumpButton); // a GuiButton
 detach(); // or destroy the button
 ```
 
-`AttachButton` (Bool actions only) adds an Automatic binding `<Action>UIButton<n>` with
-`UIButton = button`. Several buttons can be attached at once. Destroying a binding while it holds
-the action leaves the action stuck on in IAS, so when the binding goes while the action is pressed,
-the package resets the action (toggles `InputAction.Enabled`).
+`AttachButton` (Bool actions only) adds an Automatic binding `<Action>UIButton<n>` (the lowest free
+`n`) with `UIButton = button`. Several buttons can be attached at once. Destroying a binding while
+it holds the action leaves the action stuck on in IAS, so when the binding goes while the action is
+pressed, the package resets the action (toggles `InputAction.Enabled`, after releasing it on the
+server under Server Authority).
 
 The package has nothing React-specific. A hook in your project can look like this:
 
@@ -108,8 +122,8 @@ them is a compile error.
 
 - One snapshot is taken per frame, at `BindToRenderStep` priority `Enum.RenderPriority.First`, after
   input is processed. Every read within a frame agrees. A client that renders nothing (for example
-  a Studio window that isn't drawn) fires no render step, so the snapshot is taken on Heartbeat in
-  those frames.
+  a Studio window that isn't drawn) fires no render step, so the snapshot is taken on
+  `RunService.PreAnimation` in those frames, still before the simulation and Heartbeat.
 - `IsJustPressed` is also true when the action was pressed and released between two snapshots: the
   package counts `Pressed`/`Released`. A tap that lands after this frame's snapshot counts on the
   next frame.
@@ -123,7 +137,8 @@ keys.Get(); // { Up: W, Down: S, Left: A, Right: D }
 keys.Set({ Up: Enum.KeyCode.Up, Down: Enum.KeyCode.Down }); // Left and Right stay
 keys.Set(Enum.KeyCode.MouseDelta); // a bare key: sets KeyCode, clears the composites
 keys.Reset(); // back to the binding right after Create
-keys.Clear(); // unbound: KeyCode and composites become None
+keys.Clear("Up"); // one slot: Up becomes None
+keys.Clear(); // unbound: KeyCode, composites and modifiers become None
 Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/KeyboardAndMouse"
 ```
 
@@ -135,6 +150,9 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   when the binding came from the folder, the schema's otherwise.
 - `Get` returns the current binding as plain data in the schema's shape, with tuning properties only
   when they differ from the IAS defaults. An unbound binding returns `{}`.
+- `Clear(slot)` clears one slot; it is how a modifier comes off (`Set` can't write `None`):
+  `Clear("PrimaryModifier")` turns Ctrl+S into S. `Clear()` with no slot unbinds everything,
+  modifiers included.
 - `Capture(slot, callback, { Cancel })` waits for the next key legal for that slot (`"KeyCode"`,
   `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`. Mouse buttons and touch
   count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`/`TouchPosition`. Keys in `Cancel`
@@ -167,8 +185,11 @@ Input.ResetBindings();
 - `ImportBindings` never throws. It starts from the defaults (a binding missing from the save is
   reset), then applies each valid entry. An entry is skipped, and its binding stays at its default,
   for an unknown path, an unknown property, an unknown key name, a key not allowed for that
-  property, a number that isn't finite, or a `KeyCode` together with a composite direction. Bad
-  JSON, a non-object or an unknown `Version` applies nothing. `"Unknown"` is read as `"None"`.
+  property, a number that isn't finite, a `KeyCode` together with a composite direction, or a
+  `ResponseCurve` on a binding that doesn't end on a thumbstick `KeyCode` (as `Set` refuses it).
+  Bad JSON, a non-object or an unknown `Version` applies nothing. `"Unknown"` is read as `"None"`.
+- A `ResponseCurve` left beside a key that isn't a thumbstick acts on nothing and isn't saved, so
+  every export imports cleanly.
 - A context handle's `ImportBindings` applies only its own paths and skips the others.
 
 On the server, clean what a client sends before storing it:
@@ -258,11 +279,28 @@ Server Authority in the place's Workspace settings when you mark contexts this w
 - Keybinds and saves work as usual; only the state goes to the server.
 - `PlayerFolderName` can't be `InputContexts`: under Server Authority, Roblox's PlayerModule keeps
   its own contexts in `player.InputContexts`.
-- **Releasing on the server.** Disabling a context on the client releases the client's state, but
-  the server keeps the last value a Scriptable binding fired (probed). So when a Server Authority
-  context is disabled (`SetEnabled(false)`, `Request(false)`, focus loss), the package first fires
-  the value at rest on the Scriptable bindings it drives (`Fire`'s binding and the schema's Scriptable
-  slots), and the release reaches the server.
+- Two root handles that both start on a stand-in share the server's copy after the swap: the
+  bindings the first moved there are adopted by the second, not doubled.
+- A server's copy whose action has another `Type` than the schema's: `Create` warns, naming the
+  path, and the context stays on its (working) stand-in.
+
+### Releasing on the server
+
+Disabling a context or an action on the client releases the client's state only: the server keeps
+the last value it received, and the client's own state comes back when the context is enabled again
+(probed). A value at rest written through a Scriptable binding reaches both sides, because the last
+write wins. So before anything resets an action on the server's copy, the package releases it that
+way:
+
+- when the context is disabled (`SetEnabled(false)`, `Request(false)`, the focus-loss reset), the
+  action is disabled (`SetEnabled(false)`), a held button binding is removed, or on `Destroy`;
+- through the Scriptable bindings it drives when they hold a value (`Fire`'s `<Action>Script`, the
+  schema's Scriptable slots), else, when something else holds the action (a key, a button, a binding
+  you made), with a same-frame pair on `<Action>Script`: the held value, then the value at rest.
+
+The server sees one `Released`. If you disable a context by writing `InputContext.Enabled` yourself,
+or disable an action through its instance, the server keeps the state: go through the handles.
+`RawInputHandler.ControlSetEnabled(false)` does the same for the PlayerModule's `CharacterContext`.
 
 ## UI navigation preset
 
@@ -298,6 +336,8 @@ without this package:
   still receive that `Fire`'s event.
 - A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
   silently ignored.
+- Under Server Authority, disabling a context or action on the client doesn't release the server's
+  state (see [Releasing on the server](#releasing-on-the-server)).
 - A fired value persists until something changes it.
 - IAS applies no `Scale`, clamp or `Vector2Scale` to fired values.
 - Destroying a binding while it holds an action leaves the action stuck on, with no `Released`.

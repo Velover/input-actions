@@ -1,4 +1,5 @@
 import { RunService } from "@rbxts/services";
+import { IsPackageMade } from "./Registry";
 
 // Name matching against an existing tree (design spec §4). A binding for slot `S` of action `A`
 // matches a child InputBinding named `S` or `A .. S`: the Input Action Manager names its bindings
@@ -112,9 +113,12 @@ export function CreateContext(name: string, priority?: number, sink?: boolean, e
 
 const warned = setmetatable(new Map<Instance, true>(), { __mode: "k" });
 
-/** In Studio, warns once about an instance the schema doesn't mention */
+/**
+ * In Studio, warns once about an instance the schema doesn't mention. Instances another live root
+ * handle made (another schema on the same folder) are its own business: no warning.
+ */
 export function WarnUnmentioned(instance: Instance) {
-	if (!RunService.IsStudio() || warned.has(instance)) return;
+	if (!RunService.IsStudio() || warned.has(instance) || IsPackageMade(instance)) return;
 	warned.set(instance, true);
 	warn(
 		`InputActions: ${instance.GetFullName()} (${instance.ClassName}) is not in the schema: it is left alone, ` +

@@ -20,7 +20,9 @@ import {
 	WriteBinding,
 	WriteKey,
 } from "../BindingState";
-import type { IRuntime } from "../Internal";
+import { IRuntime, IsLive } from "../Internal";
+import { EKeyGroup, GetKeyGroup } from "../KeyGroups";
+import { ClearHeldValue, SetHeldValue } from "../Registry";
 import type { ICaptureOptions } from "../Types";
 
 const MOUSE_BUTTON_KEYS = new Map<Enum.UserInputType, Enum.KeyCode>([
@@ -58,9 +60,9 @@ export function DecideCapture(
 
 /** A binding that holds keys: rebindable, saved by ExportBindings */
 export class BindingHandle {
-	readonly Instance: InputBinding;
+	/** The InputBinding the handle wraps now (a Server Authority swap may point it at another) */
+	Instance: InputBinding;
 	readonly Name: string;
-	private _defaults: IBindingValues;
 
 	constructor(
 		private readonly _runtime: IRuntime,
@@ -68,15 +70,15 @@ export class BindingHandle {
 		readonly Path: string,
 		readonly ActionType: ActionTypeName,
 		name: string,
+		/** The binding right after `Create`, shared by every root handle on the same instance */
+		private readonly _defaults: IBindingValues,
 	) {
 		this.Instance = binding;
 		this.Name = name;
-		this._defaults = ReadBinding(binding);
 	}
 
-	/** Takes the current state as the defaults `Reset` returns to */
-	TakeDefaults() {
-		this._defaults = ReadBinding(this.Instance);
+	GetDefaults(): IBindingValues {
+		return this._defaults;
 	}
 
 	Get() {
@@ -86,17 +88,25 @@ export class BindingHandle {
 	Set(spec: unknown) {
 		const problem = CheckBindingSpec(this.ActionType, spec);
 		if (problem !== undefined) error(`InputActions: ${this.Path}: ${problem}`, 2);
+		if (this._runtime.IsDestroyed()) return;
 		ApplySpec(this.Instance, spec);
 		this._runtime.NotifyBindingChanged(this.Path);
 	}
 
 	Reset() {
+		if (this._runtime.IsDestroyed()) return;
 		this.ResetQuietly();
 		this._runtime.NotifyBindingChanged(this.Path);
 	}
 
-	Clear() {
-		ClearKeys(this.Instance);
+	/** Unbinds: every key slot becomes `None`, modifiers included; with a slot, only that one */
+	Clear(slot?: string) {
+		if (slot !== undefined && !IsSlotOf(this.ActionType, slot)) {
+			error(`InputActions: ${this.Path}: ${slot} is not a slot of a ${this.ActionType} binding`, 2);
+		}
+		if (this._runtime.IsDestroyed()) return;
+		if (slot === undefined) ClearKeys(this.Instance, true);
+		else WriteKey(this.Instance, slot, Enum.KeyCode.None);
 		this._runtime.NotifyBindingChanged(this.Path);
 	}
 
@@ -108,10 +118,13 @@ export class BindingHandle {
 		if (!IsSlotOf(this.ActionType, slot)) {
 			error(`InputActions: ${this.Path}: ${slot} is not a slot of a ${this.ActionType} binding`, 2);
 		}
+		if (this._runtime.IsDestroyed()) return () => {};
 		const cancelKeys = options?.Cancel ?? [];
 		let connection: RBXScriptConnection | undefined;
 		const stop = () => {
-			connection?.Disconnect();
+			if (connection === undefined) return;
+			connection.Disconnect();
+			this._runtime.UntrackConnection(connection);
 			connection = undefined;
 		};
 		connection = UserInputService.InputBegan.Connect((input, gameProcessed) => {
@@ -146,9 +159,12 @@ export class BindingHandle {
 	/** The saved properties that differ from the defaults, as JSON values; undefined when none do */
 	ExportChanges(): Record<string, unknown> | undefined {
 		const current = ReadBinding(this.Instance);
+		// ResponseCurve only acts on a thumbstick; saved beside another key, the import would refuse it
+		const stick = GetKeyGroup(current.KeyCode) === EKeyGroup.Stick;
 		let changes: Record<string, unknown> | undefined;
 		for (const name of SAVED_PROPERTIES) {
 			if (!IsPropertyOf(this.ActionType, name)) continue;
+			if (name === "ResponseCurve" && !stick) continue;
 			if (current[name] !== this._defaults[name]) {
 				changes ??= {};
 				changes[name] = EncodeSavedValue(current[name]);
@@ -160,18 +176,28 @@ export class BindingHandle {
 
 /** A binding declared `InputActions.Scriptable`: driven only by `Fire` */
 export class ScriptableBindingHandle {
-	readonly Instance: InputBinding;
+	/** The InputBinding the handle wraps now (a Server Authority swap may point it at another) */
+	Instance: InputBinding;
 	readonly Name: string;
-	/** The last value `Fire` sent, until something releases it (a stand-in swap carries it over) */
-	LastValue?: unknown;
 
-	constructor(binding: InputBinding, name: string) {
+	constructor(
+		private readonly _runtime: IRuntime,
+		binding: InputBinding,
+		name: string,
+		private readonly _neutral: unknown,
+	) {
 		this.Instance = binding;
 		this.Name = name;
 	}
 
 	Fire(value: unknown) {
-		this.Instance.Fire(value);
-		this.LastValue = value;
+		if (this._runtime.IsDestroyed()) return;
+		const binding = this.Instance;
+		binding.Fire(value);
+		const action = binding.Parent;
+		// IAS ignores a Fire on a disabled action or context: nothing is held then
+		if (action !== undefined && action.IsA("InputAction") && IsLive(action))
+			SetHeldValue(binding, value, this._neutral);
+		else ClearHeldValue(binding);
 	}
 }

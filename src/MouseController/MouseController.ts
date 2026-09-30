@@ -46,33 +46,33 @@ export namespace MouseController {
 	};
 
 	export class MouseLockAction {
-		private active_ = false;
+		private _active = false;
 
 		constructor(
-			private readonly action_: Exclude<EMouseLockAction, EMouseLockAction.None>,
-			private priority_: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[action_],
+			private readonly _action: Exclude<EMouseLockAction, EMouseLockAction.None>,
+			private _priority: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[_action],
 		) {}
 
-		AdjustPriority(new_priority: number) {
-			if (this.priority_ === new_priority) return;
-			const was_active = this.active_;
-			if (this.active_) this.SetActive(false);
-			this.priority_ = new_priority;
-			if (was_active) this.SetActive(true);
+		AdjustPriority(newPriority: number) {
+			if (this._priority === newPriority) return;
+			const wasActive = this._active;
+			if (this._active) this.SetActive(false);
+			this._priority = newPriority;
+			if (wasActive) this.SetActive(true);
 		}
 
 		SetActive(active: boolean) {
-			if (this.active_ === active) return;
-			this.active_ = active;
-			const stack = mouseLockActionStacks[this.action_];
+			if (this._active === active) return;
+			this._active = active;
+			const stack = mouseLockActionStacks[this._action];
 			if (active) {
-				SortedInsert(stack, this.priority_, (currentValue, b) => {
+				SortedInsert(stack, this._priority, (currentValue, b) => {
 					return currentValue >= b;
 				});
 				return;
 			}
 
-			RemoveFirst(stack, this.priority_);
+			RemoveFirst(stack, this._priority);
 		}
 	}
 

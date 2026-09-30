@@ -4,6 +4,7 @@ import { EncodeSavedValue, IBindingValues, ReadBinding, SameValues } from "./Bin
 import { SCRIPTABLE } from "./Builders";
 import type { BindingHandle } from "./Handles/BindingHandle";
 import { IRuntime, JoinPath } from "./Internal";
+import { IsKeyCode } from "./KeyGroups";
 import type { IContextSchema, IImportResult, IInputSchema } from "./Types";
 
 // Saved keybinds (design spec §7):
@@ -30,6 +31,7 @@ export function ExportBindings(handles: readonly BindingHandle[]): string {
 
 /** Returns every binding to its defaults, reporting the ones that changed */
 export function ResetBindings(runtime: IRuntime, handles: readonly BindingHandle[]) {
+	if (runtime.IsDestroyed()) return;
 	for (const handle of handles) {
 		const before = ReadBinding(handle.Instance);
 		handle.ResetQuietly();
@@ -62,6 +64,10 @@ export function ImportBindings(
 	context?: string,
 ): IImportResult {
 	const result: IImportResult = { Applied: [], Skipped: [] };
+	if (runtime.IsDestroyed()) {
+		result.Skipped.push({ Path: "", Reason: "the handle was destroyed" });
+		return result;
+	}
 	const before = new Map<BindingHandle, IBindingValues>();
 	const byPath = new Map<string, BindingHandle>();
 	for (const handle of handles) {
@@ -84,7 +90,7 @@ export function ImportBindings(
 				skip(other ? `not a binding of ${context}` : "unknown path");
 				continue;
 			}
-			const values = DecodeSavedEntry(handle.ActionType, entry);
+			const values = DecodeSavedEntry(handle.ActionType, entry, handle.GetDefaults().KeyCode);
 			if (typeIs(values, "string")) {
 				skip(values);
 				continue;
@@ -101,6 +107,13 @@ export function ImportBindings(
 	result.Applied.sort();
 	result.Skipped.sort((a, b) => a.Path < b.Path);
 	return result;
+}
+
+/** The KeyCode a schema binding gives its instance: a bare key, or an object's `KeyCode` */
+function SpecKeyCode(spec: unknown): Enum.KeyCode {
+	if (IsKeyCode(spec)) return spec;
+	const keyCode = typeIs(spec, "table") ? (spec as { KeyCode?: unknown }).KeyCode : undefined;
+	return IsKeyCode(keyCode) ? keyCode : Enum.KeyCode.None;
 }
 
 /**
@@ -122,7 +135,7 @@ export function SanitizeBindings(
 		const spec =
 			action !== undefined ? (action.Bindings as Record<string, unknown>)[slot] : undefined;
 		if (action === undefined || spec === undefined || spec === SCRIPTABLE) continue;
-		const values = DecodeSavedEntry(action.Type.Name, entry);
+		const values = DecodeSavedEntry(action.Type.Name, entry, SpecKeyCode(spec));
 		if (typeIs(values, "string")) continue;
 		const cleanEntry: Record<string, unknown> = {};
 		for (const name of SAVED_PROPERTIES) {

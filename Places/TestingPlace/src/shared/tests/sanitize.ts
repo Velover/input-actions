@@ -90,6 +90,23 @@ export class SanitizeTests implements OnStart {
 				expectArrayEqual(paths(decode(InputActions.SanitizeBindings(TEST_SCHEMA, json))), []);
 			});
 
+			test("a ResponseCurve stays only where the binding ends on a thumbstick", () => {
+				const json = HttpService.JSONEncode({
+					Version: 1,
+					Bindings: {
+						// the schema's KeyCode is Thumbstick1
+						"Gameplay/Move/Gamepad": { ResponseCurve: 3 },
+						// the entry's own thumbstick on a mouse slot
+						"Gameplay/Look/Mouse": { KeyCode: "Thumbstick2", ResponseCurve: 3 },
+						// the composite clears the KeyCode
+						"Gameplay/Look/Gamepad": { Up: "W", ResponseCurve: 3 },
+					},
+				});
+				const clean = decode(InputActions.SanitizeBindings(TEST_SCHEMA, json));
+				expectArrayEqual(paths(clean), ["Gameplay/Look/Mouse", "Gameplay/Move/Gamepad"]);
+				expectEqual(clean.Bindings["Gameplay/Move/Gamepad"].ResponseCurve, 3);
+			});
+
 			test("works without instances, so the server can clean a client's save", () => {
 				const before = game.GetDescendants().size();
 				const clean = InputActions.SanitizeBindings(

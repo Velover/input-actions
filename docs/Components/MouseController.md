@@ -51,4 +51,4 @@ MouseController.SetForceUnlockAction(Input.Debug.Actions.FreeMouse);
 ```
 
 The update runs on `RenderStepped`. In frames where the client renders nothing (a Studio window
-that isn't drawn), it runs on Heartbeat instead.
+that isn't drawn), it runs on `RunService.PreAnimation` instead.

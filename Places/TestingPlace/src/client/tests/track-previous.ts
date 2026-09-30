@@ -1,5 +1,6 @@
 import { OnStart, Provider } from "@flamework-experimental/core";
 import {
+	defer,
 	defineTests,
 	expectEqual,
 	expectFalse,
@@ -7,6 +8,7 @@ import {
 	expectTrue,
 	test,
 } from "@flamework-experimental/testing";
+import { EveryFrame } from "@rbxts/input-actions/out/Internal/EveryFrame";
 import { createTestInput, frame } from "./helpers";
 
 // One snapshot per frame. Whether a test thread resumed by `frame()` runs before or after that
@@ -139,6 +141,29 @@ export class TrackPreviousTests implements OnStart {
 				expectEqual(pressedFrames, 1);
 				expectEqual(releasedFrames, 1);
 				expectFalse(crouch.GetState());
+			});
+
+			test("the per-frame work runs once between two frames, from the first one", () => {
+				// Whether the window renders or not; bound mid-frame, a Heartbeat fallback run and the
+				// next render step used to both run before the next Heartbeat
+				let calls = 0;
+				const stop = EveryFrame(
+					() => calls++,
+					"InputActionsEveryFrameTest",
+					Enum.RenderPriority.First.Value,
+				);
+				defer(stop);
+				const counts = new Array<number>();
+				for (let index = 0; index < 8; index++) {
+					const before = calls;
+					frame();
+					counts.push(calls - before);
+				}
+				expectFalse(
+					counts.some((count) => count > 1),
+					`calls per frame: ${counts.join(", ")}`,
+				);
+				expectTrue(calls >= 6, `calls per frame: ${counts.join(", ")}`);
 			});
 
 			test("actions without TrackPrevious have no snapshot methods at runtime", () => {

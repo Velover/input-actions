@@ -118,6 +118,25 @@ export class ContextTests implements OnStart {
 				expectArrayEqual(menuChanges, []);
 			});
 
+			test("focus loss over held requests: one false/true pair, the requests still hold", () => {
+				const input = createTestInput();
+				const menuChanges = recordSignal(input.Menu.EnabledChanged);
+				const gameplayChanges = recordSignal(input.Gameplay.EnabledChanged);
+				const openMenu = input.Menu.Request(true); // over its base state false
+				const pauseGameplay = input.Gameplay.Request(false);
+				newTextBox().CaptureFocus();
+				eventually(() => menuChanges.size() === 3, "the Menu's changes");
+				expectArrayEqual(menuChanges, [true, false, true]);
+				expectTrue(input.Menu.IsEnabled());
+				expectTrue(input.Menu.Instance.Enabled);
+				frames(3);
+				expectArrayEqual(gameplayChanges, [false], "a context held off hears nothing more");
+				openMenu();
+				expectFalse(input.Menu.IsEnabled(), "back to the base state");
+				pauseGameplay();
+				expectTrue(input.Gameplay.IsEnabled());
+			});
+
 			test("ResetOnFocusLoss: false keeps held actions through focus loss", () => {
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const jump = input.Gameplay.Actions.Jump;

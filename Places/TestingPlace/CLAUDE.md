@@ -19,19 +19,26 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The design the package implements: `../../docs/Design/IAS-Rework.md`.
 - The sections: `schema`, `rules`, `sanitize`, `presets` (shared); `create`, `actions`,
   `track-previous`, `contexts`, `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`,
-  `raw-input`, `server-authority` (client); `server-authority` (server). Fixtures are in
-  `src/shared/fixtures/schemas.ts`. Project-specific tests return early under the other projects
-  (`getProject()`).
+  `raw-input`, `server-authority`, `shared-handles` (several `Create`s on one folder, `Destroy`),
+  `sa-release` (what reaches the server when the client resets an action; authority only)
+  (client); `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial
+  tests, kept as regression tests. Fixtures are in `src/shared/fixtures/schemas.ts`.
+  Project-specific tests return early under the other projects (`getProject()`).
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
-  read the server's state.
+  read the server's state (`"playerModule"` reads Roblox's own `player.InputContexts` actions).
 - `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
   refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
   `bun run build` and `bun run test` run it, and an unused directive fails them.
-- The Studio window a run opens renders nothing: `RenderStepped` and `BindToRenderStep` never fire
-  there, while Heartbeat runs at about 240 Hz. The package's per-frame work falls back to Heartbeat
-  in such frames; code that only binds to a render step never runs in a test.
+- Whether the Studio window a run opens renders depends on how Studio opens it. Often it renders
+  nothing (`RenderStepped` and `BindToRenderStep` never fire, while Heartbeat runs at about 240 Hz),
+  but it has also rendered, at a cadence that doesn't follow Heartbeat. The package's per-frame
+  work (`src/Internal/EveryFrame.ts`) runs once per frame, at the render step or else at
+  `PreAnimation`, so tests must hold either way; code that only binds to a render step may never
+  run in a test.
+- To try package code in a live session, go through a test (a temporary section run with
+  `--sections`): `studio exec` can't `require` the package's modules directly.
 - To try Luau in a live session: `rojo build -o probe.rbxl`, then
   `node_modules/.bin/flamework-test patch probe.rbxl --original tests/place.rbxlx [--project tests/authority.project.json]`,
   `studio open <patched file>`, `studio play`, `studio exec --realm client|server --script <file.luau>`,

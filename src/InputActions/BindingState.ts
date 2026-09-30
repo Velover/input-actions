@@ -4,6 +4,7 @@ import {
 	IsCompositeSlot,
 	IsSlotOf,
 	KEY_SLOTS,
+	MODIFIER_SLOTS,
 	SAVED_PROPERTIES,
 	SavedProperty,
 	SavedValue,
@@ -79,10 +80,13 @@ export function SameValues(a: IBindingValues, b: IBindingValues): boolean {
 	);
 }
 
-/** Unbinds: the KeyCode and every composite direction become `None` */
-export function ClearKeys(binding: InputBinding) {
+/** Unbinds: the KeyCode and every composite direction become `None`, and the modifiers when asked */
+export function ClearKeys(binding: InputBinding, modifiers = false) {
 	binding.KeyCode = Enum.KeyCode.None;
 	for (const slot of COMPOSITE_SLOTS) binding[slot] = Enum.KeyCode.None;
+	if (modifiers) {
+		for (const slot of MODIFIER_SLOTS) binding[slot] = Enum.KeyCode.None;
+	}
 }
 
 /**
