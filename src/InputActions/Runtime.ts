@@ -590,8 +590,10 @@ export class InputRuntime implements IRuntime {
 	 * move under the server's actions with everything they have (rebinds, attached buttons), the
 	 * handles point at the copy, the context's state (base state and every handle's requests) goes
 	 * with them, the stand-in is destroyed, then the values the Scriptable bindings held are fired
-	 * again. Defaults don't change, so `Reset` still returns to the same ones. A copy whose actions
-	 * are of another Type leaves the handles on the stand-in.
+	 * again. Defaults don't change, so `Reset` still returns to the same ones, except on a binding
+	 * adopted from a root handle already on the copy: the stand-in's rebinds are written onto it,
+	 * and it keeps that handle's defaults, which every handle on it shares. A copy whose actions are
+	 * of another Type leaves the handles on the stand-in.
 	 */
 	private static LinkStandIn(standIn: IStandIn, copy: InputContext) {
 		const links = [...standIn.Links];

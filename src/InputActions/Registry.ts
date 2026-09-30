@@ -107,8 +107,17 @@ export function SetHeldValue(binding: InputBinding, value: unknown, neutral: unk
 	heldValues.set(binding, { Value: value, Holders: new Set([holder]), Order: fireCount });
 }
 
-/** Puts back a held value carried over a Server Authority swap, fired again as the latest write */
+/**
+ * Puts back a held value carried over a Server Authority swap, fired again as the latest write.
+ * On a binding another root handle made on the copy (adopted at the swap) that already holds the
+ * value, IAS ignored the Fire: its holders join that record, as for a repeated `Fire`.
+ */
 export function RestoreHeldValue(binding: InputBinding, held: IHeldValue) {
+	const current = heldValues.get(binding);
+	if (current !== undefined && current.Value === held.Value) {
+		for (const holder of held.Holders) current.Holders.add(holder);
+		return;
+	}
 	fireCount++;
 	heldValues.set(binding, { Value: held.Value, Holders: held.Holders, Order: fireCount });
 }

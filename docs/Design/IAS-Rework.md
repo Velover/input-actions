@@ -401,8 +401,13 @@ client; the server only reads action state, which IAS replicates on its own.
     their way are dropped, so at the swap each handle tells its listeners the copy's state
     (`Released`, `StateChanged` to rest) before the copy's own events: a value fired again reads
     as a release and a new press, never two `Pressed` in a row. After the swap, `Reset` still
-    returns to the same defaults. When another root handle swapped to the same copy first, its
-    bindings of the same name are adopted rather than doubled (attached buttons are renamed).
+    returns to the same defaults. When another root handle is on the same copy already (it swapped
+    first, or found the copy there), its bindings of the same name are adopted rather than doubled
+    (attached buttons are renamed). What the stand-in's binding changed from its defaults (rebinds,
+    an import) is written onto the adopted one, which keeps its defaults, the first handle's
+    snapshot (§4), so the stand-in handle's export reads the same after the swap. A value the
+    stand-in held on a Scriptable binding that the adopted one already holds stays held by both
+    root handles (IAS ignores the repeated Fire), so destroying either leaves it to the other.
   - A copy whose action has another `Type`: `warn` naming the path, and stay on the stand-in (it
     keeps working).
   - Context handles of Server Authority contexts add `IsLinkedToServer(): boolean` and
@@ -560,7 +565,7 @@ places, `SignalBehavior = Deferred`:
 | Server Authority: `GetState()` after a `Fire` on the server's copy | the fired value shows on the next simulation step |
 | Server Authority: the server's copy of a context (or an action) is disabled on the server; the client enables its own and fires `true` through a Scriptable binding | the client's state is `true`; the server's stays `false`, while an action of an enabled context and action beside it reaches the server |
 | `HttpService:JSONDecode` of `[` nested 300 deep (edit and play sessions), in `pcall` | the Studio process ends; 100 and 200 deep decode |
-| A Studio play window that renders nothing: what fires between two Heartbeats, over 600 | usually `PreAnimation`, `PreSimulation`, `PostSimulation`; 9 to 87 ticks have only `Heartbeat` (the per-frame snapshot skips them; tests count frames by `PreAnimation`) |
+| A Studio play window that renders nothing: what fires between two Heartbeats, over 600 | usually `PreAnimation`, `PreSimulation`, `PostSimulation`; 9 to 87 ticks have only `Heartbeat` (the per-frame snapshot skips them; tests count frames by `PreAnimation` or a render step, since a window that renders may render in such a tick, and the snapshot then runs there) |
 | Local context: a binding fires the value it already holds | ignored; after an action `Enabled` toggle it counts again |
 | PlayerModule contexts | legacy scripts: none; IAS scripts: `StarterPlayer.PlayerModule.InputContexts`; Server Authority: `player.InputContexts` |
 | A destroyed instance's `Parent` | writing `nil` (its value) succeeds; writing an instance errors `The Parent property of X is locked`; a live instance made its own parent errors `Attempt to set X as its own parent`; connecting to a destroyed instance's events works and reports `Connected` |

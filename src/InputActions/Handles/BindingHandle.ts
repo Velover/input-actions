@@ -23,7 +23,7 @@ import {
 } from "../BindingState";
 import { IRuntime, IsLive } from "../Internal";
 import { EKeyGroup, GetKeyGroup } from "../KeyGroups";
-import { ClearHeldValue, SetHeldValue } from "../Registry";
+import { ClearHeldValue, GetEntry, SetHeldValue } from "../Registry";
 import type { ICaptureOptions } from "../Types";
 
 const MOUSE_BUTTON_KEYS = new Map<Enum.UserInputType, Enum.KeyCode>([
@@ -72,10 +72,21 @@ export class BindingHandle {
 		readonly ActionType: ActionTypeName,
 		name: string,
 		/** The binding right after `Create`, shared by every root handle on the same instance */
-		private readonly _defaults: IBindingValues,
+		private _defaults: IBindingValues,
 	) {
 		this.Instance = binding;
 		this.Name = name;
+	}
+
+	/**
+	 * Points the handle at the binding that stands for its own on the server's copy (Server
+	 * Authority swap). One another root handle made there has that handle's defaults, which every
+	 * handle on it shares.
+	 */
+	Retarget(binding: InputBinding) {
+		if (binding === this.Instance) return;
+		this.Instance = binding;
+		this._defaults = GetEntry(binding)?.Defaults ?? this._defaults;
 	}
 
 	GetDefaults(): IBindingValues {
@@ -189,6 +200,11 @@ export class ScriptableBindingHandle {
 	) {
 		this.Instance = binding;
 		this.Name = name;
+	}
+
+	/** Points the handle at the binding that stands for its own on the server's copy */
+	Retarget(binding: InputBinding) {
+		this.Instance = binding;
 	}
 
 	Fire(value: unknown) {

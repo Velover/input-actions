@@ -308,6 +308,11 @@ Server Authority in the place's Workspace settings when you mark contexts this w
 - Root handles that start on a stand-in swap together, and a `Create` that finds the copy while
   other handles still wait for it swaps them first, so the copy takes their enabled state. After
   that, every handle shares the copy's instances and its enabled state; nothing is doubled.
+- A handle that swaps onto a copy another handle already uses (its schema has actions the copy
+  gained later) shares that handle's bindings of the same name instead of adding its own; attached
+  buttons are renamed. Its rebinds and imports made on the stand-in are written onto the shared
+  binding, which keeps the first handle's defaults, as with `Create` twice. A value both handles
+  hold on the same Scriptable binding stays held until neither does.
 - A server's copy whose action has another `Type` than the schema's: `Create` warns, naming the
   path, and the context stays on its (working) stand-in.
 

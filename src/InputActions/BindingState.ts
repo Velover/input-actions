@@ -141,6 +141,25 @@ export function ApplySaved(binding: InputBinding, values: Map<SavedProperty, Sav
 	}
 }
 
+/**
+ * Writes onto `target` what `source` changed from `defaults`, as an import of those changes would
+ * (one input source per binding), and leaves the rest of `target` as it is. A Server Authority
+ * swap carries a stand-in's rebinds this way onto the binding another root handle made on the copy.
+ */
+export function CarryChanges(source: InputBinding, defaults: IBindingValues, target: InputBinding) {
+	const current = ReadBinding(source);
+	const saved = new Map<SavedProperty, SavedValue>();
+	for (const name of SAVED_PROPERTIES) {
+		if (current[name] !== defaults[name]) saved.set(name, current[name]);
+	}
+	ApplySaved(target, saved);
+	if (current.ClampMagnitudeToOne !== defaults.ClampMagnitudeToOne)
+		target.ClampMagnitudeToOne = current.ClampMagnitudeToOne;
+	if (current.DisplayName !== defaults.DisplayName) target.DisplayName = current.DisplayName;
+	if (current.DisplayImage.Uri !== defaults.DisplayImage.Uri)
+		target.DisplayImage = current.DisplayImage;
+}
+
 const DEFAULT_SCALE = 1;
 const DEFAULT_RESPONSE_CURVE = 1;
 const DEFAULT_PRESSED_THRESHOLD = 0.5;

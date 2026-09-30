@@ -15,5 +15,5 @@
 		"typeRoots": ["../../node_modules/@rbxts"],
 		"types": ["types", "compiler-types"]
 	},
-	"files": ["type-rules.ts", "validator-r1-type-rules.ts", "validator-r3-type-rules.ts", "validator-r4-type-rules.ts", "validator-r5-type-rules.ts"]
+	"files": ["type-rules.ts", "validator-r1-type-rules.ts", "validator-r3-type-rules.ts", "validator-r4-type-rules.ts", "validator-r5-type-rules.ts", "validator-r6-type-rules.ts"]
 }

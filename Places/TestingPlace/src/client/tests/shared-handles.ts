@@ -123,6 +123,43 @@ const POKE_ONLY_SCHEMA = InputActions.Schema({
 	},
 });
 
+/** `STAND_IN_SCHEMA`'s context without Crouch: a copy with Poke and Move satisfies it */
+const POKE_MOVE_SCHEMA = InputActions.Schema({
+	SharedStandIn: {
+		ServerAuthority: true,
+		Actions: {
+			Poke: InputActions.Bool({ KeyboardAndMouse: K.P }),
+			Move: InputActions.Direction2D({ Virtual: InputActions.Scriptable }),
+		},
+	},
+});
+
+/**
+ * A root handle on the server's copy (`POKE_MOVE_SCHEMA`), and one of `STAND_IN_SCHEMA` on a
+ * stand-in until Crouch is added to the copy: it then swaps onto the bindings the first one made.
+ */
+function copyThenStandIn() {
+	const folderName = uniqueFolderName();
+	const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+	const copy = localCopy(folderName, "SharedStandIn", [
+		["Poke", BOOL],
+		["Move", Enum.InputActionType.Direction2D],
+	]);
+	const onCopy = InputActions.Create(POKE_MOVE_SCHEMA, options);
+	defer(() => onCopy.Destroy());
+	const waiting = InputActions.Create(STAND_IN_SCHEMA, options);
+	defer(() => waiting.Destroy());
+	expectFalse(waiting.SharedStandIn.IsLinkedToServer(), "the copy lacks Crouch");
+	const arrive = () => {
+		const crouch = new Instance("InputAction");
+		crouch.Name = "Crouch";
+		crouch.Type = BOOL;
+		crouch.Parent = copy;
+		eventually(() => waiting.SharedStandIn.IsLinkedToServer(), "the swap");
+	};
+	return { Copy: copy, OnCopy: onCopy, Waiting: waiting, Arrive: arrive };
+}
+
 /** Two root handles on one Server Authority schema, both made before the server's copy */
 function twoHandlesOnStandIn(options?: InputActions.CreateOptions) {
 	const folderName = options?.PlayerFolderName ?? uniqueFolderName();
@@ -637,6 +674,55 @@ export class SharedHandlesTests implements OnStart {
 				expectEqual(moves[moves.size() - 1], new Vector2(0, 1));
 				crouch.Fire(false);
 				move.Bindings.Virtual.Fire(Vector2.zero);
+			});
+
+			// ---- a stand-in handle swapping onto the bindings a handle already on the copy made
+
+			test("the swap writes a stand-in rebind onto the adopted binding, beside the other handle's rebinds", () => {
+				const { OnCopy: onCopy, Waiting: waiting, Arrive: arrive } = copyThenStandIn();
+				const first = onCopy.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse;
+				const second = waiting.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse;
+				first.Set({ KeyCode: K.P, PrimaryModifier: K.LeftShift });
+				second.Set(K.Q);
+				arrive();
+				expectEqual(second.Instance, first.Instance, "one binding for both handles");
+				expectEqual(first.Instance.KeyCode, K.Q, "the stand-in's rebind");
+				expectEqual(first.Instance.PrimaryModifier, K.LeftShift, "the other handle's rebind stays");
+				const saved = decode(waiting.ExportBindings()).Bindings[
+					"SharedStandIn/Poke/KeyboardAndMouse"
+				];
+				expectEqual(saved.KeyCode, "Q");
+				expectEqual(saved.PrimaryModifier, "LeftShift");
+			});
+
+			test("a Clear on the stand-in carries over, and Reset returns to the first handle's defaults", () => {
+				const { OnCopy: onCopy, Waiting: waiting, Arrive: arrive } = copyThenStandIn();
+				const second = waiting.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse;
+				second.Clear();
+				arrive();
+				const binding = onCopy.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance;
+				expectEqual(second.Instance, binding);
+				expectEqual(binding.KeyCode, K.None, "still unbound after the swap");
+				second.Reset();
+				expectEqual(binding.KeyCode, K.P);
+				expectEqual(onCopy.ExportBindings(), '{"Version":1,"Bindings":{}}');
+			});
+
+			test("a value the stand-in fired over the copy handle's, on the same binding, is the stand-in handle's", () => {
+				const { Copy: copy, OnCopy: onCopy, Waiting: waiting, Arrive: arrive } = copyThenStandIn();
+				const move = copy.FindFirstChild("Move") as InputAction;
+				onCopy.SharedStandIn.Actions.Move.Bindings.Virtual.Fire(new Vector2(1, 0));
+				waiting.SharedStandIn.Actions.Move.Bindings.Virtual.Fire(new Vector2(0, 1));
+				arrive();
+				eventually(
+					() => move.GetState() === new Vector2(0, 1),
+					"the later write shows on the copy",
+				);
+				onCopy.Destroy();
+				frames(3);
+				expectEqual(move.GetState(), new Vector2(0, 1), "the first handle's value was overwritten");
+				waiting.Destroy();
+				eventually(() => move.GetState() === Vector2.zero, "the last handle's Destroy lets it go");
 			});
 		});
 	}

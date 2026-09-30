@@ -114,6 +114,30 @@ export class AttachButtonTests implements OnStart {
 				expectNoThrow(detach);
 			});
 
+			test("whatever the button's name, a destroyed one gets no binding and a live one does", () => {
+				// The Parent errors that tell them apart hold the name
+				const jump = createTestInput().Gameplay.Actions.Jump;
+				const names = [
+					"Locked",
+					"UnlockedDoor",
+					"Attempt to set Locked as its own parent",
+					"The Parent property of X is locked",
+				];
+				for (const name of names) {
+					const gone = new Instance("TextButton");
+					gone.Name = name;
+					gone.Destroy();
+					jump.AttachButton(gone);
+					expectEqual(buttonBindings(jump.Instance).size(), 0, `destroyed "${name}"`);
+					const live = new Instance("TextButton");
+					live.Name = name;
+					defer(() => live.Destroy());
+					const detach = jump.AttachButton(live);
+					expectEqual(buttonBindings(jump.Instance).size(), 1, `live, unparented "${name}"`);
+					detach();
+				}
+			});
+
 			test("Destroy removes attached bindings", () => {
 				const input = InputActions.Create(TEST_SCHEMA, { Folder: newFolder() });
 				const jump = input.Gameplay.Actions.Jump;

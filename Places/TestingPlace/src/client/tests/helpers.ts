@@ -4,18 +4,23 @@ import { LogService, RunService } from "@rbxts/services";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
 
 /**
- * Waits for the next frame: the next Heartbeat after a PreAnimation. A Studio window that renders
- * nothing also has Heartbeat ticks without PreAnimation or simulation (probed: 9 to 87 of 600 ticks,
- * even with nothing else running). The package's per-frame work skips those ticks, so they are not
- * frames here either: a TrackPrevious flag would otherwise show on two readings.
+ * Waits for the next frame: the next Heartbeat after a render step or a PreAnimation, the ticks in
+ * which the package's per-frame work runs (`EveryFrame`). A Studio window that renders nothing also
+ * has Heartbeat ticks without PreAnimation or simulation (probed: 9 to 87 of 600 ticks, even with
+ * nothing else running). The package's per-frame work skips those ticks, so they are not frames
+ * here either: a TrackPrevious flag would otherwise show on two readings. A window that renders may
+ * render in such a tick, and then the work runs there: that tick is a frame.
  */
 export function frame() {
-	let animated = false;
-	const connection = RunService.PreAnimation.Connect(() => {
-		animated = true;
-	});
-	while (!animated) RunService.Heartbeat.Wait();
-	connection.Disconnect();
+	let ran = false;
+	const Mark = () => {
+		ran = true;
+	};
+	const animation = RunService.PreAnimation.Connect(Mark);
+	const render = RunService.RenderStepped.Connect(Mark);
+	while (!ran) RunService.Heartbeat.Wait();
+	animation.Disconnect();
+	render.Disconnect();
 }
 
 /** Waits `count` frames */

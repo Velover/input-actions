@@ -1,7 +1,9 @@
 import { Players, RunService } from "@rbxts/services";
+import { CarryChanges } from "../BindingState";
 import { IRuntime, IsLive, NEUTRAL_VALUES } from "../Internal";
 import {
 	ClearHeldValue,
+	GetEntry,
 	GetHeldValue,
 	IHeldValue,
 	IsPackageMade,
@@ -24,14 +26,17 @@ function FreeButtonName(action: InputAction, actionName: string): string {
 /**
  * Whether `instance` was destroyed: its Parent is locked, which only a write shows (probed). Writing
  * `nil` again succeeds either way, and making it its own parent fails either way, changing nothing:
- * the message tells "locked" from "its own parent".
+ * the message tells "The Parent property of <Name> is locked" from "Attempt to set <Name> as its
+ * own parent". Both hold the name, which can hold anything, so the whole phrase is looked for.
  */
 function IsDestroyed(instance: Instance): boolean {
 	if (instance.Parent !== undefined) return false;
 	const [ok, message] = pcall(() => {
 		instance.Parent = instance;
 	});
-	return !ok && tostring(message).find("locked", 1, true)[0] !== undefined;
+	if (ok) return false;
+	const locked = `The Parent property of ${instance.Name} is locked`;
+	return tostring(message).find(locked, 1, true)[0] !== undefined;
 }
 
 /** What `MoveBindings` did to one action of a stand-in */
@@ -48,8 +53,8 @@ export interface IMovedBindings {
  * Moves every binding of a stand-in's action under the server's copy of it (Server Authority swap).
  * Held Scriptable values are released first; `RefireHeldValues` fires them again in the order they
  * were fired, so the action ends on the same latest write. A binding another root handle already
- * moved there under the same name is adopted rather than doubled (button bindings are renamed
- * instead).
+ * made there under the same name is adopted rather than doubled, with the stand-in's rebinds
+ * written onto it (button bindings are renamed instead).
  * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
  * `Enabled` (the server's copy is always enabled; the client owns it)
  */
@@ -84,7 +89,14 @@ export function MoveBindings(
 			binding.Parent = target;
 			moved.set(binding, binding);
 		} else {
-			// Ours stays in the stand-in and goes with it
+			// Ours stays in the stand-in and goes with it. What it changed from its defaults (rebinds,
+			// an import) is written onto the one that stands for it, whose defaults every handle on it
+			// shares: the first handle's snapshot
+			const defaults = GetEntry(binding)?.Defaults;
+			if (defaults !== undefined && existing.Type === binding.Type) {
+				GetEntry(existing)!.Defaults ??= defaults;
+				CarryChanges(binding, defaults, existing);
+			}
 			moved.set(binding, existing);
 		}
 	}
@@ -231,7 +243,7 @@ export class ActionHandle {
 	 */
 	LinkTo(target: InputAction, moved: ReadonlyMap<InputBinding, InputBinding>) {
 		for (const [, handle] of pairs(this.Bindings)) {
-			handle.Instance = moved.get(handle.Instance) ?? handle.Instance;
+			handle.Retarget(moved.get(handle.Instance) ?? handle.Instance);
 		}
 		if (this._scriptBinding !== undefined) {
 			this._scriptBinding = moved.get(this._scriptBinding) ?? this._scriptBinding;

@@ -40,8 +40,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `PreAnimation`, so tests must hold either way; code that only binds to a render step may never
   run in a test. Such a window also has Heartbeat ticks with no `PreAnimation`, `PreSimulation` or
   `PostSimulation` (measured: 9 to 87 of 600 ticks, with nothing else running). The package's
-  per-frame work skips them, so a test must not count a Heartbeat as a frame: step with `frame()`
-  from `src/client/tests/helpers.ts`, which waits for a Heartbeat that follows a `PreAnimation`.
+  per-frame work skips them unless a render step lands in one (a window that renders may render in
+  such a tick, and the work then runs there), so a test must not count a Heartbeat as a frame: step
+  with `frame()` from `src/client/tests/helpers.ts`, which waits for a Heartbeat that follows a
+  render step or a `PreAnimation`, the ticks in which the per-frame work runs.
 - To try package code in a live session, go through a test (a temporary section run with
   `--sections`): `studio exec` can't `require` the package's modules directly.
 - To try Luau in a live session: `rojo build -o probe.rbxl`, then
