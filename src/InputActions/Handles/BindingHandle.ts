@@ -16,6 +16,7 @@ import {
 	EncodeSavedValue,
 	GetBindingData,
 	IBindingValues,
+	IsSavableValue,
 	ReadBinding,
 	WriteBinding,
 	WriteKey,
@@ -165,7 +166,7 @@ export class BindingHandle {
 		for (const name of SAVED_PROPERTIES) {
 			if (!IsPropertyOf(this.ActionType, name)) continue;
 			if (name === "ResponseCurve" && !stick) continue;
-			if (current[name] !== this._defaults[name]) {
+			if (current[name] !== this._defaults[name] && IsSavableValue(current[name])) {
 				changes ??= {};
 				changes[name] = EncodeSavedValue(current[name]);
 			}

@@ -2,6 +2,7 @@ import {
 	ActionTypeName,
 	COMPOSITE_SLOTS,
 	IsCompositeSlot,
+	IsFiniteNumber,
 	IsSlotOf,
 	KEY_SLOTS,
 	MODIFIER_SLOTS,
@@ -193,6 +194,15 @@ export function GetBindingData(
 			break;
 	}
 	return data;
+}
+
+/** Whether an import can write the value back: numbers finite (inf is only written to the instance directly) */
+export function IsSavableValue(value: IBindingValues[SavedProperty]): boolean {
+	if (typeIs(value, "EnumItem")) return true;
+	if (typeIs(value, "Vector2")) return IsFiniteNumber(value.X) && IsFiniteNumber(value.Y);
+	if (typeIs(value, "Vector3"))
+		return IsFiniteNumber(value.X) && IsFiniteNumber(value.Y) && IsFiniteNumber(value.Z);
+	return IsFiniteNumber(value);
 }
 
 /** A saved property as JSON: enums by name, vectors as arrays, floats rounded */

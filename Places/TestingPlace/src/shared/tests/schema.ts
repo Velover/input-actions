@@ -117,6 +117,29 @@ export class SchemaTests implements OnStart {
 					withSlot(slot)();
 				}
 			});
+
+			test("Schema refuses slots S and <Action>S on one action: both would match one binding", () => {
+				const message = expectThrows(() =>
+					InputActions.Schema({
+						Gameplay: {
+							Actions: {
+								Jump: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA, JumpPad: Enum.KeyCode.ButtonB }),
+							},
+						},
+					}),
+				);
+				expectTrue(message.find("Gameplay/Jump", 1, true)[0] !== undefined, message);
+				expectTrue(message.find("JumpPad", 1, true)[0] !== undefined, message);
+				// on two actions the names are fine
+				InputActions.Schema({
+					Gameplay: {
+						Actions: {
+							Jump: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA }),
+							Dash: InputActions.Bool({ JumpPad: Enum.KeyCode.ButtonB }),
+						},
+					},
+				});
+			});
 		});
 	}
 }

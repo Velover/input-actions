@@ -45,7 +45,8 @@ defaults are the IAS ones (Priority 1000, Sink false, Enabled true). `Schema` ch
 runtime too, and throws on names the handles can't hold: a context named like one of the root
 handle's five members, a name with `/`, or a slot whose binding would take the name of one the
 package makes itself (`Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`: see
-[`Fire`](#action-handle) and `AttachButton`). The result is frozen and creates no instances: require it on both realms.
+[`Fire`](#action-handle) and `AttachButton`), or two slots `S` and `<Action>S` on one action (both
+would find the binding `<Action>S`). The result is frozen and creates no instances: require it on both realms.
 
 ### Create
 
@@ -180,7 +181,7 @@ Bool actions add:
 | `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals |
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
-| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it |
+| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none |
 
 Actions with `TrackPrevious: true` add `GetPrevious(): V` and `HasChanged(): boolean`; tracked Bool
 actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](Advanced.md#trackprevious).
@@ -193,7 +194,7 @@ A slot with keys:
 | --- | --- |
 | `Instance: InputBinding`, `Name: string` | `Name` is the slot name |
 | `Get(): BindingData<A>` | the binding as plain data in the schema's shape |
-| `Set(binding: BindingShape<A>)` | rebinds; objects merge; throws on what the action type doesn't allow |
+| `Set(binding: BindingShape<A>)` | rebinds; objects merge; throws on what the action type doesn't allow, and on a number a float can't hold (beyond ±3.4e38) |
 | `Reset()` | back to the binding right after `Create` |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
 | `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot`, applies it, calls `callback(key)`; `options.Cancel` keys stop it |

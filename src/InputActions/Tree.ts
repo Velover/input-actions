@@ -52,6 +52,22 @@ export function ReservedSlotProblem(actionName: string, slot: string): string | 
 	return undefined;
 }
 
+/**
+ * Why two slots of one action can't have these names, if they can't: slots `S` and `<Action>S`
+ * would both match the binding `<Action>S`.
+ */
+export function SlotCollision(actionName: string, slots: readonly string[]): string | undefined {
+	if (actionName === "") return undefined;
+	for (const slot of slots) {
+		if (!slots.includes(actionName + slot)) continue;
+		return (
+			`the slots "${slot}" and "${actionName}${slot}" would both match the binding ` +
+			`${actionName}${slot}: rename one`
+		);
+	}
+	return undefined;
+}
+
 export function FindBinding(
 	action: Instance,
 	actionName: string,

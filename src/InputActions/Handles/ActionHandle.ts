@@ -5,6 +5,7 @@ import {
 	GetHeldValue,
 	IHeldValue,
 	IsPackageMade,
+	RestoreHeldValue,
 	SetHeldValue,
 } from "../Registry";
 import { BUTTON_BINDING_INFIX, IsButtonBindingName, SCRIPT_BINDING_SUFFIX } from "../Tree";
@@ -18,6 +19,89 @@ function FreeButtonName(action: InputAction, actionName: string): string {
 	let index = 1;
 	while (action.FindFirstChild(`${actionName}${BUTTON_BINDING_INFIX}${index}`) !== undefined) index++;
 	return `${actionName}${BUTTON_BINDING_INFIX}${index}`;
+}
+
+/**
+ * Whether `instance` was destroyed: its Parent is locked, which only a write shows (probed). Writing
+ * `nil` again succeeds either way, and making it its own parent fails either way, changing nothing:
+ * the message tells "locked" from "its own parent".
+ */
+function IsDestroyed(instance: Instance): boolean {
+	if (instance.Parent !== undefined) return false;
+	const [ok, message] = pcall(() => {
+		instance.Parent = instance;
+	});
+	return !ok && tostring(message).find("locked", 1, true)[0] !== undefined;
+}
+
+/** What `MoveBindings` did to one action of a stand-in */
+export interface IMovedBindings {
+	/** The server's action the bindings moved under */
+	Target: InputAction;
+	/** Each binding of the stand-in's action, and the instance that stands for it under `Target` */
+	Moved: Map<InputBinding, InputBinding>;
+	/** The values the Scriptable bindings held, oldest first, to fire again once the context is set */
+	Held: Array<[InputBinding, IHeldValue]>;
+}
+
+/**
+ * Moves every binding of a stand-in's action under the server's copy of it (Server Authority swap).
+ * Held Scriptable values are released first; `RefireHeldValues` fires them again in the order they
+ * were fired, so the action ends on the same latest write. A binding another root handle already
+ * moved there under the same name is adopted rather than doubled (button bindings are renamed
+ * instead).
+ * @param carryEnabled the action is in a schema: the copy takes the stand-in's `Enabled`
+ */
+export function MoveBindings(
+	source: InputAction,
+	target: InputAction,
+	carryEnabled: boolean,
+): IMovedBindings {
+	const neutral = NEUTRAL_VALUES[source.Type.Name];
+	const held = new Array<[InputBinding, IHeldValue]>();
+	for (const binding of source.GetChildren()) {
+		if (!binding.IsA("InputBinding")) continue;
+		const value = GetHeldValue(binding);
+		if (value === undefined) continue;
+		ClearHeldValue(binding);
+		pcall(() => binding.Fire(neutral));
+		// A value no live root handle holds any more is not carried over
+		if (value.Holders.size() > 0) held.push([binding, value]);
+	}
+	held.sort((a, b) => a[1].Order < b[1].Order);
+	if (carryEnabled) target.Enabled = source.Enabled;
+
+	const moved = new Map<InputBinding, InputBinding>();
+	for (const binding of source.GetChildren()) {
+		if (!binding.IsA("InputBinding")) continue;
+		const existing = target.FindFirstChild(binding.Name);
+		if (existing === undefined || !existing.IsA("InputBinding") || !IsPackageMade(existing)) {
+			binding.Parent = target;
+			moved.set(binding, binding);
+		} else if (IsButtonBindingName(source.Name, binding.Name)) {
+			binding.Name = FreeButtonName(target, source.Name);
+			binding.Parent = target;
+			moved.set(binding, binding);
+		} else {
+			// Ours stays in the stand-in and goes with it
+			moved.set(binding, existing);
+		}
+	}
+	return {
+		Target: target,
+		Moved: moved,
+		Held: held.map(([binding, value]) => [moved.get(binding) ?? binding, value]),
+	};
+}
+
+/** Fires again the values `MoveBindings` released, on the bindings that now live under the copy */
+export function RefireHeldValues(moved: IMovedBindings) {
+	const target = moved.Target;
+	for (const [binding, held] of moved.Held) {
+		if (binding.Parent !== target) continue;
+		pcall(() => binding.Fire(held.Value));
+		if (IsLive(target)) RestoreHeldValue(binding, held);
+	}
 }
 
 /** Per-frame snapshot state of an action defined with TrackPrevious: true */
@@ -55,6 +139,9 @@ export class ActionHandle {
 	private readonly _pressed?: BindableEvent;
 	private readonly _released?: BindableEvent;
 	private readonly _neutral: unknown;
+	/** What the listeners were last told (or the state when the handle was made) */
+	private _shownState: unknown;
+	private _shownPressed: boolean;
 	private _forwards = new Array<RBXScriptConnection>();
 	private _scriptBinding?: InputBinding;
 	/** The bindings this handle's `AttachButton` made that are still there */
@@ -72,6 +159,8 @@ export class ActionHandle {
 		this.Name = name;
 		this.Type = action.Type;
 		this._neutral = NEUTRAL_VALUES[action.Type.Name];
+		this._shownState = action.GetState();
+		this._shownPressed = this._shownState === true;
 		this.StateChanged = this._stateChanged.Event as RBXScriptSignal<(value: unknown) => void>;
 		if (this.Type === Enum.InputActionType.Bool) {
 			this._pressed = new Instance("BindableEvent");
@@ -101,58 +190,45 @@ export class ActionHandle {
 		this._forwards.clear();
 		this.Instance = action;
 		const stateChanged = this._stateChanged;
-		this._forwards.push(action.StateChanged.Connect((value) => stateChanged.Fire(value)));
+		// An event still on its way from an instance the handle left is not passed on
+		this._forwards.push(
+			action.StateChanged.Connect((value) => {
+				if (this.Instance !== action) return;
+				this._shownState = value;
+				stateChanged.Fire(value);
+			}),
+		);
 		const pressed = this._pressed;
 		const released = this._released;
 		if (pressed !== undefined && released !== undefined) {
-			this._forwards.push(action.Pressed.Connect(() => pressed.Fire()));
-			this._forwards.push(action.Released.Connect(() => released.Fire()));
 			const track = this._track;
-			if (track !== undefined) {
-				// Counted from the IAS signals directly: a forward would land one deferral later
-				this._forwards.push(action.Pressed.Connect(() => track.PressedCount++));
-				this._forwards.push(action.Released.Connect(() => track.ReleasedCount++));
-			}
+			this._forwards.push(
+				action.Pressed.Connect(() => {
+					if (this.Instance !== action) return;
+					// Counted here, from the IAS signal: a forward would land one deferral later
+					if (track !== undefined) track.PressedCount++;
+					this._shownPressed = true;
+					pressed.Fire();
+				}),
+			);
+			this._forwards.push(
+				action.Released.Connect(() => {
+					if (this.Instance !== action) return;
+					if (track !== undefined) track.ReleasedCount++;
+					this._shownPressed = false;
+					released.Fire();
+				}),
+			);
 		}
 	}
 
 	/**
-	 * Moves every binding of the current InputAction under `target` (a Server Authority stand-in
-	 * giving way to the server's copy) and attaches the handle to it. Held Scriptable values are
-	 * released first; pass what this returns to `RefireHeldValues` once the context is set. A
-	 * binding another root handle already moved there under the same name is adopted rather than
-	 * doubled (its button bindings are renamed instead).
+	 * Points the handle at the server's copy of its action once `MoveBindings` moved the bindings
+	 * there (Server Authority swap). The stand-in sends no more events, including those still on
+	 * their way: the listeners are told the copy's state now, so a press they heard from the
+	 * stand-in ends with a `Released` before the copy's own events.
 	 */
-	MoveTo(target: InputAction): Array<[InputBinding, IHeldValue]> {
-		const source = this.Instance;
-		const held = new Array<[InputBinding, IHeldValue]>();
-		for (const binding of source.GetChildren()) {
-			if (!binding.IsA("InputBinding")) continue;
-			const value = GetHeldValue(binding);
-			if (value === undefined) continue;
-			held.push([binding, value]);
-			ClearHeldValue(binding);
-			pcall(() => binding.Fire(this._neutral));
-		}
-		target.Enabled = source.Enabled;
-
-		const moved = new Map<InputBinding, InputBinding>();
-		for (const binding of source.GetChildren()) {
-			if (!binding.IsA("InputBinding")) continue;
-			const existing = target.FindFirstChild(binding.Name);
-			if (existing === undefined || !existing.IsA("InputBinding") || !IsPackageMade(existing)) {
-				binding.Parent = target;
-				moved.set(binding, binding);
-			} else if (IsButtonBindingName(this.Name, binding.Name)) {
-				binding.Name = FreeButtonName(target, this.Name);
-				binding.Parent = target;
-				moved.set(binding, binding);
-			} else {
-				// Ours stays in the stand-in and goes with it
-				this._runtime.Use(existing);
-				moved.set(binding, existing);
-			}
-		}
+	LinkTo(target: InputAction, moved: ReadonlyMap<InputBinding, InputBinding>) {
 		for (const [, handle] of pairs(this.Bindings)) {
 			handle.Instance = moved.get(handle.Instance) ?? handle.Instance;
 		}
@@ -160,15 +236,21 @@ export class ActionHandle {
 			this._scriptBinding = moved.get(this._scriptBinding) ?? this._scriptBinding;
 		}
 		this.Attach(target);
-		return held.map(([binding, value]) => [moved.get(binding) ?? binding, value]);
-	}
-
-	/** Fires the values `MoveTo` returned, on the bindings that now live under the new action */
-	RefireHeldValues(values: ReadonlyArray<[InputBinding, IHeldValue]>) {
-		for (const [binding, held] of values) {
-			if (binding.Parent !== this.Instance) continue;
-			pcall(() => binding.Fire(held.Value));
-			if (IsLive(this.Instance)) SetHeldValue(binding, held.Value, this._neutral, held.Holder);
+		const state = target.GetState();
+		if (state !== this._shownState) {
+			this._shownState = state;
+			this._stateChanged.Fire(state);
+		}
+		const pressed = state === true;
+		if (this.Type !== Enum.InputActionType.Bool || pressed === this._shownPressed) return;
+		this._shownPressed = pressed;
+		const track = this._track;
+		if (pressed) {
+			if (track !== undefined) track.PressedCount++;
+			this._pressed?.Fire();
+		} else {
+			if (track !== undefined) track.ReleasedCount++;
+			this._released?.Fire();
 		}
 	}
 
@@ -236,7 +318,8 @@ export class ActionHandle {
 	}
 
 	AttachButton(button: GuiButton): () => void {
-		if (this._runtime.IsDestroyed()) return () => {};
+		// A button destroyed already fires no Destroying that would remove its binding
+		if (this._runtime.IsDestroyed() || IsDestroyed(button)) return () => {};
 		const binding = new Instance("InputBinding");
 		binding.Name = FreeButtonName(this.Instance, this.Name);
 		binding.UIButton = button;
@@ -302,29 +385,45 @@ export class ActionHandle {
 
 	/**
 	 * Lets go of what this root handle holds on an action another live root handle still uses,
-	 * before its `Destroy`; the rest is the other handle's. A value this handle fired goes back to
-	 * rest when the action still shows it, or already rests (a Server Authority copy shows a Fire one
-	 * simulation step later); a value fired after it is left alone. A held binding that is destroyed
-	 * leaves the action stuck on (probed): when this handle's buttons go while the action is pressed
-	 * and nothing the package fired holds it, a same-frame pair on `<Action>Script` releases it, as
-	 * removing a held button does.
+	 * before its `Destroy`; the rest is the other handles'. IAS shows the last write, so a value
+	 * this handle alone fired goes back to rest only when no value the package fired after it is
+	 * held, and the action shows it or still rests (a Server Authority copy shows a Fire one
+	 * simulation step later). A value another handle fired too, on the same binding, stays theirs. A
+	 * held binding that is destroyed leaves the action stuck on (probed): when this handle's buttons
+	 * go while the action is pressed and nothing another handle fired holds it, a same-frame pair on
+	 * `<Action>Script` releases it, as removing a held button does.
 	 */
 	ReleaseOwn() {
 		const action = this.Instance;
 		const live = IsLive(action);
 		const state = action.GetState();
+		let latest: InputBinding | undefined;
+		let latestOrder = 0;
+		const own = new Array<[InputBinding, IHeldValue]>();
 		let heldByOthers = false;
 		for (const child of action.GetChildren()) {
 			if (!child.IsA("InputBinding")) continue;
 			const held = GetHeldValue(child);
 			if (held === undefined) continue;
-			if (held.Holder !== this._runtime) {
-				heldByOthers = true;
+			if (held.Order > latestOrder) {
+				latest = child;
+				latestOrder = held.Order;
+			}
+			if (!held.Holders.has(this._runtime)) {
+				if (held.Holders.size() > 0) heldByOthers = true;
 				continue;
 			}
-			ClearHeldValue(child);
+			held.Holders.delete(this._runtime);
+			if (held.Holders.size() > 0) heldByOthers = true;
+			else own.push([child, held]);
+		}
+		for (const [binding, held] of own) {
+			// Left in place otherwise, holding no one's value: IAS keeps it for the binding, and a later
+			// Fire of the same value on it changes nothing (a shared `<Action>Script`)
+			if (binding !== latest) continue;
+			ClearHeldValue(binding);
 			if (live && (state === held.Value || state === this._neutral))
-				pcall(() => child.Fire(this._neutral));
+				pcall(() => binding.Fire(this._neutral));
 		}
 		if (!live || heldByOthers || this._buttons.size() === 0 || !this.IsPressed()) return;
 		const binding = this.GetScriptBinding();

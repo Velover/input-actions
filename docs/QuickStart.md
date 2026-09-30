@@ -40,7 +40,8 @@ export const InputSchema = InputActions.Schema({
   (`TrackPrevious`, `DisplayName`, `Enabled`). The slot names are yours; use the Input Action
   Manager's device names (`KeyboardAndMouse`, `Gamepad`, `Touch`) to adopt its bindings. `Script`
   and `UIButton1`, `UIButton2`, ... are taken: the package names its own bindings `<Action>Script`
-  and `<Action>UIButton<n>`.
+  and `<Action>UIButton<n>`. A slot `S` finds a binding named `S` or `<Action>S`, so one action
+  can't have both `Pad` and `JumpPad` (on `Jump`).
 - A binding is a bare key (`Enum.KeyCode.Space`), an object (`{ KeyCode, PressedThreshold }`, or
   composite `{ Up, Down, Left, Right }`), or `InputActions.Scriptable`.
 - One input source per binding: `KeyCode` and composite directions can't share one (IAS ignores the

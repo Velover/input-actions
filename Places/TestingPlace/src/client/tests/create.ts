@@ -252,6 +252,23 @@ export class CreateTests implements OnStart {
 				expectEqual(context.GetChildren().size(), 1);
 			});
 
+			test("slots S and <Action>S in a schema made without Schema throw, leaving nothing", () => {
+				const folder = newFolder();
+				const schema = {
+					Contexts: {
+						Gameplay: {
+							Actions: {
+								Jump: InputActions.Bool({ JumpPad: Enum.KeyCode.ButtonB }),
+								Dash: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA, DashPad: Enum.KeyCode.ButtonB }),
+							},
+						},
+					},
+				};
+				const message = expectThrows(() => InputActions.Create(schema as never, { Folder: folder }));
+				expectTrue(message.find("Gameplay/Dash", 1, true)[0] !== undefined, message);
+				expectEqual(folder.GetChildren().size(), 0);
+			});
+
 			test("a child with a context's name that is not a context throws", () => {
 				const folder = newFolder();
 				const wrong = new Instance("Folder");

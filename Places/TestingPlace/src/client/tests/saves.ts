@@ -268,6 +268,37 @@ export class SaveTests implements OnStart {
 				);
 			});
 
+			test("a number a float can't hold is skipped; the largest float round-trips", () => {
+				expectEqual(DecodeSavedEntry("Direction2D", { Scale: 1e39 }), "Scale is not a finite number");
+				expectEqual(
+					DecodeSavedEntry("Direction2D", { Vector2Scale: [1, -1e39] }),
+					"Vector2Scale must be 2 finite numbers",
+				);
+				expectEqual(
+					DecodeSavedEntry("Bool", { ReleasedThreshold: -1e39 }),
+					"ReleasedThreshold is not a finite number",
+				);
+				const input = createTestInput();
+				const result = input.ImportBindings(encode({ "Gameplay/Zoom/Mouse": { Scale: 3.4e38 } }));
+				expectArrayEqual(result.Applied, ["Gameplay/Zoom/Mouse"]);
+				const again = input.ImportBindings(input.ExportBindings());
+				expectEqual(again.Skipped.size(), 0, input.ExportBindings());
+				expectArrayEqual(again.Applied, ["Gameplay/Zoom/Mouse"]);
+				// Set refuses it too
+				const zoom = input.Gameplay.Actions.Zoom.Bindings.Mouse;
+				const [ok] = pcall(() => zoom.Set({ KeyCode: Enum.KeyCode.MouseWheel, Scale: 1e39 }));
+				expectEqual(ok, false, "Set with a Scale of 1e39");
+			});
+
+			test("a value written straight to the instance that no import could write back is not exported", () => {
+				const input = createTestInput();
+				const zoom = input.Gameplay.Actions.Zoom.Bindings.Mouse;
+				zoom.Instance.Scale = math.huge;
+				const save = decode(input.ExportBindings());
+				expectEqual(save.Bindings["Gameplay/Zoom/Mouse"], undefined, input.ExportBindings());
+				expectEqual(input.ImportBindings(input.ExportBindings()).Skipped.size(), 0);
+			});
+
 			test("ResponseCurve is saved and imported only with a thumbstick KeyCode", () => {
 				const input = createTestInput();
 				const actions = input.Gameplay.Actions;

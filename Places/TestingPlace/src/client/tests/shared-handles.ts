@@ -94,6 +94,43 @@ function localCopy(
 	return context;
 }
 
+const STAND_IN_SCHEMA = InputActions.Schema({
+	SharedStandIn: {
+		ServerAuthority: true,
+		Actions: {
+			Poke: InputActions.Bool({ KeyboardAndMouse: K.P }),
+			Move: InputActions.Direction2D({ Virtual: InputActions.Scriptable }),
+			Crouch: InputActions.Bool({ KeyboardAndMouse: K.C }, { TrackPrevious: true }),
+		},
+	},
+});
+
+/** The server's copy of `STAND_IN_SCHEMA`'s context, played on the client */
+function standInCopy(folderName: string) {
+	return localCopy(folderName, "SharedStandIn", [
+		["Poke", Enum.InputActionType.Bool],
+		["Move", Enum.InputActionType.Direction2D],
+		["Crouch", Enum.InputActionType.Bool],
+	]);
+}
+
+/** Two root handles on one Server Authority schema, both made before the server's copy */
+function twoHandlesOnStandIn() {
+	const folderName = uniqueFolderName();
+	const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+	const first = InputActions.Create(STAND_IN_SCHEMA, options);
+	defer(() => first.Destroy());
+	const second = InputActions.Create(STAND_IN_SCHEMA, options);
+	defer(() => second.Destroy());
+	/** Plays the copy's arrival and waits for the live handles to swap */
+	const arrive = () => {
+		const copy = standInCopy(folderName);
+		eventually(() => copy.FindFirstChild("Poke")!.GetChildren().size() > 0, "the swap");
+		return copy;
+	};
+	return { First: first, Second: second, Arrive: arrive };
+}
+
 /** Several root handles on one folder share its instances (design spec §4) */
 @Provider({ activeIn: ["testing"] })
 export class SharedHandlesTests implements OnStart {
@@ -444,6 +481,121 @@ export class SharedHandlesTests implements OnStart {
 				holder.Destroy();
 				frames(3);
 				expectFalse(jump.IsPressed(), "released with the button's binding");
+			});
+
+			// ---- root handles on one stand-in before the server's copy arrives (§4, §8)
+
+			test("Create twice before the copy: one stand-in, and both handles' requests carry over", () => {
+				const { First: first, Second: second, Arrive: arrive } = twoHandlesOnStandIn();
+				expectEqual(second.SharedStandIn.Instance, first.SharedStandIn.Instance, "one stand-in");
+				expectEqual(
+					second.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
+					first.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
+					"one binding",
+				);
+				const firstOff = first.SharedStandIn.Request(false);
+				second.SharedStandIn.Request(true);
+				expectFalse(second.SharedStandIn.IsEnabled());
+				const copy = arrive();
+				expectFalse(copy.Enabled, "the first handle's Request(false) holds the copy off");
+				firstOff();
+				expectTrue(copy.Enabled, "the second handle's Request(true)");
+				second.SharedStandIn.SetEnabled(false);
+				expectTrue(first.SharedStandIn.IsEnabled(), "Request(true) still wins over the base state");
+				second.Destroy();
+				expectFalse(first.SharedStandIn.IsEnabled(), "the second handle's request ended with it");
+				expectFalse(copy.Enabled);
+			});
+
+			test("Create twice before the copy: the first handle destroyed, the second keeps the stand-in", () => {
+				const { First: first, Second: second, Arrive: arrive } = twoHandlesOnStandIn();
+				const standIn = second.SharedStandIn.Instance;
+				const poke = second.SharedStandIn.Actions.Poke;
+				const keys = poke.Bindings.KeyboardAndMouse.Instance;
+				first.Destroy();
+				expectTrue(standIn.Parent !== undefined, "the stand-in stays while the second handle uses it");
+				expectEqual(keys.Parent, poke.Instance, "and so does its binding");
+				poke.Fire(true);
+				expectTrue(poke.GetState());
+				poke.Fire(false);
+				const copy = arrive();
+				expectEqual(second.SharedStandIn.Instance, copy);
+				expectEqual(keys.Parent, copy.FindFirstChild("Poke"), "the binding moved to the copy");
+				expectEqual(standIn.Parent, undefined, "the stand-in is gone");
+			});
+
+			test("a second Create after the copy arrived swaps the waiting stand-in first", () => {
+				const folderName = uniqueFolderName();
+				const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+				const first = InputActions.Create(STAND_IN_SCHEMA, options);
+				defer(() => first.Destroy());
+				first.SharedStandIn.SetEnabled(false);
+				// no frame between the copy and the Create: the first handle's watcher has not run
+				const copy = standInCopy(folderName);
+				const second = InputActions.Create(STAND_IN_SCHEMA, options);
+				defer(() => second.Destroy());
+				expectTrue(first.SharedStandIn.IsLinkedToServer(), "the first handle swapped");
+				expectEqual(first.SharedStandIn.Instance, copy);
+				expectFalse(copy.Enabled, "the base state the first handle set");
+				expectFalse(second.SharedStandIn.IsEnabled());
+				expectEqual(
+					second.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
+					first.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
+				);
+			});
+
+			test("the swap fires the held values again in the order they were fired", () => {
+				const folderName = uniqueFolderName();
+				const input = InputActions.Create(STAND_IN_SCHEMA, {
+					Folder: newFolder(),
+					PlayerFolderName: folderName,
+					Timeout: 1000,
+				});
+				defer(() => input.Destroy());
+				const move = input.SharedStandIn.Actions.Move;
+				move.Fire(new Vector2(0, 1)); // MoveScript, made after MoveVirtual
+				move.Bindings.Virtual.Fire(new Vector2(1, 0)); // the last write, which the action shows
+				expectEqual(move.GetState(), new Vector2(1, 0));
+				standInCopy(folderName);
+				eventually(() => input.SharedStandIn.IsLinkedToServer(), "the link");
+				eventually(() => move.GetState() === new Vector2(1, 0), "the last write shows on the copy");
+				frames(5);
+				expectEqual(move.GetState(), new Vector2(1, 0));
+				move.Fire(Vector2.zero);
+				move.Bindings.Virtual.Fire(Vector2.zero);
+			});
+
+			test("a value held across the swap: StateChanged never repeats, TrackPrevious sees the release", () => {
+				const folderName = uniqueFolderName();
+				const input = InputActions.Create(STAND_IN_SCHEMA, {
+					Folder: newFolder(),
+					PlayerFolderName: folderName,
+					Timeout: 1000,
+				});
+				defer(() => input.Destroy());
+				const { Move: move, Crouch: crouch } = input.SharedStandIn.Actions;
+				const moves = recordSignal(move.StateChanged);
+				move.Bindings.Virtual.Fire(new Vector2(0, 1));
+				crouch.Fire(true);
+				eventually(() => crouch.IsJustPressed(), "the stand-in's press");
+				eventually(() => !crouch.IsJustPressed() && moves.size() === 1, "the stand-in's events");
+				standInCopy(folderName);
+				const seen = new Array<string>();
+				for (let index = 0; index < 30; index++) {
+					frames(1);
+					if (crouch.IsJustReleased()) seen.push("Released");
+					if (crouch.IsJustPressed()) seen.push("Pressed");
+				}
+				expectTrue(input.SharedStandIn.IsLinkedToServer(), "the link");
+				expectTrue(crouch.IsPressed(), "Crouch held on the copy");
+				expectEqual(seen.join(","), "Released,Pressed", "IsJustReleased/IsJustPressed frames");
+				expectEqual(move.GetState(), new Vector2(0, 1));
+				for (let index = 1; index < moves.size(); index++) {
+					expectTrue(moves[index] !== moves[index - 1], `StateChanged repeated ${moves[index]}`);
+				}
+				expectEqual(moves[moves.size() - 1], new Vector2(0, 1));
+				crouch.Fire(false);
+				move.Bindings.Virtual.Fire(Vector2.zero);
 			});
 		});
 	}

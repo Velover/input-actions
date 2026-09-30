@@ -98,6 +98,22 @@ export class AttachButtonTests implements OnStart {
 				eventually(() => !jump.GetState(), "the release");
 			});
 
+			test("a button not parented yet gets its binding; one destroyed already gets none", () => {
+				const jump = createTestInput().Gameplay.Actions.Jump;
+				const loose = new Instance("TextButton");
+				defer(() => loose.Destroy());
+				jump.AttachButton(loose);
+				expectEqual(buttonBindings(jump.Instance).size(), 1, "the unparented button's binding");
+				loose.Destroy();
+				eventually(() => buttonBindings(jump.Instance).size() === 0, "removed with the button");
+
+				const gone = newButton();
+				gone.Destroy();
+				const detach = jump.AttachButton(gone);
+				expectEqual(buttonBindings(jump.Instance).size(), 0, "no binding for a destroyed button");
+				expectNoThrow(detach);
+			});
+
 			test("Destroy removes attached bindings", () => {
 				const input = InputActions.Create(TEST_SCHEMA, { Folder: newFolder() });
 				const jump = input.Gameplay.Actions.Jump;

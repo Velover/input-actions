@@ -107,6 +107,21 @@ export class SanitizeTests implements OnStart {
 				expectEqual(clean.Bindings["Gameplay/Move/Gamepad"].ResponseCurve, 3);
 			});
 
+			test("drops numbers a float property can't hold", () => {
+				const json = HttpService.JSONEncode({
+					Version: 1,
+					Bindings: {
+						"Gameplay/Look/Mouse": { Scale: 1e39 },
+						"Gameplay/Look/Gamepad": { Vector2Scale: [1, -1e39] },
+						"Gameplay/Move/Gamepad": { ResponseCurve: -1e39 },
+						"Gameplay/Fire/Gamepad": { PressedThreshold: 1e39 },
+						"Gameplay/Zoom/Mouse": { Scale: 3.4e38 },
+					},
+				});
+				const clean = decode(InputActions.SanitizeBindings(TEST_SCHEMA, json));
+				expectArrayEqual(paths(clean), ["Gameplay/Zoom/Mouse"]);
+			});
+
 			test("works without instances, so the server can clean a client's save", () => {
 				const before = game.GetDescendants().size();
 				const clean = InputActions.SanitizeBindings(

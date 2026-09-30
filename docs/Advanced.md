@@ -53,10 +53,11 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   leaves what another still uses (instances, held input, requests). What the package made goes
   with the last handle.
 - On an action another handle still uses, `Destroy` lets go of what the destroyed handle held
-  itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless a value
-  fired after it is what the action shows (IAS keeps the last one). Its attached buttons go too;
-  as when a held button is detached, the action is released if it is pressed and nothing the
-  other handles fired holds it.
+  itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless the package
+  fired a value after it (IAS shows the last write), even an equal one on another binding. A value
+  another live handle fired too, on the same binding, stays: IAS ignored that repeat, but the value
+  is that handle's as well. Its attached buttons go too; as when a held button is detached, the
+  action is released if it is pressed and nothing the other handles fired holds it.
 - `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
   what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
@@ -89,7 +90,8 @@ detach(); // or destroy the button
 ```
 
 `AttachButton` (Bool actions only) adds an Automatic binding `<Action>UIButton<n>` (the lowest free
-`n`) with `UIButton = button`. Several buttons can be attached at once. Destroying a binding while
+`n`) with `UIButton = button`. Several buttons can be attached at once. A button that is already
+destroyed gets no binding, and the function returned does nothing. Destroying a binding while
 it holds the action leaves the action stuck on in IAS, so when the binding goes while the action is
 pressed, the package resets the action (toggles `InputAction.Enabled`, after releasing it on the
 server under Server Authority).
@@ -190,8 +192,10 @@ Input.ResetBindings();
 - `ImportBindings` never throws. It starts from the defaults (a binding missing from the save is
   reset), then applies each valid entry. An entry is skipped, and its binding stays at its default,
   for an unknown path, an unknown property, an unknown key name, a key not allowed for that
-  property, a number that isn't finite, a `KeyCode` together with a composite direction, or a
-  `ResponseCurve` on a binding that doesn't end on a thumbstick `KeyCode` (as `Set` refuses it).
+  property, a number that isn't finite (the binding properties are floats: beyond ±3.4e38 a number
+  would become infinite there, so it counts as not finite, for `Set` too), a `KeyCode` together
+  with a composite direction, or a `ResponseCurve` on a binding that doesn't end on a thumbstick
+  `KeyCode` (as `Set` refuses it).
   Bad JSON, a non-object or an unknown `Version` applies nothing. `"Unknown"` is read as `"None"`.
 - A `ResponseCurve` left beside a key that isn't a thumbstick acts on nothing and isn't saved, so
   every export imports cleanly.
@@ -263,13 +267,18 @@ Server Authority in the place's Workspace settings when you mark contexts this w
   - Otherwise the context runs on a **local stand-in**: a client-only context (a clone of the
     template, or built from the schema) with its bindings. Everything works on it at once: input,
     `GetState`, events, `Fire`, rebinding, requests, `AttachButton`. Its state never reaches the
-    server.
+    server. Root handles made before the copy arrives (`Create` twice, with the same
+    `PlayerFolderName`) share one stand-in, as they share the copy later: one enabled state, and
+    one swap for all of them.
   - When the server's copy arrives, the handles **swap** to it. The bindings move under the
     server's actions with everything they have (rebinds, attached buttons), the context keeps its
     base state and held requests, and each Scriptable binding fires its last value again, so a held
     virtual stick stays held. Then the stand-in is disabled and destroyed, and `LinkedToServer`
     fires once. A Bool action held at the swap may release once and press again on the next input.
-    `Reset` still returns to the same defaults.
+    Listeners hear that: at the swap each handle passes on the copy's state (a `Released`, and a
+    `StateChanged` to the value at rest, when the copy doesn't show the stand-in's value yet), then
+    the copy's own events, so a value fired again reads as a release and a new press, never as two
+    presses in a row. `Reset` still returns to the same defaults.
   - The handles' signals (`StateChanged`, `Pressed`, `Released`, `EnabledChanged`,
     `BindingsChanged`) are the package's own and forward from whichever instance a handle wraps, so
     connections made before the swap keep working. Read `Instance` when you need it: it changes at
@@ -284,8 +293,9 @@ Server Authority in the place's Workspace settings when you mark contexts this w
 - Keybinds and saves work as usual; only the state goes to the server.
 - `PlayerFolderName` can't be `InputContexts`: under Server Authority, Roblox's PlayerModule keeps
   its own contexts in `player.InputContexts`.
-- Two root handles that both start on a stand-in share the server's copy after the swap: the
-  bindings the first moved there are adopted by the second, not doubled.
+- Root handles that start on a stand-in swap together, and a `Create` that finds the copy while
+  other handles still wait for it swaps them first, so the copy takes their enabled state. After
+  that, every handle shares the copy's instances and its enabled state; nothing is doubled.
 - A server's copy whose action has another `Type` than the schema's: `Create` warns, naming the
   path, and the context stays on its (working) stand-in.
 

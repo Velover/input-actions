@@ -1,6 +1,6 @@
 import { CheckBindingSpec } from "./BindingRules";
 import { Entries } from "./Internal";
-import { ReservedSlotProblem } from "./Tree";
+import { ReservedSlotProblem, SlotCollision } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
@@ -130,7 +130,8 @@ export function Schema<S extends Record<string, IContextSchema>>(contexts: S): I
 			if (!typeIs(action, "table") || !ACTION_TYPES.includes(action.Type)) {
 				error(`${actionWhere}: not an action; use InputActions.Bool, Direction1D, ...`, 2);
 			}
-			for (const [slot, spec] of Entries(action.Bindings as Record<string, unknown>)) {
+			const bindings = Entries(action.Bindings as Record<string, unknown>);
+			for (const [slot, spec] of bindings) {
 				if (slot.find("/", 1, true)[0] !== undefined)
 					error(`${actionWhere}/${slot}: a binding name can't contain "/"`, 2);
 				const reserved = ReservedSlotProblem(actionName, slot);
@@ -139,6 +140,8 @@ export function Schema<S extends Record<string, IContextSchema>>(contexts: S): I
 				const problem = CheckBindingSpec(action.Type.Name, spec);
 				if (problem !== undefined) error(`${actionWhere}/${slot}: ${problem}`, 2);
 			}
+			const collision = SlotCollision(actionName, bindings.map(([slot]) => slot));
+			if (collision !== undefined) error(`${actionWhere}: ${collision}`, 2);
 		}
 	}
 	return DeepFreeze({ Contexts: contexts });

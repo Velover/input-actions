@@ -57,11 +57,17 @@ export function IsShared(instance: Instance): boolean {
 	return (entries.get(instance)?.Users ?? 0) > 1;
 }
 
-/** A value the package fired on a Scriptable binding, and the root handle that fired it */
+/** A value the package fired on a Scriptable binding, and the root handles that fired it */
 export interface IHeldValue {
 	Value: unknown;
-	/** The runtime of the root handle whose `Fire` it was: its `Destroy` lets go of it */
-	Holder: object;
+	/**
+	 * The runtimes of the root handles whose `Fire` it was: the value goes back to rest when the
+	 * last of them is destroyed. A handle firing the value the binding already holds joins them (IAS
+	 * ignores that Fire, but it holds the value as much as the first one does).
+	 */
+	Holders: Set<object>;
+	/** When IAS took the value, in the order of every package Fire: the action shows the latest write */
+	Order: number;
 }
 
 /**
@@ -69,10 +75,27 @@ export interface IHeldValue {
  * so any handle can release it, and a Server Authority swap carries it over.
  */
 const heldValues = setmetatable(new Map<InputBinding, IHeldValue>(), { __mode: "k" });
+let fireCount = 0;
 
 export function SetHeldValue(binding: InputBinding, value: unknown, neutral: unknown, holder: object) {
-	if (value === neutral) heldValues.delete(binding);
-	else heldValues.set(binding, { Value: value, Holder: holder });
+	if (value === neutral) {
+		heldValues.delete(binding);
+		return;
+	}
+	const held = heldValues.get(binding);
+	// A binding firing the value it already holds changes nothing in IAS (probed)
+	if (held !== undefined && held.Value === value) {
+		held.Holders.add(holder);
+		return;
+	}
+	fireCount++;
+	heldValues.set(binding, { Value: value, Holders: new Set([holder]), Order: fireCount });
+}
+
+/** Puts back a held value carried over a Server Authority swap, fired again as the latest write */
+export function RestoreHeldValue(binding: InputBinding, held: IHeldValue) {
+	fireCount++;
+	heldValues.set(binding, { Value: held.Value, Holders: held.Holders, Order: fireCount });
 }
 
 export function GetHeldValue(binding: InputBinding): IHeldValue | undefined {

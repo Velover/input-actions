@@ -11,21 +11,19 @@ import { CheckBindingKeys } from "./BindingRules";
 import { ApplySpec, ReadBinding, WriteBinding } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
 import { ROOT_MEMBERS, SCRIPTABLE } from "./Builders";
-import { ActionHandle } from "./Handles/ActionHandle";
+import { ActionHandle, IMovedBindings, MoveBindings, RefireHeldValues } from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import {
 	AddUser,
 	GetEntry,
-	IHeldValue,
 	ISharedEntry,
 	IsPackageMade,
 	IsShared,
 	RemoveUser,
 } from "./Registry";
 import {
-	CheckActionType,
 	CheckPlayerFolderName,
 	CreateAction,
 	CreateContext,
@@ -37,6 +35,7 @@ import {
 	IsPackageBindingName,
 	MatchesSlot,
 	ReservedSlotProblem,
+	SlotCollision,
 	WarnUnmentioned,
 } from "./Tree";
 import type {
@@ -50,13 +49,32 @@ import type {
 
 type AnyDefinition = IActionDefinition<Enum.InputActionType, unknown, boolean>;
 
-/** A Server Authority context running on a local stand-in until the server's copy arrives */
-interface IPendingLink {
+/**
+ * The local stand-in of a Server Authority context whose copy has not arrived (§8). Every root
+ * handle waiting for the same copy shares it, as it would share the copy: one context, one enabled
+ * state, and one swap for all of them.
+ */
+interface IStandIn {
+	/** `<PlayerFolderName>/<Context>`: where the copy is expected */
+	Key: string;
 	Name: string;
+	Instance: InputContext;
+	/** Each root handle's context on it, until the swap */
+	Links: IPendingLink[];
+}
+
+/** One root handle's context running on a stand-in until the server's copy arrives */
+interface IPendingLink {
+	Runtime: InputRuntime;
 	Schema: IContextSchema;
 	Handle: ContextHandle;
-	StandIn: InputContext;
+	StandIn: IStandIn;
 }
+
+/** The stand-ins waiting for their copy, by key */
+const standIns = new Map<string, IStandIn>();
+/** The client-only folder of the stand-ins, shared by the root handles; the server never sees it */
+let standInFolder: Folder | undefined;
 
 /** The default folder: `ReplicatedStorage.Inputs`, the one the Input Action Manager writes */
 export function GetDefaultFolder(): Instance {
@@ -75,6 +93,18 @@ function HasActions(context: Instance, schema: IContextSchema) {
 		if (action === undefined || !action.IsA("InputAction")) return false;
 	}
 	return true;
+}
+
+/** Whether `copy` is a server's copy with every action each root handle on the stand-in needs */
+function IsCopyReady(standIn: IStandIn, copy: Instance | undefined): copy is InputContext {
+	if (copy === undefined || !copy.IsA("InputContext")) return false;
+	return standIn.Links.every((link) => HasActions(copy, link.Schema));
+}
+
+/** The template's action of that name, when it has one */
+function TemplateAction(template: InputContext | undefined, name: string): InputAction | undefined {
+	const action = template?.FindFirstChild(name);
+	return action !== undefined && action.IsA("InputAction") ? action : undefined;
 }
 
 /**
@@ -137,11 +167,7 @@ export class InputRuntime implements IRuntime {
 	}
 
 	Untrack(instance: Instance) {
-		if (!this._used.has(instance)) return;
-		this._used.delete(instance);
-		const index = this._uses.indexOf(instance);
-		if (index !== -1) this._uses.remove(index);
-		RemoveUser(instance);
+		this.DropUse(instance);
 	}
 
 	TrackConnection(connection: RBXScriptConnection) {
@@ -181,6 +207,15 @@ export class InputRuntime implements IRuntime {
 		this._stopSnapshots?.();
 		for (const connection of this._connections) connection.Disconnect();
 		this._connections.clear();
+		// Its contexts leave the stand-ins they share; a stand-in no one waits on is off the list
+		for (const link of this._pendingLinks) {
+			const standIn = link.StandIn;
+			const index = standIn.Links.indexOf(link);
+			if (index !== -1) standIn.Links.remove(index);
+			if (standIn.Links.size() === 0 && standIns.get(standIn.Key) === standIn)
+				standIns.delete(standIn.Key);
+		}
+		this._pendingLinks.clear();
 
 		// Released while their bindings still exist: a held binding that is destroyed leaves its
 		// action stuck on (probed)
@@ -254,6 +289,16 @@ export class InputRuntime implements IRuntime {
 		if (options.ResetOnFocusLoss !== false) this.ResetOnFocusLoss();
 	}
 
+	/** Drops this runtime's use of the instance; with `destroyUnused`, what the package made goes with its last user */
+	private DropUse(instance: Instance, destroyUnused = false) {
+		if (!this._used.has(instance)) return;
+		this._used.delete(instance);
+		const index = this._uses.indexOf(instance);
+		if (index !== -1) this._uses.remove(index);
+		const entry = RemoveUser(instance);
+		if (destroyUnused && entry?.Created) instance.Destroy();
+	}
+
 	/** Registers one use of the instance by this runtime (once per instance) */
 	private AddUse(instance: Instance, created: boolean): ISharedEntry {
 		if (this._used.has(instance)) {
@@ -304,8 +349,9 @@ export class InputRuntime implements IRuntime {
 	/**
 	 * `Create` never waits for the server. When the server's copy under the player is already
 	 * there, the bindings are added to it, locally: from the template in the folder when it has
-	 * them, else from the schema. Otherwise the context runs on a local stand-in (a clone of the
-	 * template, or built from the schema) until the copy arrives (`LinkToServerCopy`).
+	 * them, else from the schema. Otherwise the context runs on a local stand-in until the copy
+	 * arrives (`LinkStandIn`): the stand-in another root handle waits on for the same copy, or a
+	 * new one (a clone of the template, or built from the schema).
 	 */
 	private BuildServerAuthorityContext(
 		name: string,
@@ -327,44 +373,58 @@ export class InputRuntime implements IRuntime {
 			this.WarnTemplateExtras(template, schema);
 		}
 
+		const key = `${playerFolderName}/${name}`;
 		const copy = Players.LocalPlayer.FindFirstChild(playerFolderName)?.FindFirstChild(name);
+		// Root handles waiting on a stand-in swap first, so the copy carries their state
+		const waiting = standIns.get(key);
+		if (waiting !== undefined && IsCopyReady(waiting, copy)) InputRuntime.LinkStandIn(waiting, copy);
 		if (copy !== undefined && copy.IsA("InputContext") && HasActions(copy, schema)) {
 			const handle = new ContextHandle(this, this.GetContextState(copy), name, true);
 			this.AddContext(handle);
 			for (const [actionName, definition] of Entries(schema.Actions)) {
-				const templateAction = template?.FindFirstChild(actionName);
-				this.BuildAction(
-					handle,
-					copy,
-					actionName,
-					definition,
-					templateAction !== undefined && templateAction.IsA("InputAction")
-						? templateAction
-						: undefined,
-					false,
-				);
+				const templateAction = TemplateAction(template, actionName);
+				this.BuildAction(handle, copy, actionName, definition, templateAction, false);
 			}
 			this.CloneExtraBindings(copy, template, schema);
 			return;
 		}
 
-		let standIn: InputContext;
-		if (template !== undefined) {
-			standIn = template.Clone();
-			standIn.Enabled = templateEnabled;
+		let standIn = standIns.get(key);
+		let handle: ContextHandle;
+		if (standIn !== undefined) {
+			// Adopted as any context in a folder; the template fills what the stand-in lacks
+			const instance = standIn.Instance;
+			this.UseStandInFolder();
+			handle = new ContextHandle(this, this.GetContextState(instance), name);
+			this.AddContext(handle);
+			for (const [actionName, definition] of Entries(schema.Actions)) {
+				const templateAction = TemplateAction(template, actionName);
+				this.BuildAction(handle, instance, actionName, definition, templateAction, false);
+			}
+			this.CloneExtraBindings(instance, template, schema);
 		} else {
-			standIn = CreateContext(name, schema.Priority, schema.Sink, schema.Enabled);
+			let instance: InputContext;
+			if (template !== undefined) {
+				instance = template.Clone();
+				instance.Enabled = templateEnabled;
+			} else {
+				instance = CreateContext(name, schema.Priority, schema.Sink, schema.Enabled);
+			}
+			// Everything in the stand-in is the package's, including what was cloned with the template
+			this.TrackCreated(instance);
+			for (const descendant of instance.GetDescendants()) this.TrackCreated(descendant);
+			handle = new ContextHandle(this, this.GetContextState(instance), name);
+			this.AddContext(handle);
+			for (const [actionName, definition] of Entries(schema.Actions)) {
+				this.BuildAction(handle, instance, actionName, definition, undefined, false);
+			}
+			instance.Parent = this.UseStandInFolder();
+			standIn = { Key: key, Name: name, Instance: instance, Links: [] };
+			standIns.set(key, standIn);
 		}
-		// Everything in the stand-in is the package's, including what was cloned with the template
-		this.TrackCreated(standIn);
-		for (const descendant of standIn.GetDescendants()) this.TrackCreated(descendant);
-		const handle = new ContextHandle(this, this.GetContextState(standIn), name);
-		this.AddContext(handle);
-		for (const [actionName, definition] of Entries(schema.Actions)) {
-			this.BuildAction(handle, standIn, actionName, definition, undefined, false);
-		}
-		standIn.Parent = this.GetStandInFolder();
-		this._pendingLinks.push({ Name: name, Schema: schema, Handle: handle, StandIn: standIn });
+		const link: IPendingLink = { Runtime: this, Schema: schema, Handle: handle, StandIn: standIn };
+		standIn.Links.push(link);
+		this._pendingLinks.push(link);
 	}
 
 	/** In Studio, warns about what the template has and the schema doesn't mention */
@@ -417,62 +477,73 @@ export class InputRuntime implements IRuntime {
 		else if (IsPackageMade(existing)) this.Use(existing);
 	}
 
-	/** A client-only folder for the stand-ins; the server never sees it */
-	private GetStandInFolder(): Folder {
-		if (this._standInFolder === undefined) {
-			const folder = new Instance("Folder");
+	/** The client-only folder of the stand-ins, shared by the root handles that have one */
+	private UseStandInFolder(): Folder {
+		if (this._standInFolder !== undefined) return this._standInFolder;
+		let folder = standInFolder;
+		if (folder !== undefined && IsPackageMade(folder)) {
+			this.Use(folder);
+		} else {
+			folder = new Instance("Folder");
 			folder.Name = "InputActionsStandIns";
 			folder.Parent = ReplicatedStorage;
 			this.TrackCreated(folder);
-			this._standInFolder = folder;
+			standInFolder = folder;
 		}
-		return this._standInFolder;
+		this._standInFolder = folder;
+		return folder;
+	}
+
+	/** Lets go of the stand-in folder once none of this root handle's stand-ins is left in it */
+	private DropStandInFolder() {
+		const folder = this._standInFolder;
+		if (folder === undefined) return;
+		// A stand-in kept for a copy of another Type
+		for (const child of folder.GetChildren()) {
+			if (this._used.has(child)) return;
+		}
+		this._standInFolder = undefined;
+		this.DropUse(folder, true);
 	}
 
 	/** Swaps each stand-in for the server's copy once it arrives; warns once after `timeout` */
 	private WatchForServerCopies(playerFolderName: string, timeout: number) {
 		const connection = RunService.Heartbeat.Connect(() => {
 			const folder = Players.LocalPlayer.FindFirstChild(playerFolderName);
-			if (folder === undefined) return;
-			for (let index = this._pendingLinks.size() - 1; index >= 0; index--) {
-				const pending = this._pendingLinks[index];
-				const copy = folder.FindFirstChild(pending.Name);
-				if (copy === undefined || !copy.IsA("InputContext") || !HasActions(copy, pending.Schema))
-					continue;
-				this._pendingLinks.remove(index);
-				// A copy of another Type leaves the context on its stand-in
-				this.LinkToServerCopy(pending, copy);
+			for (const pending of [...this._pendingLinks]) {
+				// Swapped already, with another root handle on the same stand-in
+				if (folder === undefined || !this._pendingLinks.includes(pending)) continue;
+				const copy = folder.FindFirstChild(pending.StandIn.Name);
+				if (IsCopyReady(pending.StandIn, copy)) InputRuntime.LinkStandIn(pending.StandIn, copy);
 			}
 			if (this._pendingLinks.size() === 0) {
 				connection.Disconnect();
 				this.UntrackConnection(connection);
-				const standIns = this._standInFolder;
-				if (standIns !== undefined && standIns.GetChildren().size() === 0) {
-					this.Untrack(standIns);
-					standIns.Destroy();
-					this._standInFolder = undefined;
-				}
+				this.DropStandInFolder();
 			}
 		});
 		this.TrackConnection(connection);
 
 		task.delay(timeout, () => {
 			if (this._destroyed || this._pendingLinks.size() === 0) return;
-			const names = this._pendingLinks.map((pending) => pending.Name);
+			const names = this._pendingLinks.map((pending) => pending.StandIn.Name);
 			names.sort();
 			// A copy that is there but lacks actions: the server runs another version of the schema
 			const incomplete = new Array<string>();
 			const folder = Players.LocalPlayer.FindFirstChild(playerFolderName);
 			for (const pending of this._pendingLinks) {
-				const copy = folder?.FindFirstChild(pending.Name);
+				const copy = folder?.FindFirstChild(pending.StandIn.Name);
 				if (copy === undefined) continue;
 				const missing = new Array<string>();
-				for (const [actionName] of Entries(pending.Schema.Actions)) {
-					const action = copy.FindFirstChild(actionName);
-					if (action === undefined || !action.IsA("InputAction")) missing.push(actionName);
+				for (const link of pending.StandIn.Links) {
+					for (const [actionName] of Entries(link.Schema.Actions)) {
+						const action = copy.FindFirstChild(actionName);
+						if ((action === undefined || !action.IsA("InputAction")) && !missing.includes(actionName))
+							missing.push(actionName);
+					}
 				}
 				missing.sort();
-				incomplete.push(`${pending.Name} is there but lacks ${missing.join(", ")}`);
+				incomplete.push(`${pending.StandIn.Name} is there but lacks ${missing.join(", ")}`);
 			}
 			incomplete.sort();
 			warn(
@@ -489,52 +560,74 @@ export class InputRuntime implements IRuntime {
 	}
 
 	/**
-	 * Moves a stand-in's bindings (rebinds, attached buttons and all) under the server's actions,
-	 * points the handles at the server's copy, destroys the stand-in, then fires again the values
-	 * the Scriptable bindings held. Defaults don't change, so `Reset` still returns to the same ones.
-	 * Returns false, leaving the context on its stand-in, when the copy's actions are of another Type.
+	 * Swaps a stand-in for the server's copy, for every root handle on it at once. The bindings
+	 * move under the server's actions with everything they have (rebinds, attached buttons), the
+	 * handles point at the copy, the context's state (base state and every handle's requests) goes
+	 * with them, the stand-in is destroyed, then the values the Scriptable bindings held are fired
+	 * again. Defaults don't change, so `Reset` still returns to the same ones. A copy whose actions
+	 * are of another Type leaves the handles on the stand-in.
 	 */
-	private LinkToServerCopy(pending: IPendingLink, copy: InputContext): boolean {
-		for (const [actionName, definition] of Entries(pending.Schema.Actions)) {
-			const action = copy.FindFirstChild(actionName) as InputAction;
-			if (action.Type !== definition.Type) {
+	private static LinkStandIn(standIn: IStandIn, copy: InputContext) {
+		const links = [...standIn.Links];
+		standIns.delete(standIn.Key);
+		standIn.Links.clear();
+		for (const link of links) {
+			const pending = link.Runtime._pendingLinks;
+			const index = pending.indexOf(link);
+			if (index !== -1) pending.remove(index);
+		}
+		for (const link of links) {
+			for (const [actionName, definition] of Entries(link.Schema.Actions)) {
+				const action = copy.FindFirstChild(actionName) as InputAction;
+				if (action.Type === definition.Type) continue;
 				warn(
-					`InputActions: ${JoinPath(pending.Name, actionName)}: the server's copy is a ${action.Type.Name} ` +
+					`InputActions: ${JoinPath(standIn.Name, actionName)}: the server's copy is a ${action.Type.Name} ` +
 						`action, but the schema declares ${definition.Type.Name}; staying on the local stand-in`,
 				);
-				return false;
+				return;
 			}
 		}
 
-		const held = new Array<[ActionHandle, Array<[InputBinding, IHeldValue]>]>();
-		for (const [actionName, handle] of pairs(pending.Handle.Actions)) {
-			const target = copy.FindFirstChild(actionName) as InputAction;
-			this.Use(target);
-			held.push([handle, handle.MoveTo(target)]);
-		}
-		// Actions of the template the schema doesn't mention take their bindings along too
-		for (const child of pending.StandIn.GetChildren()) {
-			if (!child.IsA("InputAction") || pending.Schema.Actions[child.Name] !== undefined) continue;
-			const target = copy.FindFirstChild(child.Name);
+		// Every action of the stand-in moves its bindings once, a template's extras included
+		const source = standIn.Instance;
+		const moves = new Map<InputAction, IMovedBindings>();
+		for (const action of source.GetChildren()) {
+			if (!action.IsA("InputAction")) continue;
+			const target = copy.FindFirstChild(action.Name);
 			if (target === undefined || !target.IsA("InputAction")) continue;
-			this.UseExtraAction(target);
-			for (const binding of child.GetChildren()) {
-				if (!binding.IsA("InputBinding")) continue;
-				const existing = target.FindFirstChild(binding.Name);
-				if (existing === undefined) binding.Parent = target;
-				else if (IsPackageMade(existing)) this.Use(existing);
+			const mentioned = links.some((link) => link.Schema.Actions[action.Name] !== undefined);
+			moves.set(action, MoveBindings(action, target, mentioned));
+		}
+		for (const link of links) {
+			const runtime = link.Runtime;
+			for (const [, handle] of pairs(link.Handle.Actions)) {
+				const moved = moves.get(handle.Instance)!;
+				runtime.Use(moved.Target);
+				handle.LinkTo(moved.Target, moved.Moved);
 			}
+			for (const [action, moved] of moves) {
+				for (const [binding, now] of moved.Moved) {
+					if (now !== binding && runtime._used.has(binding)) runtime.Use(now);
+				}
+				if (link.Schema.Actions[action.Name] === undefined && runtime._used.has(action))
+					runtime.UseExtraAction(moved.Target);
+			}
+			runtime.AddUse(copy, false);
 		}
 
-		// Another root handle may have linked to the copy already: the state is then shared
-		const previous = pending.Handle.GetSharedState();
-		const entry = this.AddUse(copy, false);
-		entry.Context ??= new ContextState(copy, previous.Base, previous.Effective);
-		pending.Handle.LinkTo(entry.Context);
-		pending.StandIn.Enabled = false;
-		pending.StandIn.Destroy();
-		for (const [handle, values] of held) handle.RefireHeldValues(values);
-		return true;
+		const state = links[0].Handle.GetSharedState();
+		const entry = GetEntry(copy)!;
+		if (entry.Context === undefined) {
+			entry.Context = state;
+			state.MoveTo(copy);
+		} else {
+			for (const handle of [...state.Handles]) handle.JoinState(entry.Context);
+		}
+		source.Enabled = false;
+		source.Destroy();
+		for (const link of links) link.Runtime.DropUse(source);
+		for (const [, moved] of moves) RefireHeldValues(moved);
+		for (const link of links) link.Handle.MarkLinked();
 	}
 
 	private CloneBinding(binding: InputBinding, action: InputAction): InputBinding {
@@ -553,6 +646,10 @@ export class InputRuntime implements IRuntime {
 		warnExtras: boolean,
 	) {
 		const path = JoinPath(contextHandle.Name, actionName);
+		// Schema refuses these; a schema made without it could still hold them
+		const slots = Entries(definition.Bindings as Record<string, unknown>).map(([slot]) => slot);
+		const collision = SlotCollision(actionName, slots);
+		if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
 		let action = FindAction(context, actionName, definition.Type, path);
 		const created = action === undefined;
 		if (action === undefined) {
@@ -569,9 +666,7 @@ export class InputRuntime implements IRuntime {
 		}
 
 		const handle = new ActionHandle(this, action, actionName, definition.TrackPrevious);
-		const slots = new Array<string>();
 		for (const [slot, spec] of pairs(definition.Bindings as Record<string, unknown>)) {
-			slots.push(slot);
 			handle.Bindings[slot] = this.BuildBinding(
 				contextHandle,
 				action,

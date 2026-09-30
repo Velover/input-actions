@@ -163,8 +163,9 @@ adopted from existing instances.
     `JumpGamepad`, `JumpTouch`; see `Places/GamePlace.rbxl`). Bindings the package creates are
     named `A .. S`.
   - A slot can't take a name whose binding (`S` or `A .. S`) would be one the package names itself
-    (§6): `Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`. `Schema` (and `Create`)
-    refuse them.
+    (§6): `Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`. Nor can one action have
+    slots `S` and `A .. S`: both would match the binding `A .. S`. `Schema` (and `Create`) refuse
+    them.
 - **Precedence: what exists wins.** An existing context keeps its `Priority`, `Sink`, `Enabled`;
   an existing action keeps `Enabled`/`DisplayName`; an existing binding keeps its keys, modifiers
   and tuning. The schema fills only what is missing.
@@ -184,10 +185,12 @@ adopted from existing instances.
   - every handle on a binding has the same defaults (the first handle's snapshot);
   - destroying one handle never releases input that another live handle's actions hold. It lets
     go of what it holds itself, on a shared action too: a value its `Fire`/`Tap`/Scriptable slots
-    left goes back to rest (the package records which root handle fired each held value), unless
-    the action shows a value fired after it; when its attached buttons go while the action is
-    pressed and nothing another handle fired holds it, the action is released (a destroyed held
-    binding would leave it stuck on);
+    left goes back to rest (the package records which root handles fired each held value, and the
+    order of its Fires), unless the package fired a value after it (the action shows the last
+    write, whatever the values). A value another live handle fired on the same binding too is
+    theirs as well (IAS ignored the repeat) and stays. When its attached buttons go while the
+    action is pressed and nothing another handle fired holds it, the action is released (a
+    destroyed held binding would leave it stuck on);
   - a Server Authority template stays disabled (§8) until the last handle using it is destroyed.
 - `Input.Destroy()` disconnects everything, destroys what the package created, and leaves adopted
   instances in place. Adopted bindings get their defaults back (rebinds are undone, so a later
@@ -247,7 +250,9 @@ press would reach the server as no press at all), and:
 
 - `AttachButton(button: GuiButton): () => void`. Creates a new Automatic binding
   `<Action>UIButton<n>` (the lowest free `n`) with `UIButton = button`; the returned function
-  removes it. Several buttons may be attached at once. Also removed when the button is destroyed.
+  removes it. Several buttons may be attached at once. Also removed when the button is destroyed;
+  a button destroyed before the call gets no binding (a destroyed instance's `Parent` is locked
+  **(probed)**, the only sign of it a script can read).
   - **Destroying a held binding leaves the action stuck on (probed).** When the binding is removed
     while the action's state is `true`, reset the action (toggle `InputAction.Enabled` off and back
     on) so it releases.
@@ -330,9 +335,10 @@ own actions.
   - it starts from the defaults (a binding missing from the save is reset to default);
   - unknown path, unknown property, unknown key name (`Enum.KeyCode.FromName` returns `nil`
     **(probed)**; `"Unknown"` resolves to `None`), a key not allowed for that slot, a number that
-    is not finite, a `ResponseCurve` whose binding would not end on a thumbstick `KeyCode` (the
-    entry's `KeyCode`, else the default one; a composite direction clears it): that entry is
-    skipped and stays default.
+    is not finite as a float (the binding properties are floats: beyond ±3.4e38 a number becomes
+    `inf` there, which JSON can't hold; `Set` refuses it too), a `ResponseCurve` whose binding would
+    not end on a thumbstick `KeyCode` (the entry's `KeyCode`, else the default one; a composite
+    direction clears it): that entry is skipped and stays default.
 - `ExportBindings()` leaves out a `ResponseCurve` beside a `KeyCode` that is not a thumbstick (it
   acts on nothing there), so every export imports cleanly.
 - `InputActions.SanitizeBindings(schema, json): string` runs the same validation against the
@@ -364,13 +370,19 @@ client; the server only reads action state, which IAS replicates on its own.
   - Otherwise build a **local stand-in**: a client-only context (a clone of the template, or built
     from the schema) with its bindings, in a client-only folder. The handles work on it at once:
     input, `GetState`, events, `Fire`, rebinding, requests, `AttachButton`. Its state never reaches
-    the server.
+    the server. Root handles waiting for the same copy (`PlayerFolderName` and context name) share
+    one stand-in, adopted as `Create` twice adopts a folder's context (§4): one enabled state
+    before the swap as after it, and one swap for all of them. A `Create` that finds the copy
+    while other root handles still wait for it swaps them first, so the copy carries their state.
   - When the server's copy arrives, **swap**: add the bindings to the server's actions, carrying
     over everything the stand-in has now (rebinds, the context's base state and held requests,
     attached buttons, the last value fired on each Scriptable binding, so a held virtual stick
     stays held), point the handles at the server's instances, then disable and destroy the
     stand-in. A Bool action held at the swap may release once (stand-in disabled) and press again
-    on the next input; `Pressed`/`Released` listeners see that. After the swap, `Reset` still
+    on the next input; `Pressed`/`Released` listeners see that. The stand-in's events still on
+    their way are dropped, so at the swap each handle tells its listeners the copy's state
+    (`Released`, `StateChanged` to rest) before the copy's own events: a value fired again reads
+    as a release and a new press, never two `Pressed` in a row. After the swap, `Reset` still
     returns to the same defaults. When another root handle swapped to the same copy first, its
     bindings of the same name are adopted rather than doubled (attached buttons are renamed).
   - A copy whose action has another `Type`: `warn` naming the path, and stay on the stand-in (it
@@ -525,4 +537,5 @@ places, `SignalBehavior = Deferred`:
 | Server Authority: `GetState()` after a `Fire` on the server's copy | the fired value shows on the next simulation step |
 | Local context: a binding fires the value it already holds | ignored; after an action `Enabled` toggle it counts again |
 | PlayerModule contexts | legacy scripts: none; IAS scripts: `StarterPlayer.PlayerModule.InputContexts`; Server Authority: `player.InputContexts` |
+| A destroyed instance's `Parent` | writing `nil` (its value) succeeds; writing an instance errors `The Parent property of X is locked`; a live instance made its own parent errors `Attempt to set X as its own parent`; connecting to a destroyed instance's events works and reports `Connected` |
 | Server Authority: which `CameraContext` the CameraModule tunes | `StarterPlayer.PlayerModule.InputContexts`: its `CameraRotationAction` bindings (`MouseBinding`, `TrackpadBinding`, `GamepadBinding`, `MicroGamepadBinding`) had `Scale` 0.36; the player's copy keeps 1 |

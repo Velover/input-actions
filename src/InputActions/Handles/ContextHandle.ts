@@ -24,15 +24,27 @@ export class ContextState {
 		this.Effective = effective;
 	}
 
-	Update() {
+	/** Writes the effective state when it changed, and tells the handles; returns whether it did */
+	Update(): boolean {
 		const effective =
 			this.FalseRequests > 0 ? false : this.TrueRequests > 0 ? true : this.Base;
-		if (effective === this.Effective) return;
+		if (effective === this.Effective) return false;
 		this.Effective = effective;
 		// Released before disabling: a Fire on a disabled context is ignored
 		if (!effective) ReleaseActions(this.Instance, this.Handles);
 		this.Instance.Enabled = effective;
 		for (const handle of [...this.Handles]) handle.NotifyEnabledChanged(effective);
+		return true;
+	}
+
+	/**
+	 * The server's copy takes over from a Server Authority stand-in: the state (base state and every
+	 * handle's requests) carries over unchanged, so the handles' listeners hear nothing.
+	 */
+	MoveTo(copy: InputContext) {
+		this.Instance = copy;
+		copy.Enabled = this.Effective;
+		for (const handle of this.Handles) handle.Instance = copy;
 	}
 }
 
@@ -140,18 +152,26 @@ export class ContextHandle {
 	}
 
 	/**
-	 * Moves the handle, with its requests, onto the server's copy and its shared state. The copy
-	 * takes the effective state the handle holds.
+	 * Moves the handle, with its requests, onto a state other handles on the server's copy share
+	 * already (a root handle whose schema the copy satisfied before this one's). Their base state
+	 * wins; this handle's listeners hear the effective state when it differs from what they heard.
 	 */
-	LinkTo(state: ContextState) {
+	JoinState(state: ContextState) {
+		const before = this._state.Effective;
 		this.Leave();
 		this._state = state;
 		this.Instance = state.Instance;
 		state.Handles.push(this);
 		state.FalseRequests += this._falseRequests;
 		state.TrueRequests += this._trueRequests;
-		state.Update();
+		const told = state.Update();
 		if (state.Instance.Enabled !== state.Effective) state.Instance.Enabled = state.Effective;
+		if (!told && state.Effective !== before) this.NotifyEnabledChanged(state.Effective);
+	}
+
+	/** The handle now wraps the server's copy: `LinkedToServer` fires, once */
+	MarkLinked() {
+		if (this._linked) return;
 		this._linked = true;
 		this._linkedToServer.Fire();
 	}

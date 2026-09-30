@@ -87,8 +87,12 @@ export function IsPropertyOf(actionType: ActionTypeName, name: string): boolean 
 	);
 }
 
+/** The largest float: the binding properties are floats, and a larger number becomes `inf` there */
+const FLOAT_MAX = 3.4028234663852886e38;
+
+/** Whether a number stays finite in a float property (so it exports, and the export imports) */
 export function IsFiniteNumber(value: unknown): value is number {
-	return typeIs(value, "number") && value === value && value !== math.huge && value !== -math.huge;
+	return typeIs(value, "number") && value === value && math.abs(value) <= FLOAT_MAX;
 }
 
 function KeyProblem(actionType: ActionTypeName, slot: string, value: unknown): string | undefined {
@@ -154,7 +158,9 @@ function CheckPropertyValue(name: string, value: unknown): string | undefined {
 				? undefined
 				: `${name} must be a finite Vector3`;
 		default:
-			return IsFiniteNumber(value) ? undefined : `${name} must be a finite number`;
+			return IsFiniteNumber(value)
+				? undefined
+				: `${name} must be a finite number (a float: at most 3.4e38 either way)`;
 	}
 }
 
