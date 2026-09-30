@@ -33,9 +33,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
   refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
   `bun run build` and `bun run test` run it, and an unused directive fails them.
-- Whether the Studio window a run opens renders depends on how Studio opens it. Often it renders
-  nothing (`RenderStepped` and `BindToRenderStep` never fire, while Heartbeat runs at about 240 Hz),
-  but it has also rendered, at a cadence that doesn't follow Heartbeat. The package's per-frame
+- The Studio window a run opens renders only while it is visible: collapsed or minimized, it
+  renders nothing (`RenderStepped` and `BindToRenderStep` never fire, while Heartbeat runs at about
+  240 Hz), and visible, it renders at a cadence that doesn't follow Heartbeat. A minimized Roblox
+  client stops rendering the same way. The package's per-frame
   work (`src/Internal/EveryFrame.ts`) runs once per frame, at the render step or else at
   `PreAnimation`, so tests must hold either way; code that only binds to a render step may never
   run in a test. Such a window also has Heartbeat ticks with no `PreAnimation`, `PreSimulation` or

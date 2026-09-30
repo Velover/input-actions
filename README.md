@@ -15,8 +15,10 @@ requests, on-screen buttons and Server Authority support.
   save only what the player changed. `SanitizeBindings` cleans a save on the server.
 - **Contexts:** a base state plus `Request(true | false)` holds; focus loss (TextBox, window, menu)
   releases held keys.
-- **Server Authority:** the server provides the contexts to each player and reads the state; the
-  keybinds stay on the client.
+- **Server Authority:** opt in per context with `ServerAuthority: true`. The server provides those
+  contexts to each player and reads the state; the keybinds stay on the client. The package can't
+  tell whether the place actually runs Server Authority, so it can't warn when it's off
+  ([details](docs/Advanced.md)).
 - Kept from 0.5: `MouseController`, `InputCatcher`, `RawInputHandler`.
 
 ## Installation
