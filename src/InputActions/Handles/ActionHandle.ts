@@ -50,7 +50,8 @@ export interface IMovedBindings {
  * were fired, so the action ends on the same latest write. A binding another root handle already
  * moved there under the same name is adopted rather than doubled (button bindings are renamed
  * instead).
- * @param carryEnabled the action is in a schema: the copy takes the stand-in's `Enabled`
+ * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
+ * `Enabled` (the server's copy is always enabled; the client owns it)
  */
 export function MoveBindings(
 	source: InputAction,

@@ -40,9 +40,45 @@ export function ResetBindings(runtime: IRuntime, handles: readonly BindingHandle
 	}
 }
 
+/** A save nests 4 deep at most: the save, `Bindings`, an entry, a vector */
+const MAX_SAVE_DEPTH = 8;
+
+/**
+ * Whether `json` nests arrays or objects deeper than `limit`, outside strings. HttpService:JSONDecode
+ * recurses into nesting, and a few hundred levels end the whole process, pcall or not (probed): a
+ * save, which may come from a client, is measured before it is decoded.
+ */
+function NestsDeeperThan(json: string, limit: number): boolean {
+	let depth = 0;
+	let position = 1;
+	while (true) {
+		const [index] = json.find('[%[%]{}"]', position);
+		if (index === undefined) return false;
+		const character = json.sub(index, index);
+		position = index + 1;
+		if (character === '"') {
+			// Skips the string: up to the next quote that isn't escaped
+			while (true) {
+				const [stop] = json.find('["\\]', position);
+				// Unterminated: JSONDecode refuses it before reaching anything deeper
+				if (stop === undefined) return false;
+				const escape = json.sub(stop, stop) === "\\";
+				position = stop + (escape ? 2 : 1);
+				if (!escape) break;
+			}
+		} else if (character === "[" || character === "{") {
+			depth++;
+			if (depth > limit) return true;
+		} else {
+			depth--;
+		}
+	}
+}
+
 /** Decodes the outer object; returns the `Bindings` table, or the reason nothing can be applied */
 function DecodeSave(json: string): Record<string, unknown> | string {
 	if (!typeIs(json, "string")) return "the save is not a string";
+	if (NestsDeeperThan(json, MAX_SAVE_DEPTH)) return "the save nests deeper than a save can";
 	const [ok, decoded] = pcall(() => HttpService.JSONDecode(json));
 	if (!ok) return "the save is not valid JSON";
 	if (!typeIs(decoded, "table")) return "the save is not an object";

@@ -13,7 +13,10 @@ import {
 import { InputActions } from "@rbxts/input-actions";
 import { Players, ReplicatedStorage } from "@rbxts/services";
 import { SA_LATE_FOLDER_NAME, SA_LATE_SCHEMA, SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { countSignal, frames, recordSignal, recordWarnings } from "./helpers";
+import { countSignal, frames, newFolder, recordSignal, recordWarnings } from "./helpers";
+
+const K = Enum.KeyCode;
+const BOOL = Enum.InputActionType.Bool;
 
 /** Calls the server's fixture (src/server/tests/server-authority.ts) */
 function server(...args: unknown[]): unknown {
@@ -39,6 +42,58 @@ function createSaInput() {
 	const input = InputActions.Create(SA_SCHEMA, { Folder: provide() });
 	defer(() => input.Destroy());
 	return input;
+}
+
+let copyCount = 0;
+/**
+ * The server's copy, played on the client in a player folder no server provides: the context and
+ * its actions enabled, as ProvideToPlayers makes them, parented last
+ */
+function localCopy(contextName: string, actionNames: string[]) {
+	copyCount++;
+	const folder = new Instance("Folder");
+	folder.Name = `InputsLocalCopy${copyCount}`;
+	const context = new Instance("InputContext");
+	context.Name = contextName;
+	for (const name of actionNames) {
+		const action = new Instance("InputAction");
+		action.Name = name;
+		action.Type = BOOL;
+		action.Parent = context;
+	}
+	return {
+		FolderName: folder.Name,
+		Context: context,
+		/** Parents the copy under the player */
+		Arrive() {
+			context.Parent = folder;
+			folder.Parent = Players.LocalPlayer;
+		},
+		Action(name: string) {
+			return context.FindFirstChild(name) as InputAction;
+		},
+		Cleanup: () => folder.Destroy(),
+	};
+}
+
+/** A template context with one Bool action per entry of `actions` (name to Enabled), each with a key */
+function localTemplate(contextName: string, enabled: boolean, actions: Array<[string, boolean]>) {
+	const folder = newFolder("SaEnabledTemplates");
+	const context = new Instance("InputContext");
+	context.Name = contextName;
+	context.Enabled = enabled;
+	for (const [name, actionEnabled] of actions) {
+		const action = new Instance("InputAction");
+		action.Name = name;
+		action.Enabled = actionEnabled;
+		action.Parent = context;
+		const binding = new Instance("InputBinding");
+		binding.Name = `${name}KeyboardAndMouse`;
+		binding.KeyCode = K.H;
+		binding.Parent = action;
+	}
+	context.Parent = folder;
+	return folder;
 }
 
 /** Server Authority on the client: the server's copy, or a stand-in until it arrives (design spec §8) */
@@ -245,6 +300,119 @@ export class ServerAuthorityClientTests implements OnStart {
 				expectTrue(message.find("lacks Prod", 1, true)[0] !== undefined, message);
 				input.SaPartial.Actions.Prod.Fire(true);
 				expectTrue(input.SaPartial.Actions.Prod.GetState(), "the stand-in works");
+			});
+
+			// ---- the server's copy is always enabled; the client owns Enabled (R4-F1)
+
+			test("the copy takes the schema's Enabled on the client, once: the client's state stays", () => {
+				const copy = localCopy("SaMenu", ["Open", "Close"]);
+				defer(copy.Cleanup);
+				copy.Arrive();
+				const schema = InputActions.Schema({
+					SaMenu: {
+						ServerAuthority: true,
+						Enabled: false,
+						Actions: {
+							Open: InputActions.Bool({ KeyboardAndMouse: K.M }, { Enabled: false }),
+							Close: InputActions.Bool({ KeyboardAndMouse: K.N }),
+						},
+					},
+				});
+				const options = { Folder: newFolder(), PlayerFolderName: copy.FolderName, Timeout: 1000 };
+				const first = InputActions.Create(schema, options);
+				const menu = first.SaMenu;
+				expectTrue(menu.IsLinkedToServer());
+				expectEqual(menu.Instance, copy.Context);
+				expectFalse(copy.Context.Enabled, "the schema's Enabled: false");
+				expectFalse(menu.IsEnabled());
+				expectFalse(menu.Actions.Open.IsEnabled(), "the action's Enabled: false");
+				expectTrue(menu.Actions.Close.IsEnabled());
+
+				// a second handle shares the client's state; after the last Destroy it stays on the copy
+				menu.SetEnabled(true);
+				menu.Actions.Open.SetEnabled(true);
+				const second = InputActions.Create(schema, options);
+				expectTrue(second.SaMenu.IsEnabled());
+				expectTrue(second.SaMenu.Actions.Open.IsEnabled());
+				second.Destroy();
+				first.Destroy();
+				expectTrue(copy.Context.Enabled, "the base state stays on the copy");
+				const again = InputActions.Create(schema, options);
+				defer(() => again.Destroy());
+				expectTrue(again.SaMenu.IsEnabled(), "not the schema's again");
+				expectTrue(again.SaMenu.Actions.Open.IsEnabled());
+			});
+
+			test("on the copy, the template's Enabled wins over the schema's, its extra actions included", () => {
+				const folder = localTemplate("SaTemplated", false, [
+					["Poke", false],
+					["Wave", true],
+					["Extra", false],
+				]);
+				const copy = localCopy("SaTemplated", ["Poke", "Wave", "Fresh", "Extra"]);
+				defer(copy.Cleanup);
+				copy.Arrive();
+				const schema = InputActions.Schema({
+					SaTemplated: {
+						ServerAuthority: true,
+						Enabled: true,
+						Actions: {
+							Poke: InputActions.Bool({ KeyboardAndMouse: K.P }, { Enabled: true }),
+							Wave: InputActions.Bool({ KeyboardAndMouse: K.O }, { Enabled: false }),
+							// the template lacks it: the schema's
+							Fresh: InputActions.Bool({ KeyboardAndMouse: K.I }, { Enabled: false }),
+						},
+					},
+				});
+				const input = InputActions.Create(schema, {
+					Folder: folder,
+					PlayerFolderName: copy.FolderName,
+					Timeout: 1000,
+				});
+				defer(() => input.Destroy());
+				expectTrue(input.SaTemplated.IsLinkedToServer());
+				expectFalse(copy.Context.Enabled, "the template's context is off");
+				expectFalse(input.SaTemplated.IsEnabled());
+				expectFalse(copy.Action("Poke").Enabled, "Poke: the template's");
+				expectTrue(copy.Action("Wave").Enabled, "Wave: the template's");
+				expectFalse(copy.Action("Fresh").Enabled, "Fresh: the schema's");
+				expectFalse(copy.Action("Extra").Enabled, "Extra: the template's, beside its key");
+				expectDefined(copy.Action("Extra").FindFirstChild("ExtraKeyboardAndMouse"));
+			});
+
+			test("at the swap the copy takes the stand-in's Enabled, the template's extra actions included", () => {
+				const folder = localTemplate("SaSwapped", true, [
+					["Poke", true],
+					["Extra", false],
+				]);
+				const copy = localCopy("SaSwapped", ["Poke", "Extra"]);
+				defer(copy.Cleanup);
+				const schema = InputActions.Schema({
+					SaSwapped: {
+						ServerAuthority: true,
+						Actions: { Poke: InputActions.Bool({ KeyboardAndMouse: K.P }) },
+					},
+				});
+				const input = InputActions.Create(schema, {
+					Folder: folder,
+					PlayerFolderName: copy.FolderName,
+					Timeout: 1000,
+				});
+				defer(() => input.Destroy());
+				const context = input.SaSwapped;
+				expectFalse(context.IsLinkedToServer());
+				context.SetEnabled(false);
+				context.Actions.Poke.SetEnabled(false);
+				copy.Arrive();
+				eventually(() => context.IsLinkedToServer(), "the swap");
+				expectEqual(context.Instance, copy.Context);
+				expectFalse(copy.Context.Enabled, "the base state");
+				expectFalse(copy.Action("Poke").Enabled, "Poke, disabled on the stand-in");
+				expectFalse(copy.Action("Extra").Enabled, "Extra, disabled in the template");
+				context.SetEnabled(true);
+				context.Actions.Poke.SetEnabled(true);
+				expectTrue(copy.Context.Enabled);
+				expectTrue(copy.Action("Poke").Enabled);
 			});
 
 			test("the server reads the state the client drives", () => {

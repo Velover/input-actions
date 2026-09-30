@@ -4,6 +4,7 @@ import { ReservedSlotProblem, SlotCollision } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
+	CheckContexts,
 	IActionDefinition,
 	IActionOptions,
 	IBoolBinding,
@@ -113,8 +114,34 @@ export function ViewportPosition<
 
 const ACTION_TYPES = Enum.InputActionType.GetEnumItems();
 
+/** The options of a context schema beside `Actions`, and the type of each */
+const CONTEXT_OPTIONS: Record<string, "boolean" | "number"> = {
+	ServerAuthority: "boolean",
+	Priority: "number",
+	Sink: "boolean",
+	Enabled: "boolean",
+};
+
+/** Why a context schema's options are wrong, if they are: a misspelt one would be ignored */
+function ContextOptionsProblem(context: object): string | undefined {
+	for (const [key, value] of pairs(context as Record<string, unknown>)) {
+		if (key === "Actions") continue;
+		const expected = CONTEXT_OPTIONS[key as string];
+		if (expected === undefined) {
+			return (
+				`unknown option "${tostring(key)}"; a context has ServerAuthority, Priority, Sink, ` +
+				"Enabled and Actions"
+			);
+		}
+		if (!typeIs(value, expected)) return `${key} must be a ${expected}, not ${typeOf(value)}`;
+	}
+	return undefined;
+}
+
 /** Checks a schema at runtime (for values the types could not see, e.g. casts) and freezes it */
-export function Schema<S extends Record<string, IContextSchema>>(contexts: S): IInputSchema<S> {
+export function Schema<S extends Record<string, IContextSchema>>(
+	contexts: S & CheckContexts<S>,
+): IInputSchema<S> {
 	for (const [contextName, context] of Entries<IContextSchema>(contexts)) {
 		const where = `InputActions.Schema: ${contextName}`;
 		if (ROOT_MEMBERS.includes(contextName))
@@ -123,6 +150,8 @@ export function Schema<S extends Record<string, IContextSchema>>(contexts: S): I
 			error(`${where}: a context name can't contain "/"`, 2);
 		if (!typeIs(context, "table") || !typeIs(context.Actions, "table"))
 			error(`${where}: missing Actions`, 2);
+		const optionsProblem = ContextOptionsProblem(context);
+		if (optionsProblem !== undefined) error(`${where}: ${optionsProblem}`, 2);
 		for (const [actionName, action] of Entries(context.Actions)) {
 			const actionWhere = `${where}/${actionName}`;
 			if (actionName.find("/", 1, true)[0] !== undefined)

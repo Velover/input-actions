@@ -57,6 +57,21 @@ export function IsShared(instance: Instance): boolean {
 	return (entries.get(instance)?.Users ?? 0) > 1;
 }
 
+/**
+ * Instances of a server's copy (Server Authority) whose `Enabled` the client has taken over. The
+ * server makes its copy enabled; the first time the package takes up one of its contexts or actions,
+ * the client gives it the template's or the schema's `Enabled`. From then on the instance's own value
+ * is the client's state, as for any adopted instance.
+ */
+const claimedCopies = setmetatable(new Map<Instance, true>(), { __mode: "k" });
+
+/** Marks an instance of a server's copy as the client's; returns whether it was not yet */
+export function ClaimCopy(instance: Instance): boolean {
+	if (claimedCopies.has(instance)) return false;
+	claimedCopies.set(instance, true);
+	return true;
+}
+
 /** A value the package fired on a Scriptable binding, and the root handles that fired it */
 export interface IHeldValue {
 	Value: unknown;

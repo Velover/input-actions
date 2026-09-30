@@ -17,6 +17,7 @@ import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import {
 	AddUser,
+	ClaimCopy,
 	GetEntry,
 	ISharedEntry,
 	IsPackageMade,
@@ -105,6 +106,30 @@ function IsCopyReady(standIn: IStandIn, copy: Instance | undefined): copy is Inp
 function TemplateAction(template: InputContext | undefined, name: string): InputAction | undefined {
 	const action = template?.FindFirstChild(name);
 	return action !== undefined && action.IsA("InputAction") ? action : undefined;
+}
+
+/**
+ * The server makes its copy enabled, since IAS on the server ignores the client's input for a
+ * context or action the server disabled (probed), and the client owns `Enabled`. The first time the
+ * package takes up the copy, the context and the actions the template or the schema has get the
+ * template's `Enabled` (as the designer left it), else the schema's.
+ */
+function ClaimCopyEnabled(
+	copy: InputContext,
+	template: InputContext | undefined,
+	templateEnabled: boolean,
+	schema: IContextSchema,
+) {
+	if (ClaimCopy(copy))
+		copy.Enabled = template !== undefined ? templateEnabled : (schema.Enabled ?? true);
+	for (const action of copy.GetChildren()) {
+		if (!action.IsA("InputAction")) continue;
+		const templateAction = TemplateAction(template, action.Name);
+		const definition = schema.Actions[action.Name] as AnyDefinition | undefined;
+		// Neither says anything: another schema's action, left to the root handle that has it
+		if (templateAction === undefined && definition === undefined) continue;
+		if (ClaimCopy(action)) action.Enabled = templateAction?.Enabled ?? definition?.Enabled ?? true;
+	}
 }
 
 /**
@@ -379,6 +404,7 @@ export class InputRuntime implements IRuntime {
 		const waiting = standIns.get(key);
 		if (waiting !== undefined && IsCopyReady(waiting, copy)) InputRuntime.LinkStandIn(waiting, copy);
 		if (copy !== undefined && copy.IsA("InputContext") && HasActions(copy, schema)) {
+			ClaimCopyEnabled(copy, template, templateEnabled, schema);
 			const handle = new ContextHandle(this, this.GetContextState(copy), name, true);
 			this.AddContext(handle);
 			for (const [actionName, definition] of Entries(schema.Actions)) {
@@ -588,15 +614,18 @@ export class InputRuntime implements IRuntime {
 			}
 		}
 
-		// Every action of the stand-in moves its bindings once, a template's extras included
+		// Every action of the stand-in moves its bindings once, a template's extras included. The
+		// server's copy is enabled, and the client owns Enabled: the copy takes the stand-in's, unless
+		// another root handle took it up first
 		const source = standIn.Instance;
 		const moves = new Map<InputAction, IMovedBindings>();
+		ClaimCopy(copy);
 		for (const action of source.GetChildren()) {
 			if (!action.IsA("InputAction")) continue;
 			const target = copy.FindFirstChild(action.Name);
 			if (target === undefined || !target.IsA("InputAction")) continue;
-			const mentioned = links.some((link) => link.Schema.Actions[action.Name] !== undefined);
-			moves.set(action, MoveBindings(action, target, mentioned));
+			ClaimCopy(target);
+			moves.set(action, MoveBindings(action, target, GetEntry(target) === undefined));
 		}
 		for (const link of links) {
 			const runtime = link.Runtime;

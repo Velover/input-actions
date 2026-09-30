@@ -196,7 +196,8 @@ Input.ResetBindings();
   would become infinite there, so it counts as not finite, for `Set` too), a `KeyCode` together
   with a composite direction, or a `ResponseCurve` on a binding that doesn't end on a thumbstick
   `KeyCode` (as `Set` refuses it).
-  Bad JSON, a non-object or an unknown `Version` applies nothing. `"Unknown"` is read as `"None"`.
+  Bad JSON, a non-object, an unknown `Version`, or a save nested deeper than a save can be applies
+  nothing. `"Unknown"` is read as `"None"`.
 - A `ResponseCurve` left beside a key that isn't a thumbstick acts on nothing and isn't saved, so
   every export imports cleanly.
 - A context handle's `ImportBindings` applies only its own paths and skips the others.
@@ -208,7 +209,10 @@ const clean = InputActions.SanitizeBindings(InputSchema, jsonFromClient); // a c
 ```
 
 `SanitizeBindings` runs the import checks against the schema alone: no instances, so it works on
-the server.
+the server. Both it and `ImportBindings` measure how deep a save nests before decoding it, and refuse
+one deeper than a save can be: `HttpService:JSONDecode` on input nested a few hundred levels deep
+ends the whole server process, `pcall` or not, so never decode what a client sends yourself before
+cleaning it.
 
 ## Server Authority
 
@@ -253,9 +257,16 @@ Server Authority in the place's Workspace settings when you mark contexts this w
 - **Server:** `ProvideToPlayers(schema, options?)` puts every Server Authority context into
   `player.Inputs` (option `PlayerFolderName`), for each player now and as they join. When
   `ReplicatedStorage.Inputs.<Context>` exists (the Manager's template), it is cloned with its
-  Priority, Sink, Enabled and actions, and without its bindings. Otherwise the context is built from
-  the schema. Actions the schema has and the template lacks are added, and a `Type` mismatch throws.
+  Priority, Sink and actions, and without its bindings. Otherwise the context is built from the
+  schema. Actions the schema has and the template lacks are added, and a `Type` mismatch throws.
   It returns a function that stops providing.
+- **The server's copy is always enabled, and the client owns `Enabled`.** IAS on the server ignores
+  the client's input for a context or action the server has disabled, even after the client enables
+  its own (probed), so a menu context declared `Enabled: false` would never reach the server. The
+  copy and its actions are enabled on the server; on the client, the first time the package takes
+  them up, they get the template's `Enabled` (as the designer left it), else the schema's. From then
+  on enable and disable them through the handles (`SetEnabled`, `Request`) as for any context; the
+  server reads the state the client sends.
 - **Server:** `ForPlayer(schema, player)` returns handles over that player's copy, only for contexts
   marked `ServerAuthority: true` (the type hides the others): `Instance`, `GetState()`,
   `StateChanged`, and `Pressed`/`Released` on Bool actions. There are no bindings and no `Fire`. It
@@ -272,7 +283,8 @@ Server Authority in the place's Workspace settings when you mark contexts this w
     one swap for all of them.
   - When the server's copy arrives, the handles **swap** to it. The bindings move under the
     server's actions with everything they have (rebinds, attached buttons), the context keeps its
-    base state and held requests, and each Scriptable binding fires its last value again, so a held
+    base state and held requests, the actions their `Enabled`, and each Scriptable binding fires its
+    last value again, so a held
     virtual stick stays held. Then the stand-in is disabled and destroyed, and `LinkedToServer`
     fires once. A Bool action held at the swap may release once and press again on the next input.
     Listeners hear that: at the swap each handle passes on the copy's state (a `Released`, and a

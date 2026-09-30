@@ -40,7 +40,8 @@ export type UiNavigationActions = ReturnType<typeof UiNavigationActions>;
 
 /** A context schema for menu navigation: Navigate, Accept, Cancel, NextPage, PreviousPage, Scroll */
 export function UiNavigation<const O extends IUiNavigationOptions = {}>(
-	options?: O,
+	// Generic inference skips excess-property checks: a misspelt option is rejected here
+	options?: O & { [K in Exclude<keyof O, keyof IUiNavigationOptions>]: never },
 ): O & { Actions: UiNavigationActions } {
 	const context: Record<string, unknown> = {};
 	if (options !== undefined) {

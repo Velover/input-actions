@@ -52,7 +52,9 @@ Input Action Manager:
   bindings `<Action><Device>`: `JumpKeyboardAndMouse`, `JumpGamepad`, `JumpTouch`);
 - **what exists wins**: an existing context keeps its Priority, Sink and Enabled, an existing action
   its Enabled and DisplayName, an existing binding its keys and tuning. The schema fills only what is
-  missing.
+  missing. (The server's copy of a Server Authority context is always enabled on the server, so the
+  client gives it the template's or the schema's `Enabled`: see
+  [Server Authority](Advanced.md#server-authority).)
 
 ## What changed from 0.5
 

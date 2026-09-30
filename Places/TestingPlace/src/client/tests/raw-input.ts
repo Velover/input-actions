@@ -131,6 +131,43 @@ export class RawInputTests implements OnStart {
 				expectTrue(context.Enabled);
 			});
 
+			test("Server Authority: a CharacterContext found later takes the controls' state; the one left gets its own back", () => {
+				if (getProject() !== "authority") return;
+				RawInputHandler.Initialize();
+				const copy = playerModuleContexts("CharacterContext");
+				const characterContext = expectDefined(
+					copy.FindFirstChild("CharacterContext"),
+					"the player's CharacterContext",
+				) as InputContext;
+				const moduleContext = expectDefined(
+					StarterPlayer.FindFirstChild("PlayerModule")
+						?.FindFirstChild("InputContexts")
+						?.FindFirstChild("CharacterContext"),
+					"the PlayerModule's CharacterContext",
+				) as InputContext;
+				const moduleWas = moduleContext.Enabled;
+				defer(() => {
+					copy.Name = "InputContexts";
+					RawInputHandler.GetMoveVector();
+					RawInputHandler.ControlSetEnabled(true);
+				});
+				RawInputHandler.ControlSetEnabled(false);
+				expectFalse(characterContext.Enabled);
+				// on this client only, the player's copy goes away for a moment: the module's is read
+				copy.Name = "RawInputAway";
+				RawInputHandler.GetMoveVector();
+				frames(2);
+				expectFalse(moduleContext.Enabled, "the module's context takes the state meanwhile");
+				expectTrue(characterContext.Enabled, "the copy gets its own Enabled back");
+				RawInputHandler.ControlSetEnabled(true);
+				RawInputHandler.ControlSetEnabled(false);
+				copy.Name = "InputContexts";
+				RawInputHandler.GetMoveVector();
+				frames(2);
+				expectFalse(characterContext.Enabled, "the copy takes the state once it is back");
+				expectEqual(moduleContext.Enabled, moduleWas, "the module's context gets its own back");
+			});
+
 			test("legacy player scripts: the controls module and the forked camera input", () => {
 				if (usesIas()) return;
 				RawInputHandler.Initialize();

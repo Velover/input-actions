@@ -30,7 +30,10 @@ InputActions.Scriptable
   `InputActions.Scriptable` (a binding driven only by `Fire`). See [Binding shapes](#binding-shapes).
   Unknown properties and keys the action type can't use are compile errors.
 - `options`: `{ TrackPrevious?: boolean; DisplayName?: string; Enabled?: boolean }`. `DisplayName`
-  and `Enabled` are used when the action is created; an existing action keeps its own.
+  and `Enabled` are used when the action is created; an existing action keeps its own. (On the
+  server's copy of a Server Authority context, which is always enabled on the server, the client
+  gives the action the template's or this `Enabled` the first time: see
+  [Server Authority](Advanced.md#server-authority).)
 - Returns a frozen action definition. Builders create no instances.
 
 ### Schema
@@ -41,8 +44,10 @@ InputActions.Schema(contexts): { readonly Contexts }
 
 `contexts` is a record of context name to
 `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`. The
-defaults are the IAS ones (Priority 1000, Sink false, Enabled true). `Schema` checks the bindings at
-runtime too, and throws on names the handles can't hold: a context named like one of the root
+defaults are the IAS ones (Priority 1000, Sink false, Enabled true). Any other key is a compile error,
+and `Schema` throws on it at runtime too (a misspelt `ServerAuthority` would make the context local),
+as on an option of the wrong type. `Schema` checks the bindings at runtime too, and throws on names
+the handles can't hold: a context named like one of the root
 handle's five members, a name with `/`, or a slot whose binding would take the name of one the
 package makes itself (`Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`: see
 [`Fire`](#action-handle) and `AttachButton`), or two slots `S` and `<Action>S` on one action (both
@@ -76,9 +81,9 @@ InputActions.ForPlayer(schema, player, options?): InputActions.ServerHandle<S>
 ```
 
 - `ProvideToPlayers` (server only) puts every `ServerAuthority: true` context into
-  `player.<PlayerFolderName>` for each player, now and on `PlayerAdded`. Options: `Folder` (templates;
-  default `ReplicatedStorage.Inputs`), `PlayerFolderName` (default `"Inputs"`). Returns a function
-  that stops providing.
+  `player.<PlayerFolderName>` for each player, now and on `PlayerAdded`, always enabled (the client
+  owns `Enabled`). Options: `Folder` (templates; default `ReplicatedStorage.Inputs`),
+  `PlayerFolderName` (default `"Inputs"`). Returns a function that stops providing.
 - `ForPlayer` returns [server handles](#server-handles). Options: `PlayerFolderName`, `Timeout`
   (default 10 s, then it throws naming the missing contexts).
 
@@ -91,7 +96,9 @@ InputActions.SanitizeBindings(schema, json): string
 ```
 
 Runs the `ImportBindings` checks against the schema alone and returns a save with only the valid
-entries. Works without instances, on either realm.
+entries. Works without instances, on either realm. A save nested deeper than a save can be is refused
+before it is decoded (JSON nested a few hundred levels deep crashes `HttpService:JSONDecode`), so it
+is safe on what a client sends.
 
 ### Presets
 

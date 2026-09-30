@@ -30,21 +30,25 @@ function ServerAuthorityContexts(contexts: Record<string, IContextSchema>) {
 	return list;
 }
 
-/** Adds the schema's actions the context lacks; throws on a Type mismatch */
+/**
+ * Adds the schema's actions the context lacks; throws on a Type mismatch. They are enabled whatever
+ * the schema says: the client owns `Enabled` (see `ProvideToPlayers`).
+ */
 function AddMissingActions(context: InputContext, name: string, schema: IContextSchema) {
 	for (const [actionName, definition] of Entries(schema.Actions)) {
 		const path = JoinPath(name, actionName);
 		if (FindAction(context, actionName, definition.Type, path) !== undefined) continue;
-		CreateAction(actionName, definition.Type, definition.DisplayName, definition.Enabled).Parent =
-			context;
+		CreateAction(actionName, definition.Type, definition.DisplayName).Parent = context;
 	}
 }
 
 /**
  * Server: puts every Server Authority context into `player.<PlayerFolderName>` for each player, now
  * and as they join. A context with a template in the folder (the Input Action Manager's) is cloned
- * from it without its bindings; otherwise it is built from the schema. Returns a function that
- * stops providing.
+ * from it without its bindings; otherwise it is built from the schema. The copy and its actions are
+ * enabled whatever the template or schema says: IAS on the server ignores the client's input for a
+ * context or action the server disabled (probed), so the client owns `Enabled` and starts from the
+ * template's or the schema's. Returns a function that stops providing.
  */
 export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
 	schema: IInputSchema<S>,
@@ -82,16 +86,13 @@ export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
 			let context: InputContext;
 			if (template !== undefined) {
 				context = template.Clone();
+				context.Enabled = true;
 				for (const descendant of context.GetDescendants()) {
 					if (descendant.IsA("InputBinding")) descendant.Destroy();
+					else if (descendant.IsA("InputAction")) descendant.Enabled = true;
 				}
 			} else {
-				context = CreateContext(
-					name,
-					contextSchema.Priority,
-					contextSchema.Sink,
-					contextSchema.Enabled,
-				);
+				context = CreateContext(name, contextSchema.Priority, contextSchema.Sink);
 			}
 			context.Name = name;
 			AddMissingActions(context, name, contextSchema);

@@ -93,6 +93,32 @@ export class SchemaTests implements OnStart {
 				expectThrows(() => untypedSchema({ Gameplay: {} }));
 			});
 
+			test("Schema refuses a context option of the wrong type, and a misspelt preset option", () => {
+				for (const [option, value] of [
+					["ServerAuthority", "true"],
+					["Priority", "2000"],
+					["Sink", 1],
+					["Enabled", "false"],
+				] as Array<[string, unknown]>) {
+					const context: Record<string, unknown> = { Actions: {} };
+					context[option] = value;
+					const message = expectThrows(() => untypedSchema({ Typed: context }), option);
+					expectTrue(message.find(`Typed: ${option}`, 1, true)[0] !== undefined, message);
+				}
+				const preset = (InputActions.Presets.UiNavigation as (options: unknown) => unknown)({
+					Priority: 3000,
+					Snk: true,
+				});
+				const message = expectThrows(() => untypedSchema({ Menu: preset }));
+				expectTrue(message.find('"Snk"', 1, true)[0] !== undefined, message);
+				// every option spelt right, and none at all
+				untypedSchema({
+					Full: { ServerAuthority: false, Priority: 2000, Sink: true, Enabled: false, Actions: {} },
+					Bare: { Actions: {} },
+					Menu: InputActions.Presets.UiNavigation({ ServerAuthority: true, Priority: 3000 }),
+				});
+			});
+
 			test("Schema refuses names the handles can't hold", () => {
 				expectThrows(() => untypedSchema({ Destroy: { Actions: {} } }));
 				expectThrows(() => untypedSchema({ ExportBindings: { Actions: {} } }));

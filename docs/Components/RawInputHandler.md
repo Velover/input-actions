@@ -48,8 +48,10 @@ RunService.RenderStepped.Connect(() => {
     server's actions held (the character would keep walking there), so `ControlSetEnabled(false)`
     first releases them: a temporary Scriptable binding fires the held value then the value at
     rest, and is removed in the same frame. `RotationAction`, which carries a setting, is left
-    alone. `MouseInputSetEnabled` only gates what `GetRotation`/`GetZoomDelta` return;
-    Roblox's instances are left alone.
+    alone. The value is remembered: when `LocalPlayer.InputContexts` arrives after the call (until
+    then the module's own contexts are read), its `CharacterContext` takes it, and the one read
+    before gets its own `Enabled` back. `MouseInputSetEnabled` only gates what
+    `GetRotation`/`GetZoomDelta` return; Roblox's instances are left alone.
 - **Legacy player scripts:** it uses `PlayerModule:GetControls()` for the move vector and
   `ControlSetEnabled`, and a fork of the legacy `CameraInput` module for rotation and zoom. That fork
   binds camera keys through ContextActionService, which sinks `Left`/`Right` (see the

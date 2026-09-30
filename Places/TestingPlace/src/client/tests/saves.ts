@@ -178,6 +178,27 @@ export class SaveTests implements OnStart {
 				}
 			});
 
+			test("a save nested deeper than a save can be applies nothing, and is never decoded", () => {
+				// HttpService:JSONDecode ends the whole process on a few hundred levels, pcall or not
+				const input = createTestInput();
+				const jump = input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
+				jump.Set(Enum.KeyCode.G);
+				const json =
+					'{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":"F"}},"Deep":' +
+					`${string.rep("[", 1000)}${string.rep("]", 1000)}}`;
+				const result = input.ImportBindings(json);
+				expectArrayEqual(result.Applied, []);
+				expectEqual(result.Skipped.size(), 1);
+				const reason = result.Skipped[0].Reason;
+				expectTrue(reason.find("nests deeper", 1, true)[0] !== undefined, reason);
+				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.Space, "back to the default");
+				// as deep as a save goes (the save, Bindings, an entry, a vector) still applies
+				const look = input.ImportBindings(
+					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Vector2Scale":[2,-2]}}}',
+				);
+				expectArrayEqual(look.Applied, ["Gameplay/Look/Mouse"]);
+			});
+
 			test("every invalid entry is skipped with its reason and stays default", () => {
 				const input = createTestInput();
 				const actions = input.Gameplay.Actions;

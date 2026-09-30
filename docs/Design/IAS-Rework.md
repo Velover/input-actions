@@ -145,7 +145,11 @@ adopted from existing instances.
 - `InputActions.Schema(contexts)` returns a frozen plain object `{ Contexts }`. The builders and
   `Schema` create no instances and may run on either realm.
 - Context schema: `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`.
-  Defaults are the IAS ones (Priority 1000, Sink false, Enabled true).
+  Defaults are the IAS ones (Priority 1000, Sink false, Enabled true). Any other key is a compile
+  error (`Schema`'s parameter is generic, so the type checks excess keys itself, as `CheckBindings`
+  does), and `Schema` throws on it at runtime, naming it, as on an option of the wrong type: a
+  misspelt `ServerAuthority` would otherwise make the context local without a word. The preset's
+  options are checked the same way.
 - `InputActions.Create(schema, options?)` runs on the client only (throws on the server) and
   returns the typed handle. Options:
   - `Folder?: Instance`: where non-Server-Authority contexts are found or created. Default:
@@ -331,7 +335,11 @@ own actions.
   `PressedThreshold`, `ReleasedThreshold`. A cleared binding saves its keys as `"None"`.
 - `ImportBindings(json)` returns `{ Applied: string[]; Skipped: { Path: string; Reason: string }[] }`
   and never throws:
-  - bad JSON, a non-object, or an unknown `Version`: nothing applied, everything stays default;
+  - bad JSON, a non-object, an unknown `Version`, or a save nested deeper than a save can be (8
+    levels; a save has 4): nothing applied, everything stays default. The depth is measured before
+    decoding, outside JSON strings: `HttpService:JSONDecode` on input nested a few hundred deep ends
+    the whole process, `pcall` or not **(probed)**, and `SanitizeBindings` takes what a client
+    sends;
   - it starts from the defaults (a binding missing from the save is reset to default);
   - unknown path, unknown property, unknown key name (`Enum.KeyCode.FromName` returns `nil`
     **(probed)**; `"Unknown"` resolves to `None`), a key not allowed for that slot, a number that
@@ -354,9 +362,12 @@ client; the server only reads action state, which IAS replicates on its own.
   `PlayerAdded`, put every Server Authority context into `player.<PlayerFolderName>` (default
   `Inputs`):
   - if `ReplicatedStorage.Inputs.<Context>` exists (the Manager's template), clone it, keeping its
-    `Priority`/`Sink`/`Enabled` and actions, and **destroy every `InputBinding` in the clone**;
-  - otherwise build the context and its actions (name, `Type`, `Enabled`) from the schema;
+    `Priority`/`Sink` and actions, and **destroy every `InputBinding` in the clone**;
+  - otherwise build the context and its actions (name, `Type`, `DisplayName`) from the schema;
   - add actions the schema has and the clone lacks. Throws on a `Type` mismatch, as §4.
+  - **The copy and all its actions are enabled**, whatever the template or the schema says: IAS on
+    the server ignores the client's input for a context or action the server has disabled, even
+    once the client enables its own **(probed)**. The client owns `Enabled` (below).
   - Returns a function that stops providing.
 - **Server:** `InputActions.ForPlayer(schema, player)`: typed handles over that player's copy, only
   for contexts marked `ServerAuthority: true` (the type filters them). Each action has `Instance`,
@@ -367,6 +378,13 @@ client; the server only reads action state, which IAS replicates on its own.
     **locally** under the server's actions (defaults from the template
     `ReplicatedStorage.Inputs.<Context>.<Action>` bindings when present, else the schema), then saved
     rebinds, as usual.
+  - **The client owns `Enabled` on the copy.** The first time the package takes up a copy's context
+    or action (on this client), it gives it the template's `Enabled` when the template has it (the
+    context's as it was before the package disabled the template, below), else the schema's (IAS
+    default `true`); the template's extra actions get the template's. From then on the instance's
+    value is the client's state, as for any adopted context (§4): a later `Create` after `Destroy`
+    keeps it. At the swap the copy takes the stand-in's, unless a live root handle already uses
+    that instance.
   - Otherwise build a **local stand-in**: a client-only context (a clone of the template, or built
     from the schema) with its bindings, in a client-only folder. The handles work on it at once:
     input, `GetState`, events, `Fire`, rebinding, requests, `AttachButton`. Its state never reaches
@@ -375,10 +393,10 @@ client; the server only reads action state, which IAS replicates on its own.
     before the swap as after it, and one swap for all of them. A `Create` that finds the copy
     while other root handles still wait for it swaps them first, so the copy carries their state.
   - When the server's copy arrives, **swap**: add the bindings to the server's actions, carrying
-    over everything the stand-in has now (rebinds, the context's base state and held requests,
-    attached buttons, the last value fired on each Scriptable binding, so a held virtual stick
-    stays held), point the handles at the server's instances, then disable and destroy the
-    stand-in. A Bool action held at the swap may release once (stand-in disabled) and press again
+    over everything the stand-in has now (rebinds, the context's base state and held requests, each
+    action's `Enabled`, attached buttons, the last value fired on each Scriptable binding, so a held
+    virtual stick stays held), point the handles at the server's instances, then disable and
+    destroy the stand-in. A Bool action held at the swap may release once (stand-in disabled) and press again
     on the next input; `Pressed`/`Released` listeners see that. The stand-in's events still on
     their way are dropped, so at the swap each handle tells its listeners the copy's state
     (`Released`, `StateChanged` to rest) before the copy's own events: a value fired again reads
@@ -466,7 +484,11 @@ Its type must be as precise as a hand-written schema (`Input.Ui.Actions.Navigate
   - `ControlSetEnabled(v)`: sets `CharacterContext.Enabled` to `v` (the PlayerModule never
     toggles that context itself). Under Server Authority, `ControlSetEnabled(false)` first releases
     the context's held actions on the server (§8): a temporary Scriptable binding fires the pair and
-    is removed in the same frame; `RotationAction`, which carries a setting, is left alone.
+    is removed in the same frame; `RotationAction`, which carries a setting, is left alone. The
+    value is remembered: `player.InputContexts` may arrive after the game's first call (the
+    PlayerModule's `ActionController` says so), and until then the module's own contexts are read.
+    When the `CharacterContext` read changes, the new one takes the remembered value and the one
+    left behind gets back the `Enabled` it had before `ControlSetEnabled` changed it.
     `MouseInputSetEnabled(v)`: gates what `GetRotation`/`GetZoomDelta` return, without touching
     Roblox's instances.
   - Legacy fallback: when neither location has contexts (legacy player scripts), keep today's path
@@ -535,6 +557,9 @@ places, `SignalBehavior = Deferred`:
 | Server Authority: that pair fired while the context is disabled | ignored; the state comes back on re-enable |
 | Server Authority: `Fire(true)` then the context disabled, in one frame | the server gets the press and keeps it; the client's comes back on re-enable |
 | Server Authority: `GetState()` after a `Fire` on the server's copy | the fired value shows on the next simulation step |
+| Server Authority: the server's copy of a context (or an action) is disabled on the server; the client enables its own and fires `true` through a Scriptable binding | the client's state is `true`; the server's stays `false`, while an action of an enabled context and action beside it reaches the server |
+| `HttpService:JSONDecode` of `[` nested 300 deep (edit and play sessions), in `pcall` | the Studio process ends; 100 and 200 deep decode |
+| A Studio play window that renders nothing: what fires between two Heartbeats, over 600 | usually `PreAnimation`, `PreSimulation`, `PostSimulation`; 9 to 87 ticks have only `Heartbeat` (the per-frame snapshot skips them; tests count frames by `PreAnimation`) |
 | Local context: a binding fires the value it already holds | ignored; after an action `Enabled` toggle it counts again |
 | PlayerModule contexts | legacy scripts: none; IAS scripts: `StarterPlayer.PlayerModule.InputContexts`; Server Authority: `player.InputContexts` |
 | A destroyed instance's `Parent` | writing `nil` (its value) succeeds; writing an instance errors `The Parent property of X is locked`; a live instance made its own parent errors `Attempt to set X as its own parent`; connecting to a destroyed instance's events works and reports `Connected` |

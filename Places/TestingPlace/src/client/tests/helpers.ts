@@ -3,9 +3,19 @@ import { InputActions } from "@rbxts/input-actions";
 import { LogService, RunService } from "@rbxts/services";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
 
-/** Waits for the next frame */
+/**
+ * Waits for the next frame: the next Heartbeat after a PreAnimation. A Studio window that renders
+ * nothing also has Heartbeat ticks without PreAnimation or simulation (probed: 9 to 87 of 600 ticks,
+ * even with nothing else running). The package's per-frame work skips those ticks, so they are not
+ * frames here either: a TrackPrevious flag would otherwise show on two readings.
+ */
 export function frame() {
-	RunService.Heartbeat.Wait();
+	let animated = false;
+	const connection = RunService.PreAnimation.Connect(() => {
+		animated = true;
+	});
+	while (!animated) RunService.Heartbeat.Wait();
+	connection.Disconnect();
 }
 
 /** Waits `count` frames */

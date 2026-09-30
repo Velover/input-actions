@@ -122,6 +122,37 @@ export class SanitizeTests implements OnStart {
 				expectArrayEqual(paths(clean), ["Gameplay/Zoom/Mouse"]);
 			});
 
+			test("a save nested deeper than a save can be is refused before it is decoded", () => {
+				// HttpService:JSONDecode ends the whole process on a few hundred levels, pcall or not
+				// (probed): these would take the server down if they were decoded
+				for (const json of [
+					`${string.rep("[", 1000)}${string.rep("]", 1000)}`,
+					`{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":${string.rep('{"a":', 1000)}1${string.rep("}", 1000)}}}`,
+					`{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":"F"}},"x":${string.rep("[", 500)}`,
+				]) {
+					const clean = decode(InputActions.SanitizeBindings(TEST_SCHEMA, json));
+					expectArrayEqual(paths(clean), [], json.sub(1, 60));
+				}
+				// brackets inside strings don't count, escaped quotes included
+				const quoted = HttpService.JSONEncode({
+					Version: 1,
+					Bindings: {
+						"Gameplay/Jump/KeyboardAndMouse": { KeyCode: "F" },
+						[`${string.rep("[", 50)}"\\${string.rep("{", 50)}`]: { KeyCode: "G" },
+					},
+				});
+				expectArrayEqual(paths(decode(InputActions.SanitizeBindings(TEST_SCHEMA, quoted))), [
+					"Gameplay/Jump/KeyboardAndMouse",
+				]);
+			});
+
+			test("JSONDecode takes no comments or single quotes (the depth check skips only JSON strings)", () => {
+				for (const json of ['/* " */ [1] /* " */', '// "\n[1]', "['[']"]) {
+					const [ok] = pcall(() => HttpService.JSONDecode(json));
+					expectTrue(!ok, `JSONDecode took ${json}`);
+				}
+			});
+
 			test("works without instances, so the server can clean a client's save", () => {
 				const before = game.GetDescendants().size();
 				const clean = InputActions.SanitizeBindings(

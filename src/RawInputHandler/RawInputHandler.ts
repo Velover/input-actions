@@ -42,6 +42,10 @@ export namespace RawInputHandler {
 	let controlModule: IControlModule | undefined;
 	let iasActions: IPlayerModuleActions | undefined;
 	let mouseInputEnabled = true;
+	/** What `ControlSetEnabled` last asked for, applied again to a CharacterContext found later */
+	let controlEnabled: boolean | undefined;
+	/** The CharacterContexts `ControlSetEnabled` changed, and the `Enabled` each had before */
+	const changedContexts = setmetatable(new Map<InputContext, boolean>(), { __mode: "k" });
 
 	let lastZoomDelta = 0;
 	let lastRotation = Vector2.zero;
@@ -76,12 +80,22 @@ export namespace RawInputHandler {
 		};
 	}
 
-	/** The actions the PlayerModule reads now; the player's copy wins once it arrives */
+	/**
+	 * The actions the PlayerModule reads now; the player's copy wins once it arrives. The controls'
+	 * state goes with them: the CharacterContext left behind gets its own `Enabled` back, and the new
+	 * one takes what `ControlSetEnabled` last asked for.
+	 */
 	function GetActions(): IPlayerModuleActions | undefined {
 		const folder = FindCharacterContexts();
 		if (folder === undefined) return iasActions;
 		if (iasActions === undefined || !iasActions.MoveAction.IsDescendantOf(folder)) {
+			const previous = iasActions?.CharacterContext;
 			iasActions = ReadActions() ?? iasActions;
+			const current = iasActions?.CharacterContext;
+			if (current !== previous && current !== undefined && controlEnabled !== undefined) {
+				if (previous !== undefined) RestoreContext(previous);
+				SetCharacterContextEnabled(current, controlEnabled);
+			}
 		}
 		return iasActions;
 	}
@@ -105,13 +119,30 @@ export namespace RawInputHandler {
 		}
 	}
 
+	/** The PlayerModule never toggles CharacterContext itself: the package owns its `Enabled` */
+	function SetCharacterContextEnabled(context: InputContext, value: boolean) {
+		if (!changedContexts.has(context)) changedContexts.set(context, context.Enabled);
+		if (!value) ReleaseCharacterOnServer(context);
+		context.Enabled = value;
+	}
+
+	/** Gives a CharacterContext the PlayerModule no longer reads its own `Enabled` back */
+	function RestoreContext(context: InputContext) {
+		const enabled = changedContexts.get(context);
+		if (enabled === undefined) return;
+		changedContexts.delete(context);
+		if (context.Parent !== undefined) context.Enabled = enabled;
+	}
+
+	/**
+	 * Turns the character controls on or off. Remembered: under Server Authority, a CharacterContext
+	 * that arrives later (the player's copy) takes the same state.
+	 */
 	export function ControlSetEnabled(value: boolean) {
+		controlEnabled = value;
 		const actions = GetActions();
-		if (actions !== undefined) {
-			if (!value) ReleaseCharacterOnServer(actions.CharacterContext);
-			// The PlayerModule never toggles CharacterContext itself
-			actions.CharacterContext.Enabled = value;
-		} else controlModule?.Enable(value);
+		if (actions !== undefined) SetCharacterContextEnabled(actions.CharacterContext, value);
+		else controlModule?.Enable(value);
 	}
 
 	export function MouseInputSetEnabled(value: boolean) {
@@ -237,6 +268,7 @@ export namespace RawInputHandler {
 			const playerModuleScript = playerScripts.WaitForChild("PlayerModule") as ModuleScript;
 			const playerModule = require(playerModuleScript) as IPlayerModule;
 			controlModule = playerModule.GetControls();
+			if (controlEnabled !== undefined) controlModule.Enable(controlEnabled);
 			GetCameraInput().setInputEnabled(mouseInputEnabled);
 		}
 		//starts update input cycle

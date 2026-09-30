@@ -67,16 +67,27 @@ export class ValidatorR1ServerTests implements OnStart {
 				expectTrue(message.find("SaGameplay/Jump", 1, true)[0] !== undefined, message);
 			});
 
-			test("ProvideToPlayers keeps a template's Enabled = false", () => {
+			test("ProvideToPlayers makes the copy enabled, even from a disabled template: the client owns Enabled", () => {
+				// IAS on the server ignores the client's input for a context or action the server
+				// disabled (validator round 4, R4-F1); the client starts from the template's Enabled
 				const player = waitForPlayer();
 				const name = testFolderName(player);
 				const templates = BuildSaTemplate(scratch());
-				(templates.FindFirstChild("SaGameplay") as InputContext).Enabled = false;
+				const template = templates.FindFirstChild("SaGameplay") as InputContext;
+				template.Enabled = false;
+				(template.FindFirstChild("Jump") as InputAction).Enabled = false;
+				(template.FindFirstChild("Emote") as InputAction).Enabled = false;
 				defer(
 					InputActions.ProvideToPlayers(SA_SCHEMA, { Folder: templates, PlayerFolderName: name }),
 				);
-				const copy = expectDefined(player.FindFirstChild(name)?.FindFirstChild("SaGameplay"));
-				expectFalse((copy as InputContext).Enabled);
+				const copy = expectDefined(
+					player.FindFirstChild(name)?.FindFirstChild("SaGameplay"),
+				) as InputContext;
+				expectTrue(copy.Enabled, "the context");
+				for (const actionName of ["Jump", "Emote", "Move"]) {
+					expectTrue((copy.FindFirstChild(actionName) as InputAction).Enabled, actionName);
+				}
+				expectFalse(template.Enabled, "the template keeps its own");
 			});
 
 			test("ProvideToPlayers adds missing actions to a context already under the player", () => {

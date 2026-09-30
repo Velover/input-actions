@@ -22,8 +22,9 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `raw-input`, `server-authority`, `shared-handles` (several `Create`s on one folder, `Destroy`),
   `sa-release` (what reaches the server when the client resets an action; authority only)
   (client); `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial
-  tests, kept as regression tests. Fixtures are in `src/shared/fixtures/schemas.ts`.
-  Project-specific tests return early under the other projects (`getProject()`).
+  tests, kept as regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`, and
+  `validator-r4.ts` for the validator-r4 sections). Project-specific tests return early under the
+  other projects (`getProject()`).
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
@@ -37,7 +38,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   but it has also rendered, at a cadence that doesn't follow Heartbeat. The package's per-frame
   work (`src/Internal/EveryFrame.ts`) runs once per frame, at the render step or else at
   `PreAnimation`, so tests must hold either way; code that only binds to a render step may never
-  run in a test.
+  run in a test. Such a window also has Heartbeat ticks with no `PreAnimation`, `PreSimulation` or
+  `PostSimulation` (measured: 9 to 87 of 600 ticks, with nothing else running). The package's
+  per-frame work skips them, so a test must not count a Heartbeat as a frame: step with `frame()`
+  from `src/client/tests/helpers.ts`, which waits for a Heartbeat that follows a `PreAnimation`.
 - To try package code in a live session, go through a test (a temporary section run with
   `--sections`): `studio exec` can't `require` the package's modules directly.
 - To try Luau in a live session: `rojo build -o probe.rbxl`, then

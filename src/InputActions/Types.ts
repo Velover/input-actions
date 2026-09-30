@@ -183,7 +183,11 @@ export interface IActionOptions<TP extends boolean> {
 	TrackPrevious?: TP;
 	/** Used when the action is created; an existing action keeps its own */
 	DisplayName?: string;
-	/** Used when the action is created; an existing action keeps its own */
+	/**
+	 * Used when the action is created; an existing action keeps its own. The server's copy of a
+	 * Server Authority context is always enabled on the server: the client gives it this value (or
+	 * the template's) the first time
+	 */
 	Enabled?: boolean;
 }
 
@@ -195,6 +199,11 @@ export interface IContextSchema {
 	Enabled?: boolean;
 	Actions: { [name: string]: IActionDefinition<Enum.InputActionType, unknown, boolean> };
 }
+
+/** Generic inference skips excess-property checks: a misspelt context option is rejected here */
+export type CheckContexts<S> = {
+	[C in keyof S]: { [P in Exclude<keyof S[C], keyof IContextSchema>]: never };
+};
 
 export interface IInputSchema<S extends Record<string, IContextSchema>> {
 	readonly Contexts: S;
