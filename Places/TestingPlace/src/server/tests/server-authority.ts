@@ -61,7 +61,8 @@ type AnyServerHandle = Record<
  * The server side of the client's "server-authority" section. On request it provides SA_SCHEMA
  * ("sa") or SA_LATE_SCHEMA ("late"), and reads that player's state back, so the client can check
  * what reached the server. `("playerModule", _, context, action)` reads Roblox's PlayerModule
- * action under `player.InputContexts` instead.
+ * action under `player.InputContexts` instead, and `("copyState", fixture, context, action)` any
+ * action of the player's copy, including those the schema doesn't mention.
  */
 function hostServerAuthorityFixture() {
 	const fixtures: Record<string, IFixture> = {
@@ -82,6 +83,14 @@ function hostServerAuthorityFixture() {
 		if (command === "playerModule") {
 			const action = player
 				.FindFirstChild("InputContexts")
+				?.FindFirstChild(contextName as string)
+				?.FindFirstChild(actionName as string);
+			return action !== undefined && action.IsA("InputAction") ? action.GetState() : undefined;
+		}
+		// Any action of the player's copy, including one the schema doesn't mention (the template's Emote)
+		if (command === "copyState") {
+			const action = player
+				.FindFirstChild(fixture.Options.PlayerFolderName)
 				?.FindFirstChild(contextName as string)
 				?.FindFirstChild(actionName as string);
 			return action !== undefined && action.IsA("InputAction") ? action.GetState() : undefined;

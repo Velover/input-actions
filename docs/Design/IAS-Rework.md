@@ -162,6 +162,9 @@ adopted from existing instances.
     (the Input Action Manager names bindings `<Action><Device>`, e.g. `JumpKeyboardAndMouse`,
     `JumpGamepad`, `JumpTouch`; see `Places/GamePlace.rbxl`). Bindings the package creates are
     named `A .. S`.
+  - A slot can't take a name whose binding (`S` or `A .. S`) would be one the package names itself
+    (§6): `Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`. `Schema` (and `Create`)
+    refuse them.
 - **Precedence: what exists wins.** An existing context keeps its `Priority`, `Sink`, `Enabled`;
   an existing action keeps `Enabled`/`DisplayName`; an existing binding keeps its keys, modifiers
   and tuning. The schema fills only what is missing.
@@ -179,7 +182,12 @@ adopted from existing instances.
   - a context has one enabled state (base state and requests, §5), whichever handle changes it;
     each handle's requests end with it;
   - every handle on a binding has the same defaults (the first handle's snapshot);
-  - destroying one handle never releases input that another live handle's actions hold;
+  - destroying one handle never releases input that another live handle's actions hold. It lets
+    go of what it holds itself, on a shared action too: a value its `Fire`/`Tap`/Scriptable slots
+    left goes back to rest (the package records which root handle fired each held value), unless
+    the action shows a value fired after it; when its attached buttons go while the action is
+    pressed and nothing another handle fired holds it, the action is released (a destroyed held
+    binding would leave it stuck on);
   - a Server Authority template stays disabled (§8) until the last handle using it is destroyed.
 - `Input.Destroy()` disconnects everything, destroys what the package created, and leaves adopted
   instances in place. Adopted bindings get their defaults back (rebinds are undone, so a later
@@ -390,7 +398,10 @@ client; the server only reads action state, which IAS replicates on its own.
   held button binding removed; `Destroy`), the package fires the value at rest on its own held
   Scriptable bindings, or, when something else holds the action (a key, a button, a binding the
   package doesn't drive), fires that pair on `<Action>Script`. Actions shared by several root
-  handles are released once.
+  handles are released once. This covers every action of the copy, including those the schema
+  doesn't mention (a template's extras, which the package gives the template's keys): those get the
+  pair on a Scriptable binding made for it and destroyed in the same frame, when their context is
+  disabled and when the last root handle using their keys is destroyed.
 - `Workspace.AuthorityMode` cannot be read by scripts **(probed)**. Don't try to detect the mode.
   **The user docs must say so plainly:** the package cannot tell whether the place runs Server
   Authority, so it cannot warn when it is off. A context marked `ServerAuthority: true` in a place
@@ -430,7 +441,11 @@ Its type must be as precise as a hand-written schema (`Input.Ui.Actions.Navigate
   `MouseInputSetEnabled`). Rework it for the IAS PlayerModule, using `External/PlayerModule/` (the
   default PlayerModule with IAS enabled) as the reference:
   - Find the PlayerModule's contexts: `LocalPlayer.InputContexts` (Server Authority), else
-    `StarterPlayer.PlayerModule.InputContexts` (IAS player scripts) **(probed locations)**.
+    `StarterPlayer.PlayerModule.InputContexts` (IAS player scripts) **(probed locations)**. That
+    choice is the ControlModule's, and holds for `CharacterContext` only. The CameraModule reads
+    `StarterPlayer.PlayerModule.InputContexts` in every mode (`CameraInput.luau` reads
+    `script.Parent.Parent.InputContexts`) and tunes only those bindings **(probed)**, so the camera
+    actions always come from there.
   - Move vector: `CharacterContext.MoveAction:GetState()` (Vector2, X right, Y forward) as
     `Vector3(x, 0, -y)`, then the existing camera-relative logic.
   - Rotation / zoom: port `External/PlayerModule/CameraModule/CameraInput.luau`
@@ -510,3 +525,4 @@ places, `SignalBehavior = Deferred`:
 | Server Authority: `GetState()` after a `Fire` on the server's copy | the fired value shows on the next simulation step |
 | Local context: a binding fires the value it already holds | ignored; after an action `Enabled` toggle it counts again |
 | PlayerModule contexts | legacy scripts: none; IAS scripts: `StarterPlayer.PlayerModule.InputContexts`; Server Authority: `player.InputContexts` |
+| Server Authority: which `CameraContext` the CameraModule tunes | `StarterPlayer.PlayerModule.InputContexts`: its `CameraRotationAction` bindings (`MouseBinding`, `TrackpadBinding`, `GamepadBinding`, `MicroGamepadBinding`) had `Scale` 0.36; the player's copy keeps 1 |

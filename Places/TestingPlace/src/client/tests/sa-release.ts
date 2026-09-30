@@ -157,6 +157,32 @@ export class ServerAuthorityReleaseTests implements OnStart {
 				eventually(() => serverJump() === false, "the release on the server", 5);
 			});
 
+			test("Destroy releases on the server a template action the package gave keys", () => {
+				if (getProject() !== "authority") return;
+				const input = createSaInput();
+				const emote = expectDefined(
+					input.SaGameplay.Instance.FindFirstChild("Emote"),
+					"the copy's Emote",
+				) as InputAction;
+				expectDefined(emote.FindFirstChild("EmoteKeyboardAndMouse"), "the template's binding");
+				const serverEmote = () => server("copyState", "sa", "SaGameplay", "Emote");
+				// A binding the package doesn't drive stands in for H held down
+				const key = new Instance("InputBinding");
+				key.Name = "HeldKeyStandIn";
+				key.Type = Enum.InputBindingType.Scriptable;
+				key.Parent = emote;
+				defer(() => {
+					pcall(() => key.Fire(false));
+					key.Destroy();
+				});
+				key.Fire(true);
+				eventually(() => serverEmote() === true, "the server to see Emote held", 10);
+				input.Destroy();
+				expectEqual(emote.FindFirstChild("EmoteKeyboardAndMouse"), undefined, "the binding goes");
+				eventually(() => serverEmote() === false, "the release on the server", 5);
+				expectTrue(staysReleased(() => emote.GetState() === true), "the client's Emote stays released");
+			});
+
 			test("every Tap reaches the server as one press", () => {
 				if (getProject() !== "authority") return;
 				const jump = createSaInput().SaGameplay.Actions.Jump;

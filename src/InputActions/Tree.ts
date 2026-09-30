@@ -19,6 +19,39 @@ export function CheckPlayerFolderName(name: string) {
 	}
 }
 
+/** Suffix of the Scriptable binding `Fire` creates: `<Action>Script` */
+export const SCRIPT_BINDING_SUFFIX = "Script";
+/** Infix of the bindings `AttachButton` creates: `<Action>UIButton<n>` */
+export const BUTTON_BINDING_INFIX = "UIButton";
+
+/** Whether a binding under `action` was made by the package (Fire or AttachButton) */
+export function IsPackageBindingName(actionName: string, bindingName: string): boolean {
+	if (bindingName === actionName + SCRIPT_BINDING_SUFFIX) return true;
+	return IsButtonBindingName(actionName, bindingName);
+}
+
+export function IsButtonBindingName(actionName: string, bindingName: string): boolean {
+	const prefix = actionName + BUTTON_BINDING_INFIX;
+	return (
+		bindingName.sub(1, prefix.size()) === prefix &&
+		bindingName.sub(prefix.size() + 1).match("^%d+$")[0] !== undefined
+	);
+}
+
+/**
+ * Why a slot can't have this name, if it can't: its binding (`S` or `A .. S`) would take the name
+ * of a binding the package makes itself (`<Action>Script`, `<Action>UIButton<n>`).
+ */
+export function ReservedSlotProblem(actionName: string, slot: string): string | undefined {
+	if (IsPackageBindingName("", slot) || IsPackageBindingName(actionName, slot)) {
+		return (
+			`the slot name "${slot}" is reserved: the package names its own bindings ` +
+			`${actionName}${SCRIPT_BINDING_SUFFIX} (Fire) and ${actionName}${BUTTON_BINDING_INFIX}<n> (AttachButton)`
+		);
+	}
+	return undefined;
+}
+
 export function FindBinding(
 	action: Instance,
 	actionName: string,

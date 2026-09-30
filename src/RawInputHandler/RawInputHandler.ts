@@ -1,5 +1,5 @@
 import { Players, StarterPlayer, UserInputService, Workspace } from "@rbxts/services";
-import { NEUTRAL_VALUES } from "../InputActions/Internal";
+import { ReleaseOnServer } from "../InputActions/Internal";
 import { EveryFrame } from "../Internal/EveryFrame";
 import { ICameraInputModule } from "./CameraInput/ICameraInputModule";
 
@@ -46,18 +46,26 @@ export namespace RawInputHandler {
 	let lastZoomDelta = 0;
 	let lastRotation = Vector2.zero;
 
-	/** Under Server Authority the PlayerModule reads the player's copy, else its own */
-	function FindContextsFolder(): Instance | undefined {
-		const playerCopy = localPlayer.FindFirstChild("InputContexts");
-		if (playerCopy !== undefined) return playerCopy;
+	/**
+	 * The PlayerModule's own contexts. Its CameraModule reads the camera actions from these in every
+	 * mode, and applies the sensitivity and invert settings to their bindings only.
+	 */
+	function FindModuleContexts(): Instance | undefined {
 		return StarterPlayer.FindFirstChild("PlayerModule")?.FindFirstChild("InputContexts");
 	}
 
-	function ReadActions(folder: Instance): IPlayerModuleActions | undefined {
-		const characterContext = folder.FindFirstChild("CharacterContext");
+	/** Under Server Authority the ControlModule reads the character's actions from the player's copy */
+	function FindCharacterContexts(): Instance | undefined {
+		return localPlayer.FindFirstChild("InputContexts") ?? FindModuleContexts();
+	}
+
+	function ReadActions(): IPlayerModuleActions | undefined {
+		const characterContext = FindCharacterContexts()?.FindFirstChild("CharacterContext");
 		const moveAction = characterContext?.FindFirstChild("MoveAction");
 		if (!characterContext?.IsA("InputContext") || !moveAction?.IsA("InputAction")) return undefined;
-		const cameraContext = folder.FindFirstChild("CameraContext");
+		const cameraContext = (FindModuleContexts() ?? FindCharacterContexts())?.FindFirstChild(
+			"CameraContext",
+		);
 		const rotation = cameraContext?.FindFirstChild("CameraRotationAction");
 		const zoom = cameraContext?.FindFirstChild("CameraZoomAction");
 		return {
@@ -68,12 +76,12 @@ export namespace RawInputHandler {
 		};
 	}
 
-	/** The actions of the folder the PlayerModule reads now; the player's copy wins once it arrives */
+	/** The actions the PlayerModule reads now; the player's copy wins once it arrives */
 	function GetActions(): IPlayerModuleActions | undefined {
-		const folder = FindContextsFolder();
+		const folder = FindCharacterContexts();
 		if (folder === undefined) return iasActions;
 		if (iasActions === undefined || !iasActions.MoveAction.IsDescendantOf(folder)) {
-			iasActions = ReadActions(folder) ?? iasActions;
+			iasActions = ReadActions() ?? iasActions;
 		}
 		return iasActions;
 	}
@@ -85,34 +93,22 @@ export namespace RawInputHandler {
 
 	/**
 	 * Under Server Authority, disabling a context releases the client's state only: the server keeps
-	 * the last value it received, so the character would keep walking there (probed). A same-frame
-	 * pair on a Scriptable binding, the held value then the value at rest, releases both sides; the
-	 * binding goes at once, and Roblox's own bindings are left untouched.
+	 * the last value it received, so the character would keep walking there (probed). A temporary
+	 * Scriptable binding fires the held value then the value at rest, which releases both sides;
+	 * Roblox's own bindings are left untouched.
 	 */
-	function ReleaseOnServer(context: InputContext) {
-		if (!context.Enabled || !context.IsDescendantOf(localPlayer)) return;
+	function ReleaseCharacterOnServer(context: InputContext) {
 		for (const action of context.GetChildren()) {
 			// RotationAction carries a setting (the rotation type), not input
-			if (!action.IsA("InputAction") || !action.Enabled || action.Name === "RotationAction") continue;
-			const state = action.GetState();
-			const neutral = NEUTRAL_VALUES[action.Type.Name];
-			if (state === neutral) continue;
-			const binding = new Instance("InputBinding");
-			binding.Name = "RawInputHandlerRelease";
-			binding.Type = Enum.InputBindingType.Scriptable;
-			binding.Parent = action;
-			pcall(() => {
-				binding.Fire(state);
-				binding.Fire(neutral);
-			});
-			binding.Destroy();
+			if (!action.IsA("InputAction") || action.Name === "RotationAction") continue;
+			ReleaseOnServer(action, "RawInputHandlerRelease");
 		}
 	}
 
 	export function ControlSetEnabled(value: boolean) {
 		const actions = GetActions();
 		if (actions !== undefined) {
-			if (!value) ReleaseOnServer(actions.CharacterContext);
+			if (!value) ReleaseCharacterOnServer(actions.CharacterContext);
 			// The PlayerModule never toggles CharacterContext itself
 			actions.CharacterContext.Enabled = value;
 		} else controlModule?.Enable(value);
@@ -203,7 +199,8 @@ export namespace RawInputHandler {
 			lastZoomDelta = 0;
 			return;
 		}
-		// Read only: Roblox's CameraModule already applies sensitivity and invert to its bindings
+		// Read only: Roblox's CameraModule already applies sensitivity and invert to its bindings, and
+		// disables its actions when it turns camera input off
 		let rotation = (
 			(actions.CameraRotationAction?.GetState() as Vector2 | undefined) ?? Vector2.zero
 		).mul(deltaTime);
@@ -221,16 +218,16 @@ export namespace RawInputHandler {
 		if (!game.IsLoaded()) game.Loaded.Wait();
 
 		const starterModule = StarterPlayer.FindFirstChild("PlayerModule");
-		let folder = FindContextsFolder();
+		let folder = FindCharacterContexts();
 		if (folder === undefined && starterModule !== undefined) {
 			folder = starterModule.WaitForChild("InputContexts", CONTEXTS_TIMEOUT);
 		}
 		if (folder !== undefined) {
 			const deadline = os.clock() + CONTEXTS_TIMEOUT;
-			iasActions = ReadActions(folder);
+			iasActions = ReadActions();
 			while (iasActions === undefined && os.clock() < deadline) {
 				task.wait();
-				iasActions = ReadActions(FindContextsFolder() ?? folder);
+				iasActions = ReadActions();
 			}
 			if (iasActions === undefined)
 				warn("RawInputHandler: the PlayerModule's CharacterContext.MoveAction was not found");

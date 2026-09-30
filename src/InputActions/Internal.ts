@@ -1,3 +1,5 @@
+import { Players } from "@rbxts/services";
+
 /** What the handles need from the root handle that owns them */
 export interface IRuntime {
 	/** Fires BindingsChanged with the binding's path (`Context/Action/Slot`) */
@@ -29,6 +31,33 @@ export function IsLive(action: InputAction): boolean {
 	if (!action.Enabled) return false;
 	const context = action.Parent;
 	return context === undefined || !context.IsA("InputContext") || context.Enabled;
+}
+
+/** The binding `ReleaseOnServer` makes for a moment */
+const RELEASE_BINDING_NAME = "InputActionsRelease";
+
+/**
+ * Under Server Authority a reset (the context or the action disabled, a held binding destroyed)
+ * releases only the client's state of an action on the server's copy: the server keeps the last
+ * value it received (probed). A same-frame pair on a Scriptable binding, the held value then the
+ * value at rest, releases both sides, even on a binding made and destroyed in that frame. For
+ * actions the package drives no binding of: a binding named `name` is made for the pair and goes at
+ * once.
+ */
+export function ReleaseOnServer(action: InputAction, name = RELEASE_BINDING_NAME) {
+	if (!IsLive(action) || !action.IsDescendantOf(Players.LocalPlayer)) return;
+	const state = action.GetState();
+	const neutral = NEUTRAL_VALUES[action.Type.Name];
+	if (state === neutral) return;
+	const binding = new Instance("InputBinding");
+	binding.Name = name;
+	binding.Type = Enum.InputBindingType.Scriptable;
+	binding.Parent = action;
+	pcall(() => {
+		binding.Fire(state);
+		binding.Fire(neutral);
+	});
+	binding.Destroy();
 }
 
 /** `Context/Action/Slot` */

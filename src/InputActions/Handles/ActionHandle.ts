@@ -1,28 +1,17 @@
 import { Players, RunService } from "@rbxts/services";
 import { IRuntime, IsLive, NEUTRAL_VALUES } from "../Internal";
-import { ClearHeldValue, GetHeldValue, IsPackageMade, SetHeldValue } from "../Registry";
+import {
+	ClearHeldValue,
+	GetHeldValue,
+	IHeldValue,
+	IsPackageMade,
+	SetHeldValue,
+} from "../Registry";
+import { BUTTON_BINDING_INFIX, IsButtonBindingName, SCRIPT_BINDING_SUFFIX } from "../Tree";
 import { BindingHandle, ScriptableBindingHandle } from "./BindingHandle";
 
-/** Suffix of the Scriptable binding `Fire` creates: `<Action>Script` */
-export const SCRIPT_BINDING_SUFFIX = "Script";
-/** Infix of the bindings `AttachButton` creates: `<Action>UIButton<n>` */
-export const BUTTON_BINDING_INFIX = "UIButton";
 /** Seconds `Tap` waits at most for its press to land on a Server Authority copy */
 const TAP_PRESS_TIMEOUT = 0.5;
-
-/** Whether a binding under `action` was made by the package (Fire or AttachButton) */
-export function IsPackageBindingName(actionName: string, bindingName: string): boolean {
-	if (bindingName === actionName + SCRIPT_BINDING_SUFFIX) return true;
-	return IsButtonBindingName(actionName, bindingName);
-}
-
-function IsButtonBindingName(actionName: string, bindingName: string): boolean {
-	const prefix = actionName + BUTTON_BINDING_INFIX;
-	return (
-		bindingName.sub(1, prefix.size()) === prefix &&
-		bindingName.sub(prefix.size() + 1).match("^%d+$")[0] !== undefined
-	);
-}
 
 /** `<Action>UIButton<n>` with the lowest `n` no child of `action` has */
 function FreeButtonName(action: InputAction, actionName: string): string {
@@ -68,6 +57,8 @@ export class ActionHandle {
 	private readonly _neutral: unknown;
 	private _forwards = new Array<RBXScriptConnection>();
 	private _scriptBinding?: InputBinding;
+	/** The bindings this handle's `AttachButton` made that are still there */
+	private readonly _buttons = new Set<InputBinding>();
 	private _track?: ITrackState;
 
 	// A parameter named `Instance` would shadow the global in the field initializers
@@ -132,9 +123,9 @@ export class ActionHandle {
 	 * binding another root handle already moved there under the same name is adopted rather than
 	 * doubled (its button bindings are renamed instead).
 	 */
-	MoveTo(target: InputAction): Array<[InputBinding, unknown]> {
+	MoveTo(target: InputAction): Array<[InputBinding, IHeldValue]> {
 		const source = this.Instance;
-		const held = new Array<[InputBinding, unknown]>();
+		const held = new Array<[InputBinding, IHeldValue]>();
 		for (const binding of source.GetChildren()) {
 			if (!binding.IsA("InputBinding")) continue;
 			const value = GetHeldValue(binding);
@@ -173,11 +164,11 @@ export class ActionHandle {
 	}
 
 	/** Fires the values `MoveTo` returned, on the bindings that now live under the new action */
-	RefireHeldValues(values: ReadonlyArray<[InputBinding, unknown]>) {
-		for (const [binding, value] of values) {
+	RefireHeldValues(values: ReadonlyArray<[InputBinding, IHeldValue]>) {
+		for (const [binding, held] of values) {
 			if (binding.Parent !== this.Instance) continue;
-			pcall(() => binding.Fire(value));
-			if (IsLive(this.Instance)) SetHeldValue(binding, value, this._neutral);
+			pcall(() => binding.Fire(held.Value));
+			if (IsLive(this.Instance)) SetHeldValue(binding, held.Value, this._neutral, held.Holder);
 		}
 	}
 
@@ -203,7 +194,7 @@ export class ActionHandle {
 		const binding = this.GetScriptBinding();
 		binding.Fire(value);
 		// IAS ignores a Fire on a disabled action or context: nothing is held then
-		if (IsLive(this.Instance)) SetHeldValue(binding, value, this._neutral);
+		if (IsLive(this.Instance)) SetHeldValue(binding, value, this._neutral, this._runtime);
 		else ClearHeldValue(binding);
 	}
 
@@ -251,12 +242,14 @@ export class ActionHandle {
 		binding.UIButton = button;
 		binding.Parent = this.Instance;
 		this._runtime.TrackCreated(binding);
+		this._buttons.add(binding);
 
 		let removed = false;
 		let destroying: RBXScriptConnection | undefined;
 		const remove = () => {
 			if (removed) return;
 			removed = true;
+			this._buttons.delete(binding);
 			if (destroying !== undefined) {
 				destroying.Disconnect();
 				this._runtime.UntrackConnection(destroying);
@@ -304,6 +297,40 @@ export class ActionHandle {
 		pcall(() => {
 			binding.Fire(state);
 			binding.Fire(this._neutral);
+		});
+	}
+
+	/**
+	 * Lets go of what this root handle holds on an action another live root handle still uses,
+	 * before its `Destroy`; the rest is the other handle's. A value this handle fired goes back to
+	 * rest when the action still shows it, or already rests (a Server Authority copy shows a Fire one
+	 * simulation step later); a value fired after it is left alone. A held binding that is destroyed
+	 * leaves the action stuck on (probed): when this handle's buttons go while the action is pressed
+	 * and nothing the package fired holds it, a same-frame pair on `<Action>Script` releases it, as
+	 * removing a held button does.
+	 */
+	ReleaseOwn() {
+		const action = this.Instance;
+		const live = IsLive(action);
+		const state = action.GetState();
+		let heldByOthers = false;
+		for (const child of action.GetChildren()) {
+			if (!child.IsA("InputBinding")) continue;
+			const held = GetHeldValue(child);
+			if (held === undefined) continue;
+			if (held.Holder !== this._runtime) {
+				heldByOthers = true;
+				continue;
+			}
+			ClearHeldValue(child);
+			if (live && (state === held.Value || state === this._neutral))
+				pcall(() => child.Fire(this._neutral));
+		}
+		if (!live || heldByOthers || this._buttons.size() === 0 || !this.IsPressed()) return;
+		const binding = this.GetScriptBinding();
+		pcall(() => {
+			binding.Fire(true);
+			binding.Fire(false);
 		});
 	}
 

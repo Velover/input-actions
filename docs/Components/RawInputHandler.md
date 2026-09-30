@@ -31,15 +31,18 @@ RunService.RenderStepped.Connect(() => {
 ## IAS player scripts and the legacy fallback
 
 - **IAS player scripts** (`Workspace.PlayerScriptsUseInputActionSystem = Enabled`): it reads the
-  PlayerModule's contexts, from `LocalPlayer.InputContexts` under Server Authority, else from
-  `StarterPlayer.PlayerModule.InputContexts`.
+  contexts the PlayerModule itself reads. The character's (`CharacterContext`) come from
+  `LocalPlayer.InputContexts` under Server Authority, else from
+  `StarterPlayer.PlayerModule.InputContexts`. The camera's (`CameraContext`) always come from
+  `StarterPlayer.PlayerModule.InputContexts`: Roblox's CameraModule reads those in every mode, and
+  tunes only those (the player's copy keeps the default sensitivity and invert).
   - The move vector is `CharacterContext.MoveAction` (`Vector2`, X right, Y forward) as
     `Vector3(x, 0, -y)`. It includes the touch thumbsticks and click-to-move, which the PlayerModule
     feeds through Scriptable bindings.
   - Rotation is `CameraContext.CameraRotationAction` times the frame's delta time (with the touch
     pitch adjustment of Roblox's `CameraInput`), and zoom is `CameraZoomAction` times delta time.
-    Roblox's CameraModule already applies the sensitivity and invert settings to those bindings; this
-    module only reads them.
+    Roblox's CameraModule already applies the sensitivity and invert settings to those bindings,
+    and disables those actions when it turns camera input off; this module only reads them.
   - `ControlSetEnabled` sets `CharacterContext.Enabled` (the PlayerModule never toggles that
     context itself). Under Server Authority, disabling it on the client alone would leave the
     server's actions held (the character would keep walking there), so `ControlSetEnabled(false)`

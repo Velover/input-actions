@@ -27,7 +27,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
-  read the server's state (`"playerModule"` reads Roblox's own `player.InputContexts` actions).
+  read the server's state (`"playerModule"` reads Roblox's own `player.InputContexts` actions,
+  `"copyState"` any action of the player's copy, including ones the schema doesn't mention).
 - `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
   refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
   `bun run build` and `bun run test` run it, and an unused directive fails them.

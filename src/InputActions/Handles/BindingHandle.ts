@@ -197,7 +197,7 @@ export class ScriptableBindingHandle {
 		const action = binding.Parent;
 		// IAS ignores a Fire on a disabled action or context: nothing is held then
 		if (action !== undefined && action.IsA("InputAction") && IsLive(action))
-			SetHeldValue(binding, value, this._neutral);
+			SetHeldValue(binding, value, this._neutral, this._runtime);
 		else ClearHeldValue(binding);
 	}
 }

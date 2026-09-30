@@ -1,5 +1,6 @@
 import { CheckBindingSpec } from "./BindingRules";
 import { Entries } from "./Internal";
+import { ReservedSlotProblem } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
@@ -132,6 +133,8 @@ export function Schema<S extends Record<string, IContextSchema>>(contexts: S): I
 			for (const [slot, spec] of Entries(action.Bindings as Record<string, unknown>)) {
 				if (slot.find("/", 1, true)[0] !== undefined)
 					error(`${actionWhere}/${slot}: a binding name can't contain "/"`, 2);
+				const reserved = ReservedSlotProblem(actionName, slot);
+				if (reserved !== undefined) error(`${actionWhere}/${slot}: ${reserved}`, 2);
 				if (spec === SCRIPTABLE) continue;
 				const problem = CheckBindingSpec(action.Type.Name, spec);
 				if (problem !== undefined) error(`${actionWhere}/${slot}: ${problem}`, 2);

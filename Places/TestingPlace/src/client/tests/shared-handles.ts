@@ -14,7 +14,14 @@ import {
 import { InputActions } from "@rbxts/input-actions";
 import { HttpService, Players } from "@rbxts/services";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
-import { createTestInput, frames, newFolder, recordSignal, recordWarnings } from "./helpers";
+import {
+	countSignal,
+	createTestInput,
+	frames,
+	newFolder,
+	recordSignal,
+	recordWarnings,
+} from "./helpers";
 
 const K = Enum.KeyCode;
 
@@ -353,6 +360,90 @@ export class SharedHandlesTests implements OnStart {
 				expectFalse(template.Enabled, "still off while the first lives");
 				first.Destroy();
 				expectTrue(template.Enabled);
+			});
+
+			// ---- what Destroy lets go of on an action another handle still uses
+
+			test("Destroy on a shared action leaves a value another handle fired after it", () => {
+				const folder = newFolder();
+				const keeper = createTestInput(folder);
+				const holder = InputActions.Create(TEST_SCHEMA, { Folder: folder });
+				defer(() => holder.Destroy());
+				holder.Gameplay.Actions.Move.Fire(new Vector2(0, 1));
+				keeper.Gameplay.Actions.Move.Bindings.Virtual.Fire(new Vector2(1, 0));
+				holder.Destroy();
+				frames(3);
+				expectEqual(keeper.Gameplay.Actions.Move.GetState(), new Vector2(1, 0), "the keeper's stick");
+				expectEqual(
+					holder.Gameplay.Actions.Move.Instance.FindFirstChild("MoveScript"),
+					undefined,
+					"the holder's own binding is gone",
+				);
+			});
+
+			test("Destroy on a shared action leaves the other handle's hold on the same binding", () => {
+				const folder = newFolder();
+				const keeper = createTestInput(folder);
+				const holder = InputActions.Create(TEST_SCHEMA, { Folder: folder });
+				defer(() => holder.Destroy());
+				holder.Gameplay.Actions.Look.Fire(new Vector2(3, 4));
+				keeper.Gameplay.Actions.Look.Fire(new Vector2(1, 1)); // adopts the holder's LookScript
+				holder.Destroy();
+				frames(3);
+				const look = keeper.Gameplay.Actions.Look;
+				expectEqual(look.GetState(), new Vector2(1, 1));
+				look.Fire(Vector2.zero);
+				expectEqual(look.GetState(), Vector2.zero, "the keeper still lets go through it");
+			});
+
+			test("a Tap in flight when its handle is destroyed leaves the shared action at rest", () => {
+				const folder = newFolder();
+				const keeper = createTestInput(folder);
+				const holder = InputActions.Create(TEST_SCHEMA, { Folder: folder });
+				defer(() => holder.Destroy());
+				const released = countSignal(keeper.Gameplay.Actions.Jump.Released);
+				holder.Gameplay.Actions.Jump.Tap();
+				holder.Destroy();
+				expectFalse(keeper.Gameplay.Actions.Jump.IsPressed());
+				frames(5);
+				expectFalse(keeper.Gameplay.Actions.Jump.IsPressed());
+				eventually(() => released.count === 1, "one Released");
+			});
+
+			test("a destroyed handle's buttons leave a press another handle fired", () => {
+				const folder = newFolder();
+				const keeper = createTestInput(folder);
+				const holder = InputActions.Create(TEST_SCHEMA, { Folder: folder });
+				defer(() => holder.Destroy());
+				holder.Gameplay.Actions.Jump.AttachButton(newButton());
+				keeper.Gameplay.Actions.Jump.Fire(true);
+				holder.Destroy();
+				frames(3);
+				const jump = keeper.Gameplay.Actions.Jump;
+				expectEqual(jump.Instance.FindFirstChild("JumpUIButton1"), undefined, "the button's binding");
+				expectTrue(jump.IsPressed(), "the keeper's press");
+				jump.Fire(false);
+				expectFalse(jump.IsPressed());
+			});
+
+			test("a destroyed handle's button that may hold a shared action releases it", () => {
+				const folder = newFolder();
+				const keeper = createTestInput(folder);
+				const holder = InputActions.Create(TEST_SCHEMA, { Folder: folder });
+				defer(() => holder.Destroy());
+				const jump = keeper.Gameplay.Actions.Jump;
+				holder.Gameplay.Actions.Jump.AttachButton(newButton());
+				// A binding the package doesn't drive stands in for the pressed button
+				const press = new Instance("InputBinding");
+				press.Name = "PressedButtonStandIn";
+				press.Type = Enum.InputBindingType.Scriptable;
+				press.Parent = jump.Instance;
+				defer(() => press.Destroy());
+				press.Fire(true);
+				expectTrue(jump.IsPressed());
+				holder.Destroy();
+				frames(3);
+				expectFalse(jump.IsPressed(), "released with the button's binding");
 			});
 		});
 	}

@@ -14,9 +14,12 @@ import { RawInputHandler } from "@rbxts/input-actions";
 import { Players, StarterPlayer } from "@rbxts/services";
 import { frames, nearlyEqual } from "./helpers";
 
-/** Where the PlayerModule keeps its contexts under this project (probed locations) */
-function playerModuleContexts(): Instance {
-	if (getProject() === "authority") {
+/**
+ * Where the PlayerModule reads a context under this project (probed locations). Under Server
+ * Authority the ControlModule reads the player's copy; the CameraModule always reads the module's own.
+ */
+function playerModuleContexts(contextName: string): Instance {
+	if (getProject() === "authority" && contextName !== "CameraContext") {
 		return expectDefined(
 			Players.LocalPlayer.WaitForChild("InputContexts", 10),
 			"LocalPlayer.InputContexts",
@@ -33,7 +36,10 @@ function playerModuleContexts(): Instance {
 }
 
 function playerModuleAction(contextName: string, actionName: string): InputAction {
-	const context = expectDefined(playerModuleContexts().WaitForChild(contextName, 10), contextName);
+	const context = expectDefined(
+		playerModuleContexts(contextName).WaitForChild(contextName, 10),
+		contextName,
+	);
 	return expectDefined(context.WaitForChild(actionName, 10), actionName) as InputAction;
 }
 

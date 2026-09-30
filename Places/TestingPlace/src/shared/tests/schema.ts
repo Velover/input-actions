@@ -101,6 +101,22 @@ export class SchemaTests implements OnStart {
 					untypedSchema({ Gameplay: { Actions: { "Jump/Now": InputActions.Bool() } } }),
 				);
 			});
+
+			test("Schema refuses slot names that would take the package's own binding names", () => {
+				const withSlot = (slot: string) => () =>
+					InputActions.Schema({
+						Gameplay: { Actions: { Dash: InputActions.Bool({ [slot]: Enum.KeyCode.X }) } },
+					});
+				// DashScript is Fire's binding, DashUIButton<n> AttachButton's; a slot matches S or A..S
+				for (const slot of ["Script", "UIButton1", "UIButton12", "DashScript", "DashUIButton2"]) {
+					const message = expectThrows(withSlot(slot), slot);
+					expectTrue(message.find(`Gameplay/Dash/${slot}`, 1, true)[0] !== undefined, message);
+					expectTrue(message.find("reserved", 1, true)[0] !== undefined, message);
+				}
+				for (const slot of ["Scripts", "UIButton", "UIButtonA", "JumpScript", "Scriptable"]) {
+					withSlot(slot)();
+				}
+			});
 		});
 	}
 }

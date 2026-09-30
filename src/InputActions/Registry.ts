@@ -57,18 +57,25 @@ export function IsShared(instance: Instance): boolean {
 	return (entries.get(instance)?.Users ?? 0) > 1;
 }
 
+/** A value the package fired on a Scriptable binding, and the root handle that fired it */
+export interface IHeldValue {
+	Value: unknown;
+	/** The runtime of the root handle whose `Fire` it was: its `Destroy` lets go of it */
+	Holder: object;
+}
+
 /**
  * The last value the package fired on each Scriptable binding, while it holds the action. Shared,
  * so any handle can release it, and a Server Authority swap carries it over.
  */
-const heldValues = setmetatable(new Map<InputBinding, unknown>(), { __mode: "k" });
+const heldValues = setmetatable(new Map<InputBinding, IHeldValue>(), { __mode: "k" });
 
-export function SetHeldValue(binding: InputBinding, value: unknown, neutral: unknown) {
+export function SetHeldValue(binding: InputBinding, value: unknown, neutral: unknown, holder: object) {
 	if (value === neutral) heldValues.delete(binding);
-	else heldValues.set(binding, value);
+	else heldValues.set(binding, { Value: value, Holder: holder });
 }
 
-export function GetHeldValue(binding: InputBinding): unknown {
+export function GetHeldValue(binding: InputBinding): IHeldValue | undefined {
 	return heldValues.get(binding);
 }
 

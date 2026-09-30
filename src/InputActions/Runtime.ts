@@ -11,13 +11,14 @@ import { CheckBindingKeys } from "./BindingRules";
 import { ApplySpec, ReadBinding, WriteBinding } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
 import { ROOT_MEMBERS, SCRIPTABLE } from "./Builders";
-import { ActionHandle, IsPackageBindingName } from "./Handles/ActionHandle";
+import { ActionHandle } from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
-import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES } from "./Internal";
+import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import {
 	AddUser,
 	GetEntry,
+	IHeldValue,
 	ISharedEntry,
 	IsPackageMade,
 	IsShared,
@@ -33,7 +34,9 @@ import {
 	FindAction,
 	FindBinding,
 	FindContext,
+	IsPackageBindingName,
 	MatchesSlot,
+	ReservedSlotProblem,
 	WarnUnmentioned,
 } from "./Tree";
 import type {
@@ -92,6 +95,8 @@ export class InputRuntime implements IRuntime {
 	private readonly _used = new Set<Instance>();
 	private readonly _connections = new Set<RBXScriptConnection>();
 	private readonly _pendingLinks = new Array<IPendingLink>();
+	/** Actions of a server's copy the schema doesn't mention, which the package gave the template's bindings */
+	private readonly _extraActions = new Array<InputAction>();
 	private _standInFolder?: Folder;
 	private _stopSnapshots?: () => void;
 	private _focusReleases?: Array<() => void>;
@@ -184,10 +189,18 @@ export class InputRuntime implements IRuntime {
 		for (const context of this._contexts) {
 			for (const [, action] of pairs(context.Actions)) {
 				actions.push(action);
-				if (IsShared(action.Instance)) continue;
+				// Another root handle still uses it: only what this one holds is let go
+				if (IsShared(action.Instance)) {
+					action.ReleaseOwn();
+					continue;
+				}
 				owned.push(action);
 				action.Release();
 			}
+		}
+		// The template's bindings the package gave them go with their last user
+		for (const action of this._extraActions) {
+			if (!IsShared(action)) ReleaseOnServer(action);
 		}
 		for (const context of this._contexts) context.Destroy();
 		for (let index = this._uses.size() - 1; index >= 0; index--) {
@@ -383,10 +396,18 @@ export class InputRuntime implements IRuntime {
 			if (!action.IsA("InputAction") || schema.Actions[action.Name] !== undefined) continue;
 			const templateAction = template.FindFirstChild(action.Name);
 			if (templateAction === undefined) continue;
+			this.UseExtraAction(action);
 			for (const binding of templateAction.GetChildren()) {
 				if (binding.IsA("InputBinding")) this.CloneOrAdopt(binding, action);
 			}
 		}
+	}
+
+	/** An action of the server's copy the schema doesn't mention, given the template's bindings */
+	private UseExtraAction(action: InputAction) {
+		if (this._used.has(action)) return;
+		this.Use(action);
+		this._extraActions.push(action);
 	}
 
 	/** Clones a template binding under `action`, or adopts the clone another root handle made */
@@ -485,7 +506,7 @@ export class InputRuntime implements IRuntime {
 			}
 		}
 
-		const held = new Array<[ActionHandle, Array<[InputBinding, unknown]>]>();
+		const held = new Array<[ActionHandle, Array<[InputBinding, IHeldValue]>]>();
 		for (const [actionName, handle] of pairs(pending.Handle.Actions)) {
 			const target = copy.FindFirstChild(actionName) as InputAction;
 			this.Use(target);
@@ -496,6 +517,7 @@ export class InputRuntime implements IRuntime {
 			if (!child.IsA("InputAction") || pending.Schema.Actions[child.Name] !== undefined) continue;
 			const target = copy.FindFirstChild(child.Name);
 			if (target === undefined || !target.IsA("InputAction")) continue;
+			this.UseExtraAction(target);
 			for (const binding of child.GetChildren()) {
 				if (!binding.IsA("InputBinding")) continue;
 				const existing = target.FindFirstChild(binding.Name);
@@ -587,6 +609,9 @@ export class InputRuntime implements IRuntime {
 		templateAction: InputAction | undefined,
 	): BindingHandle | ScriptableBindingHandle {
 		const path = JoinPath(contextHandle.Name, actionName, slot);
+		// Schema refuses these names; a schema made without it could still hold one
+		const reserved = ReservedSlotProblem(actionName, slot);
+		if (reserved !== undefined) error(`InputActions.Create: ${path}: ${reserved}`, 0);
 		const scriptable = spec === SCRIPTABLE;
 		let binding = FindBinding(action, actionName, slot);
 		// Found: the designer's, or one another root handle on this folder made

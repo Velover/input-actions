@@ -1,5 +1,5 @@
 import { ExportBindings, ImportBindings, ResetBindings } from "../BindingsJson";
-import type { IRuntime } from "../Internal";
+import { IRuntime, ReleaseOnServer } from "../Internal";
 import type { IImportResult } from "../Types";
 import type { ActionHandle } from "./ActionHandle";
 import type { BindingHandle } from "./BindingHandle";
@@ -30,14 +30,18 @@ export class ContextState {
 		if (effective === this.Effective) return;
 		this.Effective = effective;
 		// Released before disabling: a Fire on a disabled context is ignored
-		if (!effective) ReleaseActions(this.Handles);
+		if (!effective) ReleaseActions(this.Instance, this.Handles);
 		this.Instance.Enabled = effective;
 		for (const handle of [...this.Handles]) handle.NotifyEnabledChanged(effective);
 	}
 }
 
-/** Releases every action of these handles once, before their context is disabled */
-function ReleaseActions(handles: readonly ContextHandle[]) {
+/**
+ * Releases every action of the context once, before it is disabled: the handles' actions, then, on a
+ * server's copy, the actions the schema doesn't mention (a template's extras, which the package gave
+ * the template's keys), which the server would otherwise keep held.
+ */
+function ReleaseActions(context: InputContext, handles: readonly ContextHandle[]) {
 	const released = new Set<InputAction>();
 	for (const handle of handles) {
 		for (const [, action] of pairs(handle.Actions)) {
@@ -45,6 +49,9 @@ function ReleaseActions(handles: readonly ContextHandle[]) {
 			released.add(action.Instance);
 			action.Release();
 		}
+	}
+	for (const child of context.GetChildren()) {
+		if (child.IsA("InputAction") && !released.has(child)) ReleaseOnServer(child);
 	}
 }
 

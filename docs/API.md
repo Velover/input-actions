@@ -42,8 +42,10 @@ InputActions.Schema(contexts): { readonly Contexts }
 `contexts` is a record of context name to
 `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`. The
 defaults are the IAS ones (Priority 1000, Sink false, Enabled true). `Schema` checks the bindings at
-runtime too, and throws on names the handles can't hold (a context named like one of the root
-handle's five members, or a name with `/`). The result is frozen and creates no instances: require it on both realms.
+runtime too, and throws on names the handles can't hold: a context named like one of the root
+handle's five members, a name with `/`, or a slot whose binding would take the name of one the
+package makes itself (`Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`: see
+[`Fire`](#action-handle) and `AttachButton`). The result is frozen and creates no instances: require it on both realms.
 
 ### Create
 
@@ -131,7 +133,7 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save; never throws |
 | `ResetBindings()` | every binding back to its defaults |
-| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing |
+| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing. On an action another root handle still uses, it releases only what it held itself (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
 
 ### Context handle
 

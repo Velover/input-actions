@@ -52,6 +52,11 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   handle changes it, every handle on a binding has the same defaults, and destroying one handle
   leaves what another still uses (instances, held input, requests). What the package made goes
   with the last handle.
+- On an action another handle still uses, `Destroy` lets go of what the destroyed handle held
+  itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless a value
+  fired after it is what the action shows (IAS keeps the last one). Its attached buttons go too;
+  as when a held button is detached, the action is released if it is pressed and nothing the
+  other handles fired holds it.
 - `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
   what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
@@ -297,6 +302,10 @@ way:
 - through the Scriptable bindings it drives when they hold a value (`Fire`'s `<Action>Script`, the
   schema's Scriptable slots), else, when something else holds the action (a key, a button, a binding
   you made), with a same-frame pair on `<Action>Script`: the held value, then the value at rest.
+- Actions of the server's copy that the schema doesn't mention (a template's extra actions, which
+  get the template's keys) are released the same way when the context is disabled, and on the
+  last `Destroy`, which removes those keys: the pair goes through a binding made for it and
+  removed in the same frame.
 
 The server sees one `Released`. If you disable a context by writing `InputContext.Enabled` yourself,
 or disable an action through its instance, the server keeps the state: go through the handles.
