@@ -17,6 +17,11 @@ function run(command, env = process.env) {
 	}
 }
 
+// The package under test, built from the repository root and copied into node_modules. Nothing
+// else has run yet, so a failure here leaves out/ as it was.
+const linked = run(["bun", "scripts/link-package.mjs"]);
+if (linked !== 0) process.exit(linked ?? 127);
+
 let code = run(["rbxtsc"], { ...process.env, FLAMEWORK_SCOPES: "testing" });
 if (code === undefined) {
 	console.error(

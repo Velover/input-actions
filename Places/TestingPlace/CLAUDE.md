@@ -1,7 +1,26 @@
-# Flamework Template
+# Testing place for @rbxts/input-actions
 
-A Roblox game in roblox-ts on Flamework v2. It started from the Flamework template, whose coin
-example (press F to spawn a coin, touch it to collect it) is there to be replaced.
+A roblox-ts place on Flamework v2 whose only job is to test the package in the repository root
+(`../../src`) inside Studio. The template's coin example has been removed.
+
+## Testing the package
+
+- `bun run test:all` builds the package from `../../` and copies it into
+  `node_modules/@rbxts/input-actions` (`scripts/link-package.mjs`, also `bun run link`), then runs
+  every test section in Studio under three Rojo projects:
+  - `default` (`default.project.json`): legacy player scripts;
+  - `ias` (`tests/ias.project.json`): `Workspace.PlayerScriptsUseInputActionSystem = Enabled`;
+  - `authority` (`tests/authority.project.json`): Server Authority on (with the IAS player scripts,
+    next-generation replication, fixed simulation, streaming, deferred signals).
+- `bun run test`, `test:ias` and `test:authority` run one project. `getProject()` from
+  `@flamework-experimental/testing` returns `default`, `ias` or `authority` inside the place.
+- The package is not in `package.json`: the link script puts it in `node_modules`, and every test
+  run refreshes it. Import it as `@rbxts/input-actions`.
+- The design the package implements: `../../docs/Design/IAS-Rework.md`.
+- To try Luau in a live session: `rojo build -o probe.rbxl`, then
+  `node_modules/.bin/flamework-test patch probe.rbxl --original tests/place.rbxlx [--project tests/authority.project.json]`,
+  `studio open <patched file>`, `studio play`, `studio exec --realm client|server --script <file.luau>`,
+  `studio stop`, `studio close`.
 
 ## Stack
 
