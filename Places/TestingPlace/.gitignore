@@ -1,0 +1,22 @@
+/node_modules
+
+# Build output: roblox-ts writes out/ and include/ (with Flamework's include/flamework/), and
+# Flamework writes flamework.build. Every build recreates them.
+/out
+/include
+/flamework.build
+*.tsbuildinfo
+
+# Place files at the root, such as the place.rbxl that `bun run place` builds. A place kept in a
+# folder, such as a test place, can be committed. Studio's lock files never are.
+/*.rbxl
+/*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# flamework-test's cloud commands record the version they published in build/version.json. The
+# places `bun run test` makes (test.rbxl, test.patched.rbxl) are root place files, ignored above.
+/build
+
+# Personal overrides of .env, read by the Flamework build.
+.env.local

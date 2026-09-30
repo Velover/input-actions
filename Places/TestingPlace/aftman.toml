@@ -1,0 +1,5 @@
+# Tools installed by `aftman install` or `rokit install` (Rokit reads this file too).
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"
+# flamework-test uses Lune to lay the build over tests/place.rbxlx.
+lune = "lune-org/lune@0.10.5"

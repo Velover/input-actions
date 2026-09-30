@@ -1,0 +1,9 @@
+# Every text file is LF, in the repository and in the working tree, whatever core.autocrlf says.
+# Editors, Prettier and scripts then all see the same line endings on every machine.
+* text=auto eol=lf
+
+# Roblox files: binary ones are never converted, and XML ones keep their bytes as Studio wrote them.
+*.rbxl binary
+*.rbxm binary
+*.rbxlx -text
+*.rbxmx -text

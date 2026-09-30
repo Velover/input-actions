@@ -1,0 +1,38 @@
+{
+	"Flamework Provider": {
+		"prefix": ["provider", "controller", "service"],
+		"description": "Flamework v2 provider: a service or a controller. The folder it is in decides the realm.",
+		"scope": "typescript",
+		"body": [
+			"import { OnStart, Provider } from \"@flamework-experimental/core\";",
+			"",
+			"@Provider()",
+			"export class ${1:${TM_FILENAME_BASE/(.*)/${1:/pascalcase}/g}} implements OnStart {",
+			"\tonStart() {",
+			"\t\t$0",
+			"\t}",
+			"}",
+			"",
+		],
+	},
+
+	"Flamework Component": {
+		"prefix": ["component"],
+		"description": "Flamework v2 component, attached to every instance with its tag.",
+		"scope": "typescript",
+		"body": [
+			"import { BaseComponent, Component } from \"@flamework-experimental/components\";",
+			"import { OnStart } from \"@flamework-experimental/core\";",
+			"",
+			"interface Attributes {}",
+			"",
+			"@Component({ tag: \"${2:${TM_FILENAME_BASE/(.*)/${1:/pascalcase}/g}}\" })",
+			"export class ${1:${TM_FILENAME_BASE/(.*)/${1:/pascalcase}/g}} extends BaseComponent<Attributes, ${3:BasePart}> implements OnStart {",
+			"\tonStart() {",
+			"\t\t$0",
+			"\t}",
+			"}",
+			"",
+		],
+	},
+}

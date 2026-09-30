@@ -1,0 +1,5 @@
+{
+	"$schema": "./node_modules/@flamework-experimental/transformer/flamework.config.schema.json",
+	// `bun run test` builds with FLAMEWORK_SCOPES=testing; every other build has no scope active.
+	"scopes": { "active": "${FLAMEWORK_SCOPES:-}" }
+}

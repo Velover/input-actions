@@ -1,0 +1,29 @@
+{
+	"name": "flamework-template",
+	"version": "0.1.0",
+	"private": true,
+	"description": "A minimal Roblox game on Flamework v2: roblox-ts, Rojo, core, components and networking.",
+	"scripts": {
+		"build": "rbxtsc",
+		"watch": "rbxtsc -w",
+		"serve": "rojo serve",
+		"place": "rojo build -o place.rbxl",
+		"test": "bun scripts/test.mjs",
+		"format": "prettier --write src"
+	},
+	"dependencies": {
+		"@flamework-experimental/components": "2.0.0-alpha.4",
+		"@flamework-experimental/core": "2.0.0-alpha.4",
+		"@flamework-experimental/networking": "2.0.0-alpha.4",
+		"@flamework-experimental/testing": "2.0.0-alpha.4",
+		"@rbxts/services": "^1.6.0"
+	},
+	"devDependencies": {
+		"@flamework-experimental/transformer": "2.0.0-alpha.5",
+		"@rbxts/compiler-types": "^3.0.0-types.0",
+		"@rbxts/types": "^1.0.955",
+		"prettier": "^3.8.1",
+		"roblox-ts": "3.0.0",
+		"typescript": "5.5.3"
+	}
+}
