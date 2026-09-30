@@ -153,8 +153,8 @@ adopted from existing instances.
     Manager writes. Wait for `game.Loaded` before looking.
   - `PlayerFolderName?: string`: default `"Inputs"`, the folder under the player for Server
     Authority contexts (§8).
-  - `Timeout?: number`: how long to wait for the server's copy of Server Authority contexts;
-    default 10 s; throws with the context names when exceeded.
+  - `Timeout?: number`: seconds before `Create` warns that the server's copy of a Server
+    Authority context has not arrived; default 10. It never throws and never blocks (§8).
   - `ResetOnFocusLoss?: boolean`: default `true` (§5).
 - **Get-or-create, matched by name** under the folder:
   - Context named as the schema key; action named as the schema key.
@@ -203,8 +203,13 @@ Input.Ui.Instance;                    // the InputContext: set Priority/Sink on 
 
 Action handle (all types):
 
+- **Handle signals are the package's own, not the IAS ones.** `StateChanged`, `Pressed`,
+  `Released`, `EnabledChanged` and `BindingsChanged` are backed by `BindableEvent`s (so still typed
+  `RBXScriptSignal`) and forward from whichever instance the handle currently wraps. A Server
+  Authority context swaps from a local stand-in to the server's copy (§8); connections made before
+  the swap must keep working after it. `Instance` always returns the current instance.
 - `Instance: InputAction`, `Name`, `Type`.
-- `GetState(): V`, `StateChanged: RBXScriptSignal<(value: V) => void>` (the IAS signal, cast).
+- `GetState(): V`, `StateChanged: RBXScriptSignal<(value: V) => void>`.
 - `Fire(value: V)`: fires a Scriptable binding named `<Action>Script` that the package creates on
   first use. Values go straight into the action state: IAS applies no `Scale`, clamp or
   `Vector2Scale` to fired values **(probed)**.
@@ -320,17 +325,41 @@ client; the server only reads action state, which IAS replicates on its own.
   for contexts marked `ServerAuthority: true` (the type filters them). Each action has `Instance`,
   `GetState(): V`, `StateChanged`; Bool actions add `Pressed`/`Released`. No bindings and no
   `Fire`. Waits for the player's folder when called before `ProvideToPlayers` has placed it.
-- **Client:** `Create` waits (up to `Timeout`) for `LocalPlayer.<PlayerFolderName>.<Context>` for
-  each Server Authority context, then adds the bindings **locally** under the server's actions:
-  defaults from the template `ReplicatedStorage.Inputs.<Context>.<Action>` bindings when present,
-  else the schema. Then saved rebinds, as usual.
+- **Client: `Create` never waits for the server.** For each Server Authority context:
+  - If `LocalPlayer.<PlayerFolderName>.<Context>` is already there, use it: add the bindings
+    **locally** under the server's actions (defaults from the template
+    `ReplicatedStorage.Inputs.<Context>.<Action>` bindings when present, else the schema), then saved
+    rebinds, as usual.
+  - Otherwise build a **local stand-in**: a client-only context (a clone of the template, or built
+    from the schema) with its bindings, in a client-only folder. The handles work on it at once:
+    input, `GetState`, events, `Fire`, rebinding, requests, `AttachButton`. Its state never reaches
+    the server.
+  - When the server's copy arrives, **swap**: add the bindings to the server's actions, carrying
+    over everything the stand-in has now (rebinds, the context's base state and held requests,
+    attached buttons, the last value fired on each Scriptable binding, so a held virtual stick
+    stays held), point the handles at the server's instances, then disable and destroy the
+    stand-in. A Bool action held at the swap may release once (stand-in disabled) and press again
+    on the next input; `Pressed`/`Released` listeners see that. After the swap, `Reset` still
+    returns to the same defaults.
+  - Context handles of Server Authority contexts add `IsLinkedToServer(): boolean` and
+    `LinkedToServer: RBXScriptSignal<() => void>` (fires once, at the swap, or never when the copy
+    was there from the start and `IsLinkedToServer()` is already `true`).
+  - After `Timeout` seconds (default 10) without the server's copy, `warn` once, naming the
+    contexts, the expected path, and the likely causes: `ProvideToPlayers` was not called on the
+    server, or it uses a different `PlayerFolderName`. Keep the stand-in, and still swap if the
+    copy arrives later.
 - **Client:** the template context in `ReplicatedStorage.Inputs` of a Server Authority context is
-  disabled locally, so it does not process the same keys beside the player's copy.
+  disabled locally, so it does not process the same keys beside the stand-in or the player's copy.
 - **Probed:** a client-created Scriptable binding under a server-created action drives the action,
   and the state reaches the server (`GetState`, `Pressed`, `StateChanged`, and `BindToSimulation`
   all see it). The server never sees the client's binding. Disabling the context on the client
   releases the state on the server too, while the server's `Enabled` stays `true`.
 - `Workspace.AuthorityMode` cannot be read by scripts **(probed)**. Don't try to detect the mode.
+  **The user docs must say so plainly:** the package cannot tell whether the place runs Server
+  Authority, so it cannot warn when it is off. A context marked `ServerAuthority: true` in a place
+  without Server Authority still works on the client (the server's copy replicates either way), but
+  the server never receives its state. The `Timeout` warning only means the server's copy never
+  arrived; it says nothing about the mode.
 - Roblox's own PlayerModule puts its contexts in `player.InputContexts` under Server Authority
   (`CameraContext` P=100, `CharacterContext` P=150, `VehicleContext` P=200 Sink, `TransformerContext`
   P=300 Sink) **(probed)**. The package's folder name must not collide with it.
@@ -400,7 +429,11 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   base state + requests + focus-loss reset; `AttachButton` (created, removed, destroyed button,
   held-while-removed reset); rebinding (`Set` merge, validation throws, `Reset`, `Clear`, `Get`);
   export/import round trip and every skip reason; `SanitizeBindings`; presets; `MouseController`;
-  `RawInputHandler` under `ias` and `authority`; Server Authority end to end.
+  `RawInputHandler` under `ias` and `authority`; Server Authority end to end; the Server Authority
+  stand-in (a client `Create` before the server's copy exists, then the copy arrives: connections
+  made before the swap keep firing, rebinds, requests and held Scriptable values carry over,
+  `LinkedToServer` fires once; with a short `Timeout` and no copy, one warning and a working
+  stand-in).
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

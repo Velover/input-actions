@@ -4,7 +4,8 @@
 	"private": true,
 	"description": "A minimal Roblox game on Flamework v2: roblox-ts, Rojo, core, components and networking.",
 	"scripts": {
-		"build": "rbxtsc",
+		"build": "rbxtsc && tsc -p tests/type-rules",
+		"typecheck": "tsc -p tests/type-rules",
 		"watch": "rbxtsc -w",
 		"serve": "rojo serve",
 		"place": "rojo build -o place.rbxl",

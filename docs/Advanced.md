@@ -1,303 +1,309 @@
-# Advanced Usage Guide
+# Advanced usage
 
-This guide covers the advanced features of the Input Actions system, with a focus on InputEcho, KeyCombination, and InputContext.
+- [Contexts](#contexts)
+- [Get-or-create in detail](#get-or-create-in-detail)
+- [Driving actions from code](#driving-actions-from-code)
+- [On-screen buttons](#on-screen-buttons)
+- [TrackPrevious](#trackprevious)
+- [Rebinding](#rebinding)
+- [Saving keybinds](#saving-keybinds)
+- [Server Authority](#server-authority)
+- [UI navigation preset](#ui-navigation-preset)
+- [IAS behaviours to know](#ias-behaviours-to-know)
 
-## Input Context System
-
-The Input Context system is a powerful way to organize and manage inputs for different game states or scenarios.
-
-### Creating and Managing Contexts
+## Contexts
 
 ```ts
-import { InputContextController } from "@rbxts/input-actions";
-
-// Create different contexts
-const globalContext = InputContextController.GetGlobalContext(); // Always active
-const gameplayContext = InputContextController.CreateContext("gameplay");
-const vehicleContext = InputContextController.CreateContext("vehicle");
-const menuContext = InputContextController.CreateContext("menu");
-
-// Add input mappings with device-specific controls
-gameplayContext.Add("Jump", {
-	KeyboardAndMouse: Enum.KeyCode.Space,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-
-vehicleContext.Add("Accelerate", {
-	KeyboardAndMouse: Enum.KeyCode.W,
-	Gamepad: Enum.KeyCode.ButtonR2,
-});
-
-// Manage context activation
-function EnterVehicle() {
-	gameplayContext.Unassign();
-	vehicleContext.Assign();
-}
-
-function ExitVehicle() {
-	vehicleContext.Unassign();
-	gameplayContext.Assign();
-}
+Input.Ui.SetEnabled(true); // the base state
+Input.Ui.IsEnabled(); // the effective state
+Input.Ui.EnabledChanged.Connect((enabled) => {});
+const release = Input.Gameplay.Request(false); // held until release() is called
+Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and Sink
 ```
 
-### Context Hierarchies
+- The effective state is `false` while any `Request(false)` is held, else `true` while any
+  `Request(true)` is held, else the base state. The base state starts as the instance's `Enabled`
+  after get-or-create. Calling a release function twice does nothing.
+- The handle owns `InputContext.Enabled`: set it through the handle, not on the instance.
+- Disabling a context releases its held actions: IAS fires `Released`.
+- **Focus loss.** A key held when a TextBox takes focus, the window loses focus or the Roblox menu
+  opens can have its release swallowed, and stay stuck. By default `Create` holds every context
+  disabled for one frame on `UserInputService.TextBoxFocused`, `WindowFocusReleased` and
+  `GuiService.MenuOpened`. Listeners see one `false`/`true` pair on contexts that were enabled, and
+  the base state doesn't change. Turn it off with `Create(schema, { ResetOnFocusLoss: false })`.
+- Actions have `SetEnabled`/`IsEnabled` too, which pass through to `InputAction.Enabled`; IAS resets
+  an action's state when it is disabled.
 
-You can create hierarchies of contexts:
+## Get-or-create in detail
+
+- `Create` looks in `ReplicatedStorage.Inputs` (created client-side when missing), or in
+  `options.Folder`. Contexts can live anywhere in the DataModel.
+- An existing action whose `Type` differs from the builder's type throws, naming the path
+  (`Gameplay/Jump`). Nothing `Create` made before the throw is left behind.
+- An adopted binding whose keys break the type rules is left as it is, with a `warn` naming it.
+- Instances the schema doesn't mention are left alone (IAS still runs them) and are not typed. In
+  Studio, each gets one `warn`. That includes bindings whose names match no slot, such as the
+  Manager's default name `InputBinding`, because they run beside the package's own binding.
+- `Create` twice on the same folder adopts the same instances and creates nothing twice.
+- `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
+  what it created. Adopted instances stay, and adopted contexts get their base state back.
+
+## Driving actions from code
 
 ```ts
-// Base context with common controls
-const baseContext = InputContextController.CreateContext("base");
-baseContext.Add("Pause", {
-	KeyboardAndMouse: Enum.KeyCode.Escape,
-	Gamepad: Enum.KeyCode.ButtonStart,
-});
-
-// Always keep the base context assigned
-baseContext.Assign();
-
-// Specialized contexts can be assigned/unassigned as needed
-function TransitionToGameplay() {
-	menuContext.Unassign();
-	gameplayContext.Assign();
-	// base context remains active
-}
+Dash.Fire(true); // through a Scriptable binding `<Action>Script` made on first use
+Move.Bindings.Virtual.Fire(new Vector2(0, 1)); // a slot declared InputActions.Scriptable
+Jump.Tap(); // Fire(true), then Fire(false) on the next frame
 ```
 
-### Updating Mappings at Runtime
+- The value goes straight into the action state: IAS applies no `Scale`, clamp or `Vector2Scale` to
+  fired values.
+- A fired value stays until something changes it: fire the value at rest (`false`, `0`,
+  `Vector2.zero`) when your on-screen control is released.
+- Several bindings on one action are not combined: the last one to change wins (see
+  [below](#ias-behaviours-to-know)).
+
+## On-screen buttons
 
 ```ts
-// Support for input rebinding
-function RebindJumpKey(newKey: Enum.KeyCode) {
-	gameplayContext.UpdateKey("Jump", "KeyboardAndMouse", newKey);
-}
-
-// Get the current key for displaying in UI
-function GetCurrentJumpKey() {
-	return gameplayContext.GetInputKeyForCurrentDevice("Jump");
-}
-
-// Get visual data for displaying the key
-function GetJumpKeyVisual() {
-	return gameplayContext.GetVisualData("Jump");
-}
+const detach = Jump.AttachButton(jumpButton); // a GuiButton
+detach(); // or destroy the button
 ```
 
-## Key Combinations
+`AttachButton` (Bool actions only) adds an Automatic binding `<Action>UIButton<n>` with
+`UIButton = button`. Several buttons can be attached at once. Destroying a binding while it holds
+the action leaves the action stuck on in IAS, so when the binding goes while the action is pressed,
+the package resets the action (toggles `InputAction.Enabled`).
 
-The KeyCombinationController allows detecting and handling keyboard shortcuts and multi-key combinations.
+The package has nothing React-specific. A hook in your project can look like this:
 
-### Registering Combinations
+```tsx
+import { useEffect, useState } from "@rbxts/react";
+import { InputActions } from "@rbxts/input-actions";
 
-```ts
-import { KeyCombinationController } from "@rbxts/input-actions";
-
-// Register keyboard shortcuts
-KeyCombinationController.RegisterCombination("Save", Enum.KeyCode.S, [Enum.KeyCode.LeftControl]);
-KeyCombinationController.RegisterCombination("Undo", Enum.KeyCode.Z, [Enum.KeyCode.LeftControl]);
-KeyCombinationController.RegisterCombination("Redo", Enum.KeyCode.Y, [Enum.KeyCode.LeftControl]);
-
-// Register single-key shortcuts
-KeyCombinationController.RegisterCombination("Screenshot", Enum.KeyCode.F12);
-
-// Register multiple modifier keys
-KeyCombinationController.RegisterCombination("SaveAs", Enum.KeyCode.S, [
-	Enum.KeyCode.LeftControl,
-	Enum.KeyCode.LeftShift,
-]);
-```
-
-### Using Key Combinations
-
-Key combinations work like any other action:
-
-```ts
-// Check if a key combination was triggered
-if (ActionsController.IsJustPressed("Save")) {
-	SaveGame();
+export function useInputButton(action: InputActions.BoolAction) {
+	const [button, setButton] = useState<GuiButton>();
+	useEffect(() => {
+		if (button === undefined) return;
+		return action.AttachButton(button);
+	}, [action, button]);
+	return setButton; // pass as `ref`
 }
 
-if (ActionsController.IsJustPressed("Undo")) {
-	UndoLastAction();
-}
+// <textbutton ref={useInputButton(Input.Gameplay.Actions.Jump)} Text="Jump" />
 ```
 
-### Implementation Details
+`InputActions.BoolAction` accepts any Bool action handle, tracked or not.
 
-- Key combinations have higher priority than regular inputs
-- Modifiers must be pressed before the main key
-- Combinations use the action name system, so they work with all action APIs
-
-## Input Echo
-
-The InputEchoController enables repeating input events when keys are held down, which is ideal for UI navigation and text input.
-
-### Configuring Action Echo
+## TrackPrevious
 
 ```ts
-import { InputEchoController } from "@rbxts/input-actions";
-
-// Configure input echo with initial delay and repeat interval (in seconds)
-InputEchoController.ConfigureActionEcho("UIUp", 0.4, 0.1); // Wait 0.4s, then repeat every 0.1s
-InputEchoController.ConfigureActionEcho("UIDown", 0.4, 0.1);
-InputEchoController.ConfigureActionEcho("UILeft", 0.4, 0.1);
-InputEchoController.ConfigureActionEcho("UIRight", 0.4, 0.1);
+Crouch: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.C }, { TrackPrevious: true }),
+Steer: InputActions.Direction1D({ Gamepad: Enum.KeyCode.ButtonR2 }, { TrackPrevious: true }),
 ```
 
-### Using Echoed Actions
+Tracked actions add `GetPrevious()` and `HasChanged()`, and tracked Bool actions add
+`IsJustPressed()` and `IsJustReleased()`. On other actions these methods don't exist, and calling
+them is a compile error.
 
-Once configured, echoed actions can be used like normal actions:
+- One snapshot is taken per frame, at `BindToRenderStep` priority `Enum.RenderPriority.First`, after
+  input is processed. Every read within a frame agrees. A client that renders nothing (for example
+  a Studio window that isn't drawn) fires no render step, so the snapshot is taken on Heartbeat in
+  those frames.
+- `IsJustPressed` is also true when the action was pressed and released between two snapshots: the
+  package counts `Pressed`/`Released`. A tap that lands after this frame's snapshot counts on the
+  next frame.
+- Actions without `TrackPrevious` do no per-frame work.
+
+## Rebinding
 
 ```ts
-// Check for input including echoed repeats
-if (ActionsController.IsJustPressed("UIDown")) {
-	// This will trigger initially when pressed, then repeatedly based on echo settings
-	SelectNextMenuItem();
-}
-
-// No special handling required - the system automatically includes echoed inputs
+const keys = Input.Gameplay.Actions.Move.Bindings.KeyboardAndMouse;
+keys.Get(); // { Up: W, Down: S, Left: A, Right: D }
+keys.Set({ Up: Enum.KeyCode.Up, Down: Enum.KeyCode.Down }); // Left and Right stay
+keys.Set(Enum.KeyCode.MouseDelta); // a bare key: sets KeyCode, clears the composites
+keys.Reset(); // back to the binding right after Create
+keys.Clear(); // unbound: KeyCode and composites become None
+Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/KeyboardAndMouse"
 ```
 
-### Disabling Action Echo
+- `Set` takes the same shapes as the schema and follows the same rules, checked at compile time and
+  again at runtime: it throws, naming the path, on a key or property the action type doesn't allow.
+- An object merges into the binding. One input source per binding still holds: a `KeyCode` in the
+  object clears the composite directions, and a composite direction clears the `KeyCode`.
+- `Reset` returns to the defaults, which are the tree right after `Create`: the designer's values
+  when the binding came from the folder, the schema's otherwise.
+- `Get` returns the current binding as plain data in the schema's shape, with tuning properties only
+  when they differ from the IAS defaults. An unbound binding returns `{}`.
+- `Capture(slot, callback, { Cancel })` waits for the next key legal for that slot (`"KeyCode"`,
+  `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`. Mouse buttons and touch
+  count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`/`TouchPosition`. Keys in `Cancel`
+  stop it without a change; the returned function stops it too. Input the game already processed
+  (`gameProcessed`) is ignored.
+- `BindingsChanged` fires on `Set`, `Reset`, `Clear` and `Capture`, and for every binding an import
+  or `ResetBindings` changed.
 
-When input echo is no longer needed, disable it:
+## Saving keybinds
 
 ```ts
-function ExitMenu() {
-	// Disable menu navigation echo
-	InputEchoController.DisableActionEcho("UIUp");
-	InputEchoController.DisableActionEcho("UIDown");
-	InputEchoController.DisableActionEcho("UILeft");
-	InputEchoController.DisableActionEcho("UIRight");
-
-	// Switch context
-	menuContext.Unassign();
-	gameplayContext.Assign();
-}
+const json = Input.ExportBindings(); // or Input.Gameplay.ExportBindings() for one context
+const result = Input.ImportBindings(json); // { Applied: string[]; Skipped: { Path; Reason }[] }
+Input.ResetBindings();
 ```
 
-## Integrated Example
+```json
+{ "Version": 1, "Bindings": {
+  "Gameplay/Jump/KeyboardAndMouse": { "KeyCode": "F" },
+  "Gameplay/Move/KeyboardAndMouse": { "Up": "Up", "Down": "Down" },
+  "Gameplay/Look/Mouse": { "Scale": 0.02, "Vector2Scale": [1, -1] }
+} }
+```
 
-Here's how these advanced features work together:
+- Only what differs from the defaults is saved. Enums are saved by name, and vectors as arrays. A
+  cleared binding saves its keys as `"None"`.
+- Saved properties: `KeyCode`, `Up`, `Down`, `Left`, `Right`, `Forward`, `Backward`,
+  `PrimaryModifier`, `SecondaryModifier`, `Scale`, `Vector2Scale`, `Vector3Scale`, `ResponseCurve`,
+  `PressedThreshold`, `ReleasedThreshold`. Display names are not saved.
+- `ImportBindings` never throws. It starts from the defaults (a binding missing from the save is
+  reset), then applies each valid entry. An entry is skipped, and its binding stays at its default,
+  for an unknown path, an unknown property, an unknown key name, a key not allowed for that
+  property, a number that isn't finite, or a `KeyCode` together with a composite direction. Bad
+  JSON, a non-object or an unknown `Version` applies nothing. `"Unknown"` is read as `"None"`.
+- A context handle's `ImportBindings` applies only its own paths and skips the others.
+
+On the server, clean what a client sends before storing it:
 
 ```ts
-import {
-	InputActionsInitializationHelper,
-	InputContextController,
-	KeyCombinationController,
-	InputEchoController,
-	ActionsController,
-} from "@rbxts/input-actions";
+const clean = InputActions.SanitizeBindings(InputSchema, jsonFromClient); // a clean JSON string
+```
 
-// Initialize the system
-InputActionsInitializationHelper.InitAll();
+`SanitizeBindings` runs the import checks against the schema alone: no instances, so it works on
+the server.
 
-// Alternatively, you can initialize specific parts:
-// InputActionsInitializationHelper.InitBasicInputControllers();
-// InputActionsInitializationHelper.InitAdvancedInputControllers();
+## Server Authority
 
-// Create contexts
-const menuContext = InputContextController.CreateContext("menu");
-const editorContext = InputContextController.CreateContext("editor");
+With `Workspace.AuthorityMode = Server`, input contexts must live under the `Player`, and IAS sends
+the action state to the server. Mark the contexts the server needs:
 
-// Set up menu navigation with echo
-menuContext.Add("MenuUp", {
-	KeyboardAndMouse: Enum.KeyCode.Up,
-	Gamepad: Enum.KeyCode.DPadUp,
+```ts
+export const InputSchema = InputActions.Schema({
+	Gameplay: {
+		ServerAuthority: true,
+		Actions: {
+			Move: InputActions.Direction2D({ KeyboardAndMouse: { Up: Enum.KeyCode.W, Down: Enum.KeyCode.S } }),
+			Jump: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.Space }),
+		},
+	},
+	Menu: { Actions: { Open: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.M }) } }, // client only
 });
-menuContext.Add("MenuDown", {
-	KeyboardAndMouse: Enum.KeyCode.Down,
-	Gamepad: Enum.KeyCode.DPadDown,
-});
-menuContext.Add("MenuSelect", {
-	KeyboardAndMouse: Enum.KeyCode.Return,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-menuContext.Add("MenuBack", {
-	KeyboardAndMouse: Enum.KeyCode.Escape,
-	Gamepad: Enum.KeyCode.ButtonB,
-});
+```
 
-// Configure echo for menu navigation
-InputEchoController.ConfigureActionEcho("MenuUp", 0.4, 0.1);
-InputEchoController.ConfigureActionEcho("MenuDown", 0.4, 0.1);
+```ts
+// server
+InputActions.ProvideToPlayers(InputSchema);
 
-// Set up editor controls with key combinations
-editorContext.Add("PlaceObject", {
-	KeyboardAndMouse: Enum.UserInputType.MouseButton1,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-editorContext.Add("SelectObject", {
-	KeyboardAndMouse: Enum.UserInputType.MouseButton2,
-	Gamepad: Enum.KeyCode.ButtonX,
-});
-
-// Register editor shortcuts
-KeyCombinationController.RegisterCombination("Save", Enum.KeyCode.S, [Enum.KeyCode.LeftControl]);
-KeyCombinationController.RegisterCombination("Copy", Enum.KeyCode.C, [Enum.KeyCode.LeftControl]);
-KeyCombinationController.RegisterCombination("Paste", Enum.KeyCode.V, [Enum.KeyCode.LeftControl]);
-
-// Game loop
-RunService.Heartbeat.Connect(() => {
-	// Menu navigation handling
-	if (menuContext.IsAssigned()) {
-		if (ActionsController.IsJustPressed("MenuUp")) {
-			SelectPreviousMenuItem();
-		}
-		if (ActionsController.IsJustPressed("MenuDown")) {
-			SelectNextMenuItem();
-		}
-		if (ActionsController.IsJustPressed("MenuSelect")) {
-			ActivateSelectedMenuItem();
-		}
-		if (ActionsController.IsJustPressed("MenuBack")) {
-			CloseMenu();
-		}
-	}
-
-	// Editor handling
-	if (editorContext.IsAssigned()) {
-		if (ActionsController.IsJustPressed("Save")) {
-			SaveProject();
-		}
-		if (ActionsController.IsJustPressed("Copy")) {
-			CopySelectedObjects();
-		}
-		if (ActionsController.IsJustPressed("Paste")) {
-			PasteObjects();
-		}
+RunService.BindToSimulation(() => {
+	for (const player of Players.GetPlayers()) {
+		const input = InputActions.ForPlayer(InputSchema, player); // cache it per player in real code
+		const move = input.Gameplay.Actions.Move.GetState(); // Vector2
 	}
 });
 
-// Context switching
-function OpenMenu() {
-	editorContext.Unassign();
-	menuContext.Assign();
-}
-
-function CloseMenu() {
-	menuContext.Unassign();
-	editorContext.Assign();
-
-	// Clean up menu-specific echo handling
-	InputEchoController.DisableActionEcho("MenuUp");
-	InputEchoController.DisableActionEcho("MenuDown");
-}
+// client: unchanged
+const Input = InputActions.Create(InputSchema);
+Input.Gameplay.LinkedToServer.Connect(() => print("now on the server's copy"));
 ```
 
-## Performance Considerations
+**The package can't tell whether the place runs Server Authority.** `Workspace.AuthorityMode` can't
+be read by scripts, so nothing warns you when it is off. A context marked `ServerAuthority: true` in
+a place without Server Authority still works on the client (the server's copy replicates either
+way), but the server never receives its state: `ForPlayer(...).GetState()` stays at rest. Turn on
+Server Authority in the place's Workspace settings when you mark contexts this way.
 
-These advanced features add power but can impact performance if not used carefully:
+- **Server:** `ProvideToPlayers(schema, options?)` puts every Server Authority context into
+  `player.Inputs` (option `PlayerFolderName`), for each player now and as they join. When
+  `ReplicatedStorage.Inputs.<Context>` exists (the Manager's template), it is cloned with its
+  Priority, Sink, Enabled and actions, and without its bindings. Otherwise the context is built from
+  the schema. Actions the schema has and the template lacks are added, and a `Type` mismatch throws.
+  It returns a function that stops providing.
+- **Server:** `ForPlayer(schema, player)` returns handles over that player's copy, only for contexts
+  marked `ServerAuthority: true` (the type hides the others): `Instance`, `GetState()`,
+  `StateChanged`, and `Pressed`/`Released` on Bool actions. There are no bindings and no `Fire`. It
+  waits (up to `Timeout`, default 10 s) for the contexts.
+- **Client: `Create` never waits for the server.**
+  - When `LocalPlayer.Inputs.<Context>` is already there, it adds the bindings **locally** under
+    the server's actions: the template's bindings when it has them, the schema's otherwise. The
+    server never sees them. `IsLinkedToServer()` is `true` from the start.
+  - Otherwise the context runs on a **local stand-in**: a client-only context (a clone of the
+    template, or built from the schema) with its bindings. Everything works on it at once: input,
+    `GetState`, events, `Fire`, rebinding, requests, `AttachButton`. Its state never reaches the
+    server.
+  - When the server's copy arrives, the handles **swap** to it. The bindings move under the
+    server's actions with everything they have (rebinds, attached buttons), the context keeps its
+    base state and held requests, and each Scriptable binding fires its last value again, so a held
+    virtual stick stays held. Then the stand-in is disabled and destroyed, and `LinkedToServer`
+    fires once. A Bool action held at the swap may release once and press again on the next input.
+    `Reset` still returns to the same defaults.
+  - The handles' signals (`StateChanged`, `Pressed`, `Released`, `EnabledChanged`,
+    `BindingsChanged`) are the package's own and forward from whichever instance a handle wraps, so
+    connections made before the swap keep working. Read `Instance` when you need it: it changes at
+    the swap.
+  - After `Timeout` seconds (default 10) without the copy, `Create` warns once, naming the contexts
+    and the path it expects. The usual causes: `ProvideToPlayers` isn't called on the server, or it
+    uses another `PlayerFolderName`. The stand-in keeps working, and the swap still happens if the
+    copy arrives later. The warning only means the copy never arrived; it says nothing about the
+    authority mode.
+  - The template context in `ReplicatedStorage.Inputs` is disabled locally, so it doesn't process
+    the same keys beside the stand-in or the player's copy.
+- Keybinds and saves work as usual; only the state goes to the server.
+- `PlayerFolderName` can't be `InputContexts`: under Server Authority, Roblox's PlayerModule keeps
+  its own contexts in `player.InputContexts`.
+- **Releasing on the server.** Disabling a context on the client releases the client's state, but
+  the server keeps the last value a Scriptable binding fired (probed). So when a Server Authority
+  context is disabled (`SetEnabled(false)`, `Request(false)`, focus loss), the package first fires
+  the value at rest on the Scriptable bindings it drives (`Fire`'s binding and the schema's Scriptable
+  slots), and the release reaches the server.
 
-1. **Limit Active Contexts**: Only keep necessary contexts assigned
-2. **Clean Up Echoes**: Disable InputEcho for actions when not needed
-3. **Prefer Context Switching**: Use context switching instead of constantly checking game state
-4. **Watch Combination Count**: Each key combination adds processing overhead
+## UI navigation preset
 
-## Next Steps
+`InputActions.Presets.UiNavigation(options?)` returns a context schema (options: `Priority`, `Sink`,
+`Enabled`, `ServerAuthority`) typed as precisely as a hand-written one:
 
-Now that you understand the advanced features, you might want to:
+| Action | Type | KeyboardAndMouse | Gamepad |
+| --- | --- | --- | --- |
+| `Navigate` | Direction2D | composite arrows | composite DPad |
+| `Accept` | Bool | `Return` | `ButtonA` |
+| `Cancel` | Bool | `B` (Escape is reserved, Backspace belongs to CoreGui) | `ButtonB` |
+| `NextPage` | Bool | `E` | `ButtonR1` |
+| `PreviousPage` | Bool | `Q` | `ButtonL1` |
+| `Scroll` | Direction1D | `MouseWheel` (slot `Mouse`), composite `PageUp`/`PageDown` | composite `Thumbstick2Up`/`Thumbstick2Down` |
 
-1. Review the [API Reference](./API.md) for complete documentation
-2. Implement a dynamic input rebinding system for your game
-3. Create specialized contexts for different game mechanics
-4. Explore haptic feedback with custom vibration patterns
+With the **legacy** player scripts, the default camera scripts sink `Left`/`Right` through
+ContextActionService, and a CAS sink blocks IAS: the arrow-key composite of `Navigate` gets no left
+or right there. `RawInputHandler`'s legacy fork does the same. The IAS player scripts
+(`Workspace.PlayerScriptsUseInputActionSystem = Enabled`) don't.
+
+## IAS behaviours to know
+
+These were measured in Studio (with `SignalBehavior = Deferred`) and hold for any IAS code, with or
+without this package:
+
+- **Several bindings on one action are not combined: the last one to change wins.** Holding A and
+  B, then releasing A, releases the action. The same goes for Direction2D: the state is the value of
+  the binding that fired or moved last.
+- `GetState()` updates synchronously after a `Fire`; the events (`Pressed`, `StateChanged`) are
+  deferred under `SignalBehavior = Deferred`. Under Server Authority, contexts under the player are
+  simulated: the fired value shows in `GetState()` on the next simulation step. The handles' own
+  signals forward the IAS ones, so under Deferred a listener connected right after a `Fire` can
+  still receive that `Fire`'s event.
+- A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
+  silently ignored.
+- A fired value persists until something changes it.
+- IAS applies no `Scale`, clamp or `Vector2Scale` to fired values.
+- Destroying a binding while it holds an action leaves the action stuck on, with no `Released`.
+- Since 2026-02, a ContextActionService binding that sinks an input also blocks IAS for it (this is
+  how `InputCatcher` still blocks everything). With the legacy player scripts, the default controls
+  sink keys through CAS; the IAS player scripts don't.
+
+The full IAS reference the package was built against is in
+[Reference/RobloxInputActionSystem.md](Reference/RobloxInputActionSystem.md).

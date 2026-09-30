@@ -22,6 +22,14 @@ function run(command, env = process.env) {
 const linked = run(["bun", "scripts/link-package.mjs"]);
 if (linked !== 0) process.exit(linked ?? 127);
 
+// The compile-time rules (tests/type-rules): plain tsc, since roblox-ts refuses @ts-expect-error.
+// A rule that stops holding leaves its directive unused, and the run stops here.
+const typeRules = run(["tsc", "-p", "tests/type-rules"]);
+if (typeRules !== 0) {
+	console.error("the compile-time rules in tests/type-rules failed");
+	process.exit(typeRules ?? 127);
+}
+
 let code = run(["rbxtsc"], { ...process.env, FLAMEWORK_SCOPES: "testing" });
 if (code === undefined) {
 	console.error(

@@ -1,68 +1,76 @@
-# Input Actions Overview
+# Introduction
 
-## What is Input Actions?
+`@rbxts/input-actions` is a typed wrapper over Roblox's Input Action System (IAS). IAS has three
+instance classes:
 
-Input Actions is a comprehensive input handling system for Roblox TypeScript (roblox-ts) that replicates Godot's input management approach. It provides a more flexible, organized, and cross-platform way to handle player input in your Roblox games.
+```
+InputContext             a group of actions: Enabled, Priority, Sink
+└─ InputAction           one gameplay intent; its Type fixes the value type
+   └─ InputBinding       one input source: a KeyCode, composite directions, a UIButton, or Scriptable
+```
 
-## Key Features
+The engine does the input work: it reads the devices, applies thresholds, scales and response
+curves, sinks inputs across priorities, and fires `Pressed`, `Released` and `StateChanged`. What IAS
+lacks is typing (`GetState()` is `unknown`), a way to describe the tree once, rebinding with saves,
+and a few safety nets. This package adds those.
 
-- **Action-Based Input System**: Define abstract actions like "Jump" or "Fire" instead of directly handling key presses
-- **Device Adaptability**: Automatically adapts to different input devices (keyboard/mouse, gamepad, touch)
-- **Context Management**: Easily switch between different input contexts (gameplay, menu, vehicle)
-- **Enhanced Control**: Support for analog input with thresholds, deadzones, and modifiers
-- **Advanced Features**: Key combinations, input echoing, haptic feedback, and more
-- **Cross-Platform**: Works seamlessly across PC, mobile, console, and VR
+## The model
 
-## What Does It Change?
+1. **A schema** describes the contexts, their actions and each action's bindings. It is plain data
+   made with builders (`InputActions.Bool`, `Direction2D`...), so it can live in a shared module
+   and be required on both realms. It creates no instances.
+2. **`InputActions.Create(schema)`**, on the client, gets or creates the instances in a folder
+   (`ReplicatedStorage.Inputs` by default) and returns the typed handle.
+3. **Handles** wrap the instances: `Input.Gameplay` is a context handle, `Input.Gameplay.Actions.Jump`
+   an action handle, `Jump.Bindings.KeyboardAndMouse` a binding handle. Each has an `Instance`
+   property when you need the raw IAS object.
 
-Input Actions builds upon Roblox's native input system to provide a more powerful and developer-friendly way to handle player input:
+```ts
+const Input = InputActions.Create(InputSchema);
+Input.Gameplay.Actions.Move.GetState(); // Vector2
+Input.Gameplay.Actions.Jump.Pressed.Connect(() => {});
+Input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
+```
 
-| Aspect               | Roblox Native                          | Input Actions                                               |
-| -------------------- | -------------------------------------- | ----------------------------------------------------------- |
-| **Core Approach**    | Device-specific event callbacks        | Abstract actions mapped to inputs                           |
-| **Cross-Platform**   | Manual handling for each device        | Unified system with automatic device detection              |
-| **Organization**     | Direct connections to UserInputService | Contextual organization of input mappings                   |
-| **State Management** | Manual tracking of input states        | Built-in pressed/just-pressed/released states               |
-| **Analog Input**     | Basic values                           | Enhanced with deadzones and thresholds                      |
-| **Input Chaining**   | Manual implementation                  | Built-in key combinations and modifiers                     |
-| **Extensibility**    | Limited                                | Modular controller system with clear separation of concerns |
+### Value types
 
-## System Architecture
+| Builder | `GetState()` / `Fire()` value | Typical sources |
+| --- | --- | --- |
+| `Bool` | `boolean` | keys, gamepad buttons, mouse buttons, triggers (through thresholds) |
+| `Direction1D` | `number` | triggers, `Up`/`Down` composites, `MouseWheel`, pinch |
+| `Direction2D` | `Vector2` | thumbsticks, `MouseDelta`/`TouchDelta`, `Up`/`Down`/`Left`/`Right` composites |
+| `Direction3D` | `Vector3` | six-direction composites |
+| `ViewportPosition` | `Vector2` (pixels) | `MousePosition`, `TouchPosition` |
 
-The Input Actions package consists of several components working together:
+### Get-or-create
 
-1. **Low-Level Input Handling**
+`Create` matches existing instances by name, so it works on top of a tree made in Studio with the
+Input Action Manager:
 
-   - [InputManagerController](./Components/InputManagerController.md): Captures raw input events
-   - [DeviceTypeHandler](./Components/DeviceTypeHandler.md): Detects input devices being used
-   - [RawInputHandler](./Components/RawInputHandler.md): Provides access to raw input data
+- a context is named as its schema key, and an action as its schema key;
+- the binding for slot `S` of action `A` is a child named `S` or `A .. S` (the Manager names its
+  bindings `<Action><Device>`: `JumpKeyboardAndMouse`, `JumpGamepad`, `JumpTouch`);
+- **what exists wins**: an existing context keeps its Priority, Sink and Enabled, an existing action
+  its Enabled and DisplayName, an existing binding its keys and tuning. The schema fills only what is
+  missing.
 
-2. **Action Management**
+## What changed from 0.5
 
-   - [ActionsController](./Components/ActionsController.md): Core component for defining and checking actions
-   - [InputConfigController](./Components/InputConfigController.md): Configure input sensitivity and thresholds
-   - [MouseController](./Components/MouseController.md): Advanced mouse behavior control
+Up to 0.5 the package was its own input system over ContextActionService and UserInputService. It is
+now a rewrite on IAS, and most of the old API is gone:
 
-3. **Advanced Features**
-   - [InputContextController](./Components/InputContextController.md): High-level context management
-   - [KeyCombinationController](./Components/KeyCombinationController.md): Multi-key combination detection
-   - [InputEchoController](./Components/InputEchoController.md): Input repetition handling
-   - [HapticFeedbackController](./Components/HapticFeedbackController.md): Vibration feedback management
-   - [InputCatcher](./Components/InputCatcher.md): Utility for blocking input
-   - [InputKeyCodeHelper](./Components/InputKeyCodeHelper.md): Utilities for input visualization
+| 0.5 | Now |
+| --- | --- |
+| `ActionsController`, `InputManagerController` | IAS actions, through typed action handles |
+| `InputContextController` | IAS contexts, through context handles (`SetEnabled`, `Request`) |
+| `InputConfigController`, thumbstick dead zones | binding properties: `PressedThreshold`, `Scale`, `ResponseCurve` |
+| `KeyCombinationController` | `PrimaryModifier` / `SecondaryModifier` on a binding |
+| `DeviceTypeHandler`, `EInputType`, `EDeviceType` | `UserInputService.PreferredInput`, `action.GetPreferredBinding()` |
+| `EDefaultInputAction` and the default UI context | `InputActions.Presets.UiNavigation()` |
+| `InputEchoController`, `HapticFeedbackController`, `InputKeyCodeHelper` | removed |
+| `InputActionsInitializationHelper` | removed: `InputActions.Create` does the setup |
+| `MouseController` | kept; `MouseDebugMode` became `MouseController.SetForceUnlockAction(action)` |
+| `InputCatcher` | kept, unchanged |
+| `RawInputHandler` | kept, same API; it reads the IAS PlayerModule when the place uses it |
 
-## When to Use Input Actions
-
-Input Actions is ideal for:
-
-- Games requiring complex input handling
-- Projects targeting multiple platforms (PC, mobile, console)
-- Games with different control schemes (on foot, in vehicle, menu navigation)
-- Situations where input rebinding is desired
-- Any game where you want cleaner, more organized input code
-
-For very simple games or prototypes, Roblox's native input system may be sufficient. However, Input Actions scales better as your project grows in complexity.
-
-## Getting Started
-
-See the [Quick Start Guide](./QuickStart.md) to begin using Input Actions in your project.
+Next: [Quick start](QuickStart.md).

@@ -17,6 +17,21 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The package is not in `package.json`: the link script puts it in `node_modules`, and every test
   run refreshes it. Import it as `@rbxts/input-actions`.
 - The design the package implements: `../../docs/Design/IAS-Rework.md`.
+- The sections: `schema`, `rules`, `sanitize`, `presets` (shared); `create`, `actions`,
+  `track-previous`, `contexts`, `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`,
+  `raw-input`, `server-authority` (client); `server-authority` (server). Fixtures are in
+  `src/shared/fixtures/schemas.ts`. Project-specific tests return early under the other projects
+  (`getProject()`).
+- The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
+  RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
+  (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
+  read the server's state.
+- `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
+  refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
+  `bun run build` and `bun run test` run it, and an unused directive fails them.
+- The Studio window a run opens renders nothing: `RenderStepped` and `BindToRenderStep` never fire
+  there, while Heartbeat runs at about 240 Hz. The package's per-frame work falls back to Heartbeat
+  in such frames; code that only binds to a render step never runs in a test.
 - To try Luau in a live session: `rojo build -o probe.rbxl`, then
   `node_modules/.bin/flamework-test patch probe.rbxl --original tests/place.rbxlx [--project tests/authority.project.json]`,
   `studio open <patched file>`, `studio play`, `studio exec --realm client|server --script <file.luau>`,

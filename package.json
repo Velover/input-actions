@@ -1,7 +1,7 @@
 {
   "name": "@rbxts/input-actions",
   "version": "0.5.4",
-  "description": "A flexible input system for Roblox TypeScript inspired by Godot's input handling, providing action mapping, context switching, and advanced input utilities.",
+  "description": "A typed wrapper over Roblox's Input Action System for roblox-ts: schema-defined contexts, actions and bindings, rebinding with JSON saves, Server Authority, and mouse and raw-input utilities.",
   "main": "out/init.lua",
   "types": "out/index.d.ts",
   "scripts": {
@@ -15,12 +15,15 @@
   "keywords": [
     "roblox-ts",
     "input",
+    "input-action-system",
+    "ias",
     "controller",
     "gamepad",
     "keyboard",
     "mouse",
     "touch",
-    "actions"
+    "actions",
+    "rebinding"
   ],
   "author": "Catargo",
   "license": "MIT",
@@ -46,8 +49,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@rbxts/services": "^1.6.0",
-    "@rbxts/tool_pack": "^2.1.10"
+    "@rbxts/services": "^1.6.0"
   },
   "repository": {
     "type": "git",

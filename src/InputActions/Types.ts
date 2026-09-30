@@ -1,0 +1,393 @@
+import type {
+	BoolKey,
+	CompositeKey,
+	Delta2DKey,
+	Direction1DKey,
+	Direction2DKey,
+	ModifierKey,
+	PositionKey,
+	StickKey,
+} from "./KeyGroups";
+
+// ---- binding shapes (one input source per binding, as IAS enforces)
+
+export interface IBindingDisplay {
+	/** Stops bare enum items from structurally matching all-optional shapes (e.g. composites) */
+	EnumType?: never;
+	DisplayName?: string;
+	/** An image URI, e.g. `rbxassetid://...` */
+	DisplayImage?: string;
+}
+export interface IBindingModifiers extends IBindingDisplay {
+	PrimaryModifier?: ModifierKey;
+	SecondaryModifier?: ModifierKey;
+}
+export interface IAxisShaping {
+	Scale?: number;
+	ClampMagnitudeToOne?: boolean;
+}
+
+export interface IBoolBinding extends IBindingModifiers {
+	KeyCode: BoolKey;
+	PressedThreshold?: number;
+	ReleasedThreshold?: number;
+}
+
+export interface IDirection1DKeyBinding extends IBindingModifiers, IAxisShaping {
+	KeyCode: Direction1DKey;
+	Up?: never;
+	Down?: never;
+}
+export interface IDirection1DCompositeBinding extends IBindingModifiers, IAxisShaping {
+	KeyCode?: never;
+	Up?: CompositeKey;
+	Down?: CompositeKey;
+}
+
+export interface IDirection2DStickBinding extends IBindingModifiers, IAxisShaping {
+	KeyCode: StickKey;
+	ResponseCurve?: number;
+	Vector2Scale?: Vector2;
+	Up?: never;
+	Down?: never;
+	Left?: never;
+	Right?: never;
+}
+export interface IDirection2DDeltaBinding extends IBindingModifiers, IAxisShaping {
+	KeyCode: Delta2DKey;
+	ResponseCurve?: never;
+	Vector2Scale?: Vector2;
+	Up?: never;
+	Down?: never;
+	Left?: never;
+	Right?: never;
+}
+export interface IDirection2DCompositeBinding extends IBindingModifiers, IAxisShaping {
+	KeyCode?: never;
+	ResponseCurve?: never;
+	Vector2Scale?: Vector2;
+	Up?: CompositeKey;
+	Down?: CompositeKey;
+	Left?: CompositeKey;
+	Right?: CompositeKey;
+}
+
+export interface IDirection3DCompositeBinding extends IBindingModifiers, IAxisShaping {
+	Up?: CompositeKey;
+	Down?: CompositeKey;
+	Left?: CompositeKey;
+	Right?: CompositeKey;
+	Forward?: CompositeKey;
+	Backward?: CompositeKey;
+	Vector3Scale?: Vector3;
+}
+
+export interface IViewportPositionBinding extends IBindingDisplay {
+	KeyCode: PositionKey;
+}
+
+/** The object forms of a binding, per action type */
+export interface IBindingObjectMap {
+	Bool: IBoolBinding;
+	Direction1D: IDirection1DKeyBinding | IDirection1DCompositeBinding;
+	Direction2D: IDirection2DStickBinding | IDirection2DDeltaBinding | IDirection2DCompositeBinding;
+	Direction3D: IDirection3DCompositeBinding;
+	ViewportPosition: IViewportPositionBinding;
+}
+/** Every form a binding may take in a schema or in `Set`, per action type (a bare key is `{ KeyCode }`) */
+export interface IBindingShapeMap {
+	Bool: BoolKey | IBoolBinding;
+	Direction1D: Direction1DKey | IDirection1DKeyBinding | IDirection1DCompositeBinding;
+	Direction2D:
+		| Direction2DKey
+		| IDirection2DStickBinding
+		| IDirection2DDeltaBinding
+		| IDirection2DCompositeBinding;
+	Direction3D: IDirection3DCompositeBinding;
+	ViewportPosition: PositionKey | IViewportPositionBinding;
+}
+
+/** The marker of a binding driven only from code: `InputActions.Scriptable` */
+export interface IScriptable {
+	readonly _nominal_InputActionsScriptable: unique symbol;
+}
+
+export type BindingShape<T extends Enum.InputActionType> = IBindingShapeMap[T["Name"]];
+export type BindingSpec<T extends Enum.InputActionType> = BindingShape<T> | IScriptable;
+type PartialEach<U> = U extends unknown ? Partial<U> : never;
+/** A binding's current value as plain data in the schema's shape. An unbound binding has no keys */
+export type BindingData<T extends Enum.InputActionType> = PartialEach<IBindingObjectMap[T["Name"]]>;
+
+// Generic inference skips excess-property checks, so unknown properties are rejected here. Compares
+// against EnumItem, not the KeyCode union: a mapped type over the whole union runs tsc out of memory.
+type AllKeys<U> = U extends unknown ? keyof U : never;
+export type CheckBindings<B, TShape> = {
+	[K in keyof B]: B[K] extends IScriptable | EnumItem
+		? unknown
+		: { [P in Exclude<keyof B[K], AllKeys<TShape>>]: never };
+};
+
+// ---- values
+
+export interface IActionValueMap {
+	Bool: boolean;
+	Direction1D: number;
+	Direction2D: Vector2;
+	Direction3D: Vector3;
+	ViewportPosition: Vector2;
+}
+export type ActionValue<T extends Enum.InputActionType> = IActionValueMap[T["Name"]];
+
+/** The slots `Capture` can fill, per action type */
+export interface ICaptureSlotMap {
+	Bool: "KeyCode" | "PrimaryModifier" | "SecondaryModifier";
+	Direction1D: "KeyCode" | "Up" | "Down" | "PrimaryModifier" | "SecondaryModifier";
+	Direction2D:
+		| "KeyCode"
+		| "Up"
+		| "Down"
+		| "Left"
+		| "Right"
+		| "PrimaryModifier"
+		| "SecondaryModifier";
+	Direction3D:
+		| "Up"
+		| "Down"
+		| "Left"
+		| "Right"
+		| "Forward"
+		| "Backward"
+		| "PrimaryModifier"
+		| "SecondaryModifier";
+	ViewportPosition: "KeyCode";
+}
+export type CaptureSlot<T extends Enum.InputActionType> = ICaptureSlotMap[T["Name"]];
+export type BindingSlot = ICaptureSlotMap[keyof ICaptureSlotMap];
+
+// ---- schema
+
+export interface IActionDefinition<
+	T extends Enum.InputActionType,
+	B,
+	TP extends boolean = boolean,
+> {
+	readonly Type: T;
+	readonly Bindings: B;
+	readonly TrackPrevious: TP;
+	readonly DisplayName?: string;
+	readonly Enabled?: boolean;
+}
+
+export interface IActionOptions<TP extends boolean> {
+	/** Snapshot the value once per frame so GetPrevious/HasChanged (and IsJustPressed/IsJustReleased) exist */
+	TrackPrevious?: TP;
+	/** Used when the action is created; an existing action keeps its own */
+	DisplayName?: string;
+	/** Used when the action is created; an existing action keeps its own */
+	Enabled?: boolean;
+}
+
+export interface IContextSchema {
+	/** The server creates this context and its actions under each Player; the bindings stay on the client */
+	ServerAuthority?: boolean;
+	Priority?: number;
+	Sink?: boolean;
+	Enabled?: boolean;
+	Actions: { [name: string]: IActionDefinition<Enum.InputActionType, unknown, boolean> };
+}
+
+export interface IInputSchema<S extends Record<string, IContextSchema>> {
+	readonly Contexts: S;
+}
+
+// ---- client handles
+
+export interface ICaptureOptions {
+	/** Keys that cancel the capture */
+	Cancel?: Enum.KeyCode[];
+}
+
+export interface IBindingHandle<T extends Enum.InputActionType> {
+	readonly Instance: InputBinding;
+	readonly Name: string;
+	/** The current binding as plain data in the schema's shape */
+	Get(): BindingData<T>;
+	/** Rebind. Same per-type rules as the schema, also checked at runtime. Objects merge into the binding */
+	Set(binding: BindingShape<T>): void;
+	/** Back to the binding right after `Create` */
+	Reset(): void;
+	/** Unbinds: KeyCode and composite directions become `None` */
+	Clear(): void;
+	/** Waits for the next key legal for `slot`, applies it, then calls `callback`. Returns a cancel function */
+	Capture(
+		slot: CaptureSlot<T>,
+		callback: (key: Enum.KeyCode) => void,
+		options?: ICaptureOptions,
+	): () => void;
+}
+export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
+	readonly Instance: InputBinding;
+	readonly Name: string;
+	Fire(value: ActionValue<T>): void;
+}
+export type BindingHandles<T extends Enum.InputActionType, B> = {
+	readonly [K in keyof B]: B[K] extends IScriptable
+		? IScriptableBindingHandle<T>
+		: IBindingHandle<T>;
+};
+
+export interface IActionHandle<T extends Enum.InputActionType, B> {
+	/** The InputAction the handle wraps now (a Server Authority stand-in's, then the server's copy's) */
+	readonly Instance: InputAction;
+	readonly Name: string;
+	readonly Type: T;
+	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
+	readonly Bindings: BindingHandles<T, B>;
+	GetState(): ActionValue<T>;
+	/** Drives the action from code, through a Scriptable binding the package creates on first use */
+	Fire(value: ActionValue<T>): void;
+	SetEnabled(enabled: boolean): void;
+	IsEnabled(): boolean;
+	GetPreferredBinding(): InputBinding | undefined;
+}
+export interface IBoolActionHandle<B> extends IActionHandle<Enum.InputActionType.Bool, B> {
+	readonly Pressed: RBXScriptSignal<() => void>;
+	readonly Released: RBXScriptSignal<() => void>;
+	IsPressed(): boolean;
+	/** Fires `true`, then `false` on the next frame */
+	Tap(): void;
+	/** Adds a UIButton binding for this button; the returned function removes it */
+	AttachButton(button: GuiButton): () => void;
+}
+
+/** Only on actions defined with TrackPrevious: true */
+export interface ITrackedAction<T extends Enum.InputActionType> {
+	/** The value at the previous frame's snapshot */
+	GetPrevious(): ActionValue<T>;
+	/** Whether the value changed between the last two snapshots */
+	HasChanged(): boolean;
+}
+export interface ITrackedBoolAction extends ITrackedAction<Enum.InputActionType.Bool> {
+	/** Also true for a press and release within one frame */
+	IsJustPressed(): boolean;
+	IsJustReleased(): boolean;
+}
+
+export type ActionHandle<D> =
+	D extends IActionDefinition<infer T extends Enum.InputActionType, infer B, infer TP>
+		? [T] extends [Enum.InputActionType.Bool]
+			? IBoolActionHandle<B> & ([TP] extends [true] ? ITrackedBoolAction : unknown)
+			: IActionHandle<T, B> & ([TP] extends [true] ? ITrackedAction<T> : unknown)
+		: never;
+
+export interface IImportResult {
+	/** Paths (`Context/Action/Slot`) whose saved values were applied */
+	Applied: string[];
+	/** Entries that were not applied; those bindings stay at their defaults */
+	Skipped: ISkippedBinding[];
+}
+export interface ISkippedBinding {
+	Path: string;
+	Reason: string;
+}
+
+export interface IBindingsOwner {
+	/** The rebinds (what differs from the defaults) as JSON */
+	ExportBindings(): string;
+	/** Resets to the defaults, then applies the saved rebinds. Never throws */
+	ImportBindings(json: string): IImportResult;
+	ResetBindings(): void;
+}
+
+export interface IContextHandle<C extends IContextSchema> extends IBindingsOwner {
+	/** The InputContext the handle wraps now: set Priority or Sink on it directly */
+	readonly Instance: InputContext;
+	readonly Name: string;
+	readonly Actions: { readonly [A in keyof C["Actions"]]: ActionHandle<C["Actions"][A]> };
+	readonly EnabledChanged: RBXScriptSignal<(enabled: boolean) => void>;
+	/** Sets the base state */
+	SetEnabled(enabled: boolean): void;
+	/** The effective state: base state overridden by requests (any `false` request wins) */
+	IsEnabled(): boolean;
+	/** Holds the context enabled or disabled until the returned function is called */
+	Request(enabled: boolean): () => void;
+}
+
+export interface IInputRoot extends IBindingsOwner {
+	/** Fires with the path `Context/Action/Slot` of a binding changed by Set/Reset/Clear/Capture/import */
+	readonly BindingsChanged: RBXScriptSignal<(path: string) => void>;
+	/** Disconnects everything and destroys what the package created; adopted instances stay */
+	Destroy(): void;
+}
+
+/** Only on contexts marked `ServerAuthority: true` */
+export interface IServerAuthorityContextHandle {
+	/** Whether the handle wraps the server's copy (true) or, until it arrives, a local stand-in */
+	IsLinkedToServer(): boolean;
+	/** Fires once, when the stand-in gives way to the server's copy; never when the copy was there at `Create` */
+	readonly LinkedToServer: RBXScriptSignal<() => void>;
+}
+
+/** The handle of a context: Server Authority contexts add the link to the server's copy */
+export type ContextHandle<C extends IContextSchema> = IContextHandle<C> &
+	(C extends { ServerAuthority: true } ? IServerAuthorityContextHandle : unknown);
+
+export type InputHandle<S extends Record<string, IContextSchema>> = {
+	readonly [C in keyof S]: ContextHandle<S[C]>;
+} & IInputRoot;
+
+export interface ICreateOptions {
+	/** Where contexts are found or created. Default: `ReplicatedStorage.Inputs` */
+	Folder?: Instance;
+	/** The folder under the player that holds Server Authority contexts. Default: `"Inputs"` */
+	PlayerFolderName?: string;
+	/**
+	 * Seconds before `Create` warns that the server's copy of a Server Authority context hasn't
+	 * arrived (the context runs on a local stand-in meanwhile). Never throws, never blocks. Default: 10
+	 */
+	Timeout?: number;
+	/** Resets every context when a TextBox gains focus, the window loses focus or the menu opens. Default: true */
+	ResetOnFocusLoss?: boolean;
+}
+
+// ---- server
+
+export interface IProvideOptions {
+	/** Where the templates are. Default: `ReplicatedStorage.Inputs` */
+	Folder?: Instance;
+	/** Default: `"Inputs"` */
+	PlayerFolderName?: string;
+}
+export interface IForPlayerOptions {
+	/** Default: `"Inputs"` */
+	PlayerFolderName?: string;
+	/** Seconds to wait for the player's contexts. Default: 10 */
+	Timeout?: number;
+}
+
+export interface IServerActionHandle<T extends Enum.InputActionType> {
+	readonly Instance: InputAction;
+	readonly Name: string;
+	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
+	GetState(): ActionValue<T>;
+}
+export interface IServerBoolActionHandle extends IServerActionHandle<Enum.InputActionType.Bool> {
+	readonly Pressed: RBXScriptSignal<() => void>;
+	readonly Released: RBXScriptSignal<() => void>;
+}
+export type ServerActionHandle<D> =
+	D extends IActionDefinition<infer T extends Enum.InputActionType, unknown, boolean>
+		? [T] extends [Enum.InputActionType.Bool]
+			? IServerBoolActionHandle
+			: IServerActionHandle<T>
+		: never;
+export interface IServerContextHandle<C extends IContextSchema> {
+	readonly Instance: InputContext;
+	readonly Name: string;
+	readonly Actions: { readonly [A in keyof C["Actions"]]: ServerActionHandle<C["Actions"][A]> };
+}
+export type ServerInputHandle<S extends Record<string, IContextSchema>> = {
+	readonly [C in keyof S as S[C] extends { ServerAuthority: true }
+		? C
+		: never]: IServerContextHandle<S[C]>;
+};

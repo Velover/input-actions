@@ -27,5 +27,7 @@
 				"transform": "@flamework-experimental/transformer"
 			}
 		]
-	}
+	},
+	// tests/type-rules is checked by plain tsc (see its tsconfig), not compiled into the place
+	"include": ["src"]
 }

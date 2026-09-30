@@ -1,228 +1,113 @@
-# Quick Start Guide
+# Quick start
 
-## Installation
-
-```bash
-npm install @rbxts/input-actions
-```
-
-## Basic Concepts
-
-Input Actions uses three key concepts:
-
-1. **Actions**: Named abstractions that represent input intent (e.g., "Jump", "Move", "Shoot")
-2. **Key Mappings**: Connect physical inputs (keyboard, mouse, gamepad) to actions
-3. **Contexts**: Groups of input mappings that can be enabled/disabled together
-
-## Initialization
-
-First, initialize the system:
+## 1. Describe the input in a shared module
 
 ```ts
-import { InputActionsInitializationHelper } from "@rbxts/input-actions";
+// src/shared/InputSchema.ts
+import { InputActions } from "@rbxts/input-actions";
 
-// Initialize all controllers
-InputActionsInitializationHelper.InitAll();
-
-// Or initialize specific components as needed
-InputActionsInitializationHelper.InitBasicInputControllers();
-InputActionsInitializationHelper.InitDeviceTypeHandler();
-InputActionsInitializationHelper.InitAdvancedInputControllers();
+export const InputSchema = InputActions.Schema({
+	Gameplay: {
+		Priority: 2000, // above the default PlayerModule contexts
+		Sink: true, // lower contexts don't see keys bound here
+		Actions: {
+			Jump: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.Space, Gamepad: Enum.KeyCode.ButtonA }),
+			Fire: InputActions.Bool({
+				Mouse: Enum.KeyCode.MouseLeftButton,
+				Gamepad: { KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.6 },
+			}),
+			Move: InputActions.Direction2D({
+				KeyboardAndMouse: { Up: Enum.KeyCode.W, Down: Enum.KeyCode.S, Left: Enum.KeyCode.A, Right: Enum.KeyCode.D },
+				Gamepad: { KeyCode: Enum.KeyCode.Thumbstick1, ResponseCurve: 2 },
+				Virtual: InputActions.Scriptable,
+			}),
+			Look: InputActions.Direction2D({
+				Mouse: { KeyCode: Enum.KeyCode.MouseDelta, Scale: 0.02, Vector2Scale: new Vector2(1, -1) },
+				Gamepad: Enum.KeyCode.Thumbstick2,
+			}),
+			QuickSave: InputActions.Bool({
+				KeyboardAndMouse: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
+			}),
+			Crouch: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.C }, { TrackPrevious: true }),
+			Dash: InputActions.Bool(), // no hardware binding: driven from code
+		},
+	},
+	Ui: InputActions.Presets.UiNavigation({ Priority: 3000, Sink: true, Enabled: false }),
+});
 ```
 
-## Creating Actions and Binding Keys
+- Each builder takes the bindings, as a record of **slot name** to binding, and options
+  (`TrackPrevious`, `DisplayName`, `Enabled`). The slot names are yours; use the Input Action
+  Manager's device names (`KeyboardAndMouse`, `Gamepad`, `Touch`) to adopt its bindings.
+- A binding is a bare key (`Enum.KeyCode.Space`), an object (`{ KeyCode, PressedThreshold }`, or
+  composite `{ Up, Down, Left, Right }`), or `InputActions.Scriptable`.
+- One input source per binding: `KeyCode` and composite directions can't share one (IAS ignores the
+  composites when `KeyCode` is set). Put them in separate slots.
+- The compiler rejects keys an action type can't use, and reserved keys (Escape, ButtonStart, F9,
+  F11, F12, Print). See the tables in the [API reference](API.md#key-groups).
 
-Define actions and bind input keys to them:
+## 2. Create the handle on the client
 
 ```ts
-import { ActionsController } from "@rbxts/input-actions";
+// src/client/Input.ts
+import { InputActions } from "@rbxts/input-actions";
+import { InputSchema } from "shared/InputSchema";
 
-// Create an action
-ActionsController.Add("Jump");
-
-// Bind keys to the action (cross-platform support)
-ActionsController.AddKeyCode("Jump", Enum.KeyCode.Space); // Keyboard
-ActionsController.AddKeyCode("Jump", Enum.KeyCode.ButtonA); // Gamepad
+export const Input = InputActions.Create(InputSchema);
 ```
 
-## Checking Action States
+`Create` waits for `game.Loaded`, then gets or creates everything in `ReplicatedStorage.Inputs`
+(pass `{ Folder }` to use another). Call it once and share the handle.
 
-Check if actions are pressed in your game loop:
+## 3. Read the input
 
 ```ts
 import { RunService } from "@rbxts/services";
+import { Input } from "client/Input";
 
-RunService.Heartbeat.Connect(() => {
-	// Check if action is currently pressed
-	if (ActionsController.IsPressed("Jump")) {
-		// Handle continuous jumping input
-	}
+const { Jump, Move, Look, Crouch, Dash } = Input.Gameplay.Actions;
 
-	// Check if action was just pressed this frame
-	if (ActionsController.IsJustPressed("Fire")) {
-		FireWeapon();
-	}
+// events: the IAS signals, typed
+Jump.Pressed.Connect(() => print("jump"));
+Move.StateChanged.Connect((direction) => print(direction)); // Vector2
 
-	// Check if action was just released this frame
-	if (ActionsController.IsJustReleased("Crouch")) {
-		StandUp();
-	}
-
-	// Get analog input strength (0-1) for triggers or analog buttons
-	const accelerationAmount = ActionsController.GetPressStrength("Accelerate");
-	ApplyAcceleration(accelerationAmount);
-});
-```
-
-## Using Input Contexts
-
-Organize inputs into contexts for different game states:
-
-```ts
-import { InputContextController } from "@rbxts/input-actions";
-
-// Create contexts for different states
-const gameplayContext = InputContextController.CreateContext("gameplay");
-const menuContext = InputContextController.CreateContext("menu");
-
-// Add input mappings to contexts
-gameplayContext.Add("Jump", {
-	KeyboardAndMouse: Enum.KeyCode.Space,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-
-gameplayContext.Add("Fire", {
-	KeyboardAndMouse: Enum.UserInputType.MouseButton1,
-	Gamepad: Enum.KeyCode.ButtonR2,
-});
-
-menuContext.Add("Select", {
-	KeyboardAndMouse: Enum.KeyCode.Return,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-
-menuContext.Add("Back", {
-	KeyboardAndMouse: Enum.KeyCode.Escape,
-	Gamepad: Enum.KeyCode.ButtonB,
-});
-
-// Activate contexts based on game state
-function EnterGameplay() {
-	menuContext.Unassign();
-	gameplayContext.Assign();
-}
-
-function OpenMenu() {
-	gameplayContext.Unassign();
-	menuContext.Assign();
-}
-```
-
-## Device Type Detection
-
-Adapt your game to different input devices:
-
-```ts
-import { DeviceTypeHandler, EInputType } from "@rbxts/input-actions";
-
-// Set up device change detection
-DeviceTypeHandler.OnInputTypeChanged.Connect((inputType) => {
-	switch (inputType) {
-		case EInputType.KeyboardAndMouse:
-			ShowKeyboardControls();
-			break;
-		case EInputType.Gamepad:
-			ShowGamepadControls();
-			break;
-		case EInputType.Touch:
-			ShowTouchControls();
-			break;
-	}
-});
-```
-
-## Raw Input Handling
-
-For direct movement control:
-
-```ts
-import { RawInputHandler } from "@rbxts/input-actions";
-
+// polling, for continuous input
 RunService.RenderStepped.Connect((deltaTime) => {
-	// Get movement direction relative to camera
-	const moveVector = RawInputHandler.GetMoveVector(true);
-
-	// Apply to character movement
-	if (humanoid) {
-		humanoid.Move(moveVector);
-	}
-
-	// Get camera rotation input
-	const rotationDelta = RawInputHandler.GetRotation();
-	UpdateCameraAngle(rotationDelta.X, rotationDelta.Y);
+	const direction = Move.GetState();
+	const turn = Look.GetState().mul(deltaTime);
+	if (Crouch.IsJustPressed()) print("crouch"); // needs TrackPrevious: true
 });
+
+// driving actions from code
+Dash.Fire(true);
+Dash.Tap(); // true now, false next frame
+Move.Bindings.Virtual.Fire(new Vector2(0, 1)); // an on-screen stick
 ```
 
-## Haptic Feedback
-
-Provide controller vibration feedback:
+## 4. Switch contexts
 
 ```ts
-import { HapticFeedbackController, EVibrationPreset } from "@rbxts/input-actions";
-
-// Use predefined presets
-function HitEnemy() {
-	HapticFeedbackController.VibratePreset(EVibrationPreset.Medium);
-}
-
-// Or custom parameters
-function Explosion() {
-	HapticFeedbackController.Vibrate(0.8, 0.6, 0.5); // largeMotor, smallMotor, duration
-}
+// the Ui context was declared with Enabled: false
+const closeMenu = Input.Ui.Request(true);
+const pauseGameplay = Input.Gameplay.Request(false);
+// ...later
+closeMenu();
+pauseGameplay();
 ```
 
-## Common Troubleshooting
+A `false` request always wins over `true` requests and the base state (`SetEnabled`). Disabling a
+context releases its held actions.
 
-- **Actions not working**: Ensure `InputActionsInitializationHelper.InitAll()` was called
-- **Wrong device detected**: Initialize `DeviceTypeHandler` explicitly
-- **Conflicts between contexts**: Unassign existing contexts before assigning new ones
-- **Performance issues**: Use `IsJustPressed()` for one-time actions
+## 5. Let players rebind
 
-## Next Steps
+```ts
+const jumpKey = Input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
+jumpKey.Set(Enum.KeyCode.F);
+const cancel = jumpKey.Capture("KeyCode", (key) => print(`bound to ${key.Name}`));
 
-For more advanced features, see:
+const save = Input.ExportBindings(); // store it (DataStore through a remote, etc.)
+Input.ImportBindings(save); // on the next join
+```
 
-- [Advanced Usage Guide](./Advanced.md) - Learn about InputEcho, KeyCombinations, and Input Contexts
-- [API Reference](./API.md) - Complete API documentation
-
-## Comparison with Roblox's Native Input System
-
-The Input Actions package extends Roblox's native input system with several advantages:
-
-| Feature               | Roblox Native                            | Input Actions Package                                          |
-| --------------------- | ---------------------------------------- | -------------------------------------------------------------- |
-| Input Abstraction     | Directly tied to physical inputs         | Abstract actions that can be triggered by multiple inputs      |
-| Device Support        | Separate handling for different devices  | Unified system that automatically adapts to the current device |
-| Context Switching     | Requires manual connection/disconnection | Built-in context system for easy switching between game states |
-| Analog Input          | Basic support                            | Enhanced with deadzones, thresholds, and strength values       |
-| Input Combinations    | Manual implementation                    | Built-in support for key combinations                          |
-| Haptic Feedback       | Basic                                    | Enhanced with presets and custom patterns                      |
-| Mouse Control         | Basic                                    | Advanced control with locking options and priority system      |
-| Visual Representation | Limited                                  | Built-in system for displaying inputs with proper icons        |
-
-### When to Use Native Roblox Input
-
-While this package provides many advantages, there are still cases where you might want to use Roblox's native input directly:
-
-- For extremely simple games with minimal input requirements
-- When you need direct access to raw input events for specialized use cases
-- If you're working with Roblox's built-in character controller exclusively
-- For compatibility with other Roblox systems that expect direct input connections
-
-### Using Both Systems Together
-
-The Input Actions package works alongside Roblox's native input system, so you can:
-
-1. Use Input Actions for most game controls
-2. Connect directly to UserInputService for specialized cases
-3. Mix and match as needed for your specific game requirements
+Next: [Advanced](Advanced.md) for rebinding UIs, saves, on-screen buttons, TrackPrevious and Server
+Authority.

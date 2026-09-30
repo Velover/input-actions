@@ -1,16 +1,23 @@
-# Input Actions for Roblox-TS
+# @rbxts/input-actions
 
-A comprehensive input handling system for Roblox-TS inspired by Godot's input management approach. This package provides a flexible, action-based approach to handling player input across multiple platforms.
+A typed wrapper over Roblox's [Input Action System](https://create.roblox.com/docs/input/input-action-system)
+(IAS) for roblox-ts. You describe your contexts, actions and bindings once as a schema; the package
+gets or creates the `InputContext` / `InputAction` / `InputBinding` instances and hands back typed
+handles. Its extras: rebinding with a JSON save format, per-frame "just pressed" tracking, context
+requests, on-screen buttons and Server Authority support.
 
-## Features
-
-- **Action-Based Input System**: Define abstract actions like "Jump" or "Fire" instead of directly handling key presses
-- **Device Adaptability**: Automatically adapts to different input devices (keyboard/mouse, gamepad, touch)
-- **Context Management**: Easily switch between different input contexts (gameplay, menu, vehicle)
-- **Enhanced Control**: Support for analog input with thresholds, deadzones, and modifiers
-- **Advanced Features**: Key combinations, input echoing, haptic feedback, and more
-- **Cross-Platform**: Works seamlessly across PC, mobile, console, and VR
-- **Visual Input Display**: Built-in utilities for displaying input keys/buttons in UI
+- **Typed from the schema.** `Move.GetState()` is a `Vector2`, `Jump.Pressed` exists only on Bool
+  actions, and a binding IAS can't use (a mouse delta on a Bool action, Escape, a thumbstick as a
+  composite direction) is a compile error.
+- **Works with the Input Action Manager.** Contexts the Manager made in `ReplicatedStorage.Inputs`
+  are adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
+- **Rebinding:** `Set`, `Reset`, `Clear`, `Capture`, and `ExportBindings` / `ImportBindings` that
+  save only what the player changed. `SanitizeBindings` cleans a save on the server.
+- **Contexts:** a base state plus `Request(true | false)` holds; focus loss (TextBox, window, menu)
+  releases held keys.
+- **Server Authority:** the server provides the contexts to each player and reads the state; the
+  keybinds stay on the client.
+- Kept from 0.5: `MouseController`, `InputCatcher`, `RawInputHandler`.
 
 ## Installation
 
@@ -18,110 +25,60 @@ A comprehensive input handling system for Roblox-TS inspired by Godot's input ma
 npm install @rbxts/input-actions
 ```
 
-## Basic Usage
+Only `@rbxts/services` is a dependency.
 
-```typescript
-import { ActionsController, InputActionsInitializationHelper } from "@rbxts/input-actions";
-import { RunService } from "@rbxts/services";
+## Quick start
 
-// Initialize the system
-InputActionsInitializationHelper.InitAll();
+```ts
+// shared/InputSchema.ts: plain data, safe to require on client and server
+import { InputActions } from "@rbxts/input-actions";
 
-// Create an action and bind keys to it
-ActionsController.Add("Jump");
-ActionsController.AddKeyCode("Jump", Enum.KeyCode.Space);
-ActionsController.AddKeyCode("Jump", Enum.KeyCode.ButtonA); // For gamepad
-
-// Use the action in your game code
-RunService.Heartbeat.Connect(() => {
-	if (ActionsController.IsJustPressed("Jump")) {
-		character.Jump();
-	}
+export const InputSchema = InputActions.Schema({
+	Gameplay: {
+		Priority: 2000,
+		Sink: true,
+		Actions: {
+			Jump: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.Space, Gamepad: Enum.KeyCode.ButtonA }),
+			Move: InputActions.Direction2D({
+				KeyboardAndMouse: { Up: Enum.KeyCode.W, Down: Enum.KeyCode.S, Left: Enum.KeyCode.A, Right: Enum.KeyCode.D },
+				Gamepad: { KeyCode: Enum.KeyCode.Thumbstick1, ResponseCurve: 2 },
+				Virtual: InputActions.Scriptable, // driven from code, e.g. an on-screen stick
+			}),
+			Crouch: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.C }, { TrackPrevious: true }),
+		},
+	},
+	Ui: InputActions.Presets.UiNavigation({ Priority: 3000, Sink: true, Enabled: false }),
 });
 ```
 
-## Using Input Contexts
+```ts
+// client
+import { InputActions } from "@rbxts/input-actions";
+import { InputSchema } from "shared/InputSchema";
 
-```typescript
-import { InputContextController } from "@rbxts/input-actions";
+const Input = InputActions.Create(InputSchema);
+const { Jump, Move, Crouch } = Input.Gameplay.Actions;
 
-// Create contexts for different game states
-const gameplayContext = InputContextController.CreateContext("gameplay");
-const menuContext = InputContextController.CreateContext("menu");
+Jump.Pressed.Connect(() => print("jump"));
+const direction = Move.GetState(); // Vector2
+if (Crouch.IsJustPressed()) print("crouched this frame");
 
-// Add input mappings to contexts
-gameplayContext.Add("Jump", {
-	KeyboardAndMouse: Enum.KeyCode.Space,
-	Gamepad: Enum.KeyCode.ButtonA,
-});
-
-gameplayContext.Add("Fire", {
-	KeyboardAndMouse: Enum.UserInputType.MouseButton1,
-	Gamepad: Enum.KeyCode.ButtonR2,
-});
-
-// Activate contexts based on game state
-function EnterGameplay() {
-	menuContext.Unassign();
-	gameplayContext.Assign();
-}
-
-function OpenMenu() {
-	gameplayContext.Unassign();
-	menuContext.Assign();
-}
-```
-
-## Advanced Example: Character Movement
-
-```typescript
-import { RawInputHandler, InputActionsInitializationHelper } from "@rbxts/input-actions";
-import { RunService } from "@rbxts/services";
-
-// Initialize needed controllers
-InputActionsInitializationHelper.InitAll();
-
-RunService.RenderStepped.Connect((deltaTime) => {
-	// Get movement vector relative to camera
-	const moveVector = RawInputHandler.GetMoveVector(true, true);
-
-	if (humanoid) {
-		// Apply movement
-		const walkSpeed = 16; // Standard walk speed
-		humanoid.Move(moveVector.mul(walkSpeed));
-	}
-
-	// Get camera rotation input
-	const rotationDelta = RawInputHandler.GetRotation();
-	UpdateCameraAngle(rotationDelta.X, rotationDelta.Y);
-});
+Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F); // rebind
+const save = Input.ExportBindings(); // JSON of what differs from the defaults
+const release = Input.Ui.Request(true); // open the menu context until release()
 ```
 
 ## Documentation
 
-For detailed documentation, see:
-
-- [Introduction](docs/Introduction.md) - Overview of the system
-- [Quick Start Guide](docs/QuickStart.md) - Getting started with basic usage
-- [Advanced Usage](docs/Advanced.md) - Advanced features like contexts, key combinations, and input echo
-- [Component References](docs/Components/) - Detailed documentation for each component
-- [API Reference](docs/API.md) - Complete API documentation
-
-## Comparison to Godot
-
-This system is inspired by Godot's input handling, which uses actions as an abstraction layer between physical inputs and game logic. Key differences:
-
-1. Adapted for Roblox's input system and device capabilities
-2. Added support for Roblox-specific input types and scenarios
-3. Enhanced with device detection for cross-platform Roblox games
-4. Integrated with Roblox's input architecture
-5. Added features like input contexts and haptic feedback
+- [Introduction](docs/Introduction.md): the model, and what changed from 0.5
+- [Quick start](docs/QuickStart.md): a schema, the handle, reading input
+- [Advanced](docs/Advanced.md): contexts, rebinding and saves, on-screen buttons, TrackPrevious,
+  Server Authority, and the IAS behaviours to know
+- [API reference](docs/API.md)
+- Kept utilities: [MouseController](docs/Components/MouseController.md),
+  [InputCatcher](docs/Components/InputCatcher.md), [RawInputHandler](docs/Components/RawInputHandler.md)
+- [Examples](examples/)
 
 ## License
 
 MIT License - see the [LICENSE](LICENSE) file for details.
-
-## TODO
-
-- Fix InputEchoController doesnt trigger ActionsController.IsJustPressed
-- Add ability for KeyCombinationController to prevent sinking the input

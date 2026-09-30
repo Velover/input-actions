@@ -1,0 +1,19 @@
+{
+	// Type-checks type-rules.ts with plain tsc (roblox-ts refuses @ts-expect-error in compiled
+	// source). Run by `bun run build` and `bun run test`: an unused @ts-expect-error fails them.
+	"compilerOptions": {
+		"noLib": true,
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"target": "ESNext",
+		"module": "commonjs",
+		"moduleResolution": "Node",
+		"moduleDetection": "force",
+		"downlevelIteration": true,
+		"allowSyntheticDefaultImports": true,
+		"typeRoots": ["../../node_modules/@rbxts"],
+		"types": ["types", "compiler-types"]
+	},
+	"files": ["type-rules.ts"]
+}
