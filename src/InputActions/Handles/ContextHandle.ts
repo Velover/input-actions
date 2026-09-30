@@ -26,15 +26,30 @@ export class ContextState {
 
 	/** Writes the effective state when it changed, and tells the handles; returns whether it did */
 	Update(): boolean {
-		const effective =
-			this.FalseRequests > 0 ? false : this.TrueRequests > 0 ? true : this.Base;
-		if (effective === this.Effective) return false;
-		this.Effective = effective;
-		// Released before disabling: a Fire on a disabled context is ignored
-		if (!effective) ReleaseActions(this.Instance, this.Handles);
-		this.Instance.Enabled = effective;
-		for (const handle of [...this.Handles]) handle.NotifyEnabledChanged(effective);
+		if (!this.Write()) return false;
+		for (const handle of [...this.Handles]) handle.NotifyEnabledChanged(this.Effective);
 		return true;
+	}
+
+	/**
+	 * The handles of another state (a stand-in's) move onto this one with their requests, all at
+	 * once: a root handle whose schema the copy satisfied before theirs uses it already. This state's
+	 * base state wins. Each handle's listeners hear the effective state only when it differs from
+	 * what that handle had, so a joining handle whose state doesn't change hears nothing.
+	 */
+	Join(handles: readonly ContextHandle[]) {
+		const was = this.Effective;
+		const before = new Map<ContextHandle, boolean>();
+		for (const handle of handles) {
+			before.set(handle, handle.IsEnabled());
+			handle.MoveToState(this);
+		}
+		this.Write();
+		if (this.Instance.Enabled !== this.Effective) this.Instance.Enabled = this.Effective;
+		const effective = this.Effective;
+		for (const handle of [...this.Handles]) {
+			if ((before.get(handle) ?? was) !== effective) handle.NotifyEnabledChanged(effective);
+		}
 	}
 
 	/**
@@ -45,6 +60,18 @@ export class ContextState {
 		this.Instance = copy;
 		copy.Enabled = this.Effective;
 		for (const handle of this.Handles) handle.Instance = copy;
+	}
+
+	/** Writes the effective state to the instance when it changed; returns whether it did */
+	private Write(): boolean {
+		const effective =
+			this.FalseRequests > 0 ? false : this.TrueRequests > 0 ? true : this.Base;
+		if (effective === this.Effective) return false;
+		this.Effective = effective;
+		// Released before disabling: a Fire on a disabled context is ignored
+		if (!effective) ReleaseActions(this.Instance, this.Handles);
+		this.Instance.Enabled = effective;
+		return true;
 	}
 }
 
@@ -151,22 +178,14 @@ export class ContextHandle {
 		this._enabledChanged.Fire(enabled);
 	}
 
-	/**
-	 * Moves the handle, with its requests, onto a state other handles on the server's copy share
-	 * already (a root handle whose schema the copy satisfied before this one's). Their base state
-	 * wins; this handle's listeners hear the effective state when it differs from what they heard.
-	 */
-	JoinState(state: ContextState) {
-		const before = this._state.Effective;
+	/** Moves the handle and its requests onto another state (`ContextState.Join` updates it) */
+	MoveToState(state: ContextState) {
 		this.Leave();
 		this._state = state;
 		this.Instance = state.Instance;
 		state.Handles.push(this);
 		state.FalseRequests += this._falseRequests;
 		state.TrueRequests += this._trueRequests;
-		const told = state.Update();
-		if (state.Instance.Enabled !== state.Effective) state.Instance.Enabled = state.Effective;
-		if (!told && state.Effective !== before) this.NotifyEnabledChanged(state.Effective);
 	}
 
 	/** The handle now wraps the server's copy: `LinkedToServer` fires, once */

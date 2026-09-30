@@ -24,6 +24,7 @@ import {
 } from "./helpers";
 
 const K = Enum.KeyCode;
+const BOOL = Enum.InputActionType.Bool;
 
 interface ISave {
 	Version: number;
@@ -114,10 +115,18 @@ function standInCopy(folderName: string) {
 	]);
 }
 
+/** `STAND_IN_SCHEMA`'s context with Poke alone: a copy with only Poke already satisfies it */
+const POKE_ONLY_SCHEMA = InputActions.Schema({
+	SharedStandIn: {
+		ServerAuthority: true,
+		Actions: { Poke: InputActions.Bool({ KeyboardAndMouse: K.P }) },
+	},
+});
+
 /** Two root handles on one Server Authority schema, both made before the server's copy */
-function twoHandlesOnStandIn() {
-	const folderName = uniqueFolderName();
-	const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+function twoHandlesOnStandIn(options?: InputActions.CreateOptions) {
+	const folderName = options?.PlayerFolderName ?? uniqueFolderName();
+	options ??= { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
 	const first = InputActions.Create(STAND_IN_SCHEMA, options);
 	defer(() => first.Destroy());
 	const second = InputActions.Create(STAND_IN_SCHEMA, options);
@@ -542,6 +551,38 @@ export class SharedHandlesTests implements OnStart {
 					second.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
 					first.SharedStandIn.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
 				);
+			});
+
+			test("handles joining the state of one on the copy hear only their own change, never a passing value", () => {
+				const folderName = uniqueFolderName();
+				const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+				const copy = localCopy(folderName, "SharedStandIn", [["Poke", BOOL]]);
+				const onCopy = InputActions.Create(POKE_ONLY_SCHEMA, options);
+				defer(() => onCopy.Destroy());
+				const { First: first, Second: second } = twoHandlesOnStandIn(options);
+				expectFalse(first.SharedStandIn.IsLinkedToServer(), "the copy lacks Move and Crouch");
+				// The stand-in is off: the second handle's Request(false) wins over the first's true one
+				defer(first.SharedStandIn.Request(true));
+				defer(second.SharedStandIn.Request(false));
+				frames(1);
+				const heardOnCopy = recordSignal(onCopy.SharedStandIn.EnabledChanged);
+				const heardFirst = recordSignal(first.SharedStandIn.EnabledChanged);
+				const heardSecond = recordSignal(second.SharedStandIn.EnabledChanged);
+				const move = new Instance("InputAction");
+				move.Name = "Move";
+				move.Type = Enum.InputActionType.Direction2D;
+				move.Parent = copy;
+				const crouch = new Instance("InputAction");
+				crouch.Name = "Crouch";
+				crouch.Type = BOOL;
+				crouch.Parent = copy;
+				eventually(() => second.SharedStandIn.IsLinkedToServer(), "the swap");
+				expectTrue(first.SharedStandIn.IsLinkedToServer(), "one swap for both");
+				frames(2);
+				expectFalse(copy.Enabled, "the Request(false) holds the copy off");
+				expectArrayEqual(heardOnCopy, [false], "the copy's handle went from on to off");
+				expectArrayEqual(heardFirst, [], "the first joining handle was off and stays off");
+				expectArrayEqual(heardSecond, [], "the second joining handle was off and stays off");
 			});
 
 			test("the swap fires the held values again in the order they were fired", () => {

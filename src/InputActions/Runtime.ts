@@ -650,7 +650,7 @@ export class InputRuntime implements IRuntime {
 			entry.Context = state;
 			state.MoveTo(copy);
 		} else {
-			for (const handle of [...state.Handles]) handle.JoinState(entry.Context);
+			entry.Context.Join([...state.Handles]);
 		}
 		source.Enabled = false;
 		source.Destroy();

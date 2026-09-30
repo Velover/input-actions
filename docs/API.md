@@ -231,6 +231,10 @@ ViewportPosition may set `PrimaryModifier`/`SecondaryModifier` (Button keys).
 use `AttachButton`. At runtime an unbound binding (no key at all) is legal: the Input Action Manager
 makes them and `Clear()` produces them.
 
+IAS reads `ReleasedThreshold` as at most `PressedThreshold`: `Set({ ReleasedThreshold: 0.8 })` on a
+binding whose `PressedThreshold` is 0.5 reads (and `Get()` returns) 0.5 until `PressedThreshold` is
+raised.
+
 ## Key groups
 
 | Group | Keys |

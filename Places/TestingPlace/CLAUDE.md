@@ -23,8 +23,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `sa-release` (what reaches the server when the client resets an action; authority only)
   (client); `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial
   tests, kept as regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`, and
-  `validator-r4.ts` for the validator-r4 sections). Project-specific tests return early under the
-  other projects (`getProject()`).
+  `validator-r4.ts` and `validator-r5.ts` for those rounds' sections). Project-specific tests
+  return early under the other projects (`getProject()`).
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to

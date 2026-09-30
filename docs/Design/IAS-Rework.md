@@ -548,6 +548,7 @@ places, `SignalBehavior = Deferred`:
 | Context parented to `nil`; action with no context | both work |
 | Held Scriptable binding destroyed | state stays `true`, no `Released` |
 | `PreferredBinding` with Scriptable + Space + ButtonA (keyboard) | the Space binding |
+| `ReleasedThreshold = 0.8` with `PressedThreshold` 0.5; then `PressedThreshold = 0.9` | reads 0.5 (clamped when read, to `PressedThreshold`); then 0.8: the stored value was kept. `PressedThreshold` is never clamped |
 | `Enum.KeyCode.FromName` | `"Space"` → Space; `"Unknown"` → `None`; `"Nope"` → `nil`, no error |
 | `Workspace.AuthorityMode`, `Workspace.SignalBehavior` from a script | not readable |
 | Server Authority: client-made Scriptable binding under a server-made action | drives it; the server's `GetState`, `Pressed`, `StateChanged`, `BindToSimulation` all see the state |

@@ -182,8 +182,8 @@ Defaults come from `[Dump]`. Descriptions come from `[Ref]` unless tagged otherw
 | `Vector2Scale` | `Vector2` | `(1, 1)` | 2D | Per-component linear scale. |
 | `Vector3Scale` | `Vector3` | `(1, 1, 1)` | 3D | Per-component linear scale. |
 | `ResponseCurve` | `float` | `1` | 2D with `Thumbstick1`/`Thumbstick2` (and per-axis thumbstick KeyCodes, per a 2026-06 fix) | Quadratic response curve with range 1–10. At 1 the input passes through unchanged. Higher values give finer control near centre and a fast ramp near full deflection. |
-| `PressedThreshold` | `float` | `0.5` | Bool with an analog source | Value above which (the guide says `>=`) the action becomes true. Clamped to be `>= ReleasedThreshold`. |
-| `ReleasedThreshold` | `float` | `0.2` | Bool with an analog source | Value below which (the guide says `<=`) the action becomes false. Clamped to be `<= PressedThreshold`. Together the two give hysteresis. |
+| `PressedThreshold` | `float` | `0.5` | Bool with an analog source | Value above which (the guide says `>=`) the action becomes true. Never clamped (probed). |
+| `ReleasedThreshold` | `float` | `0.2` | Bool with an analog source | Value below which (the guide says `<=`) the action becomes false. Clamped when read, not when written: it reads as `min(stored value, PressedThreshold)` and the stored value is kept, so raising `PressedThreshold` again brings it back (probed). Together the two give hysteresis. |
 | `PrimaryModifier` | `KeyCode` | `None` | all | A key that must be held **before** the `KeyCode`/`UIButton`/composite input. `None` means no requirement. |
 | `SecondaryModifier` | `KeyCode` | `None` | all | A second required key. When both modifiers are set, both must be held, in either order. |
 | `UIButton` | `GuiButton?` | `nil` | Bool | Press and release of this `GuiButton` drive the action. Ignored when `KeyCode` is set. Releases when the pointer leaves the bounds (since 2026-04). Presses through gamepad UI navigation also route here (fixed 2025-11 and 2026-06). |
