@@ -144,6 +144,33 @@ function watch<T extends defined>(read: () => T, rest: T): T[] {
 export class RealInputTests implements OnStart {
 	onStart() {
 		defineTests("real-input", () => {
+			// ---- the device
+
+			// Studio's device simulator is Studio's setting, not the place's: a touch pass killed before
+			// it set the device back (or a device picked by hand) turns every click into a tap in every
+			// later window. Said once here, rather than by the mouse tests failing one by one
+			test("outside the touch project Studio simulates no device: a click is mouse input", () => {
+				if (isTouch()) return;
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				const kinds = new Array<Enum.UserInputType>();
+				const connection = UserInputService.InputBegan.Connect((input) => {
+					const kind = input.UserInputType;
+					if (kind === Enum.UserInputType.MouseButton1 || kind === Enum.UserInputType.Touch)
+						kinds.push(kind);
+				});
+				defer(() => connection.Disconnect());
+				real.Click(emptyPoint());
+				eventually(() => kinds.size() > 0, "InputBegan for the click");
+				expectEqual(
+					kinds[0],
+					Enum.UserInputType.MouseButton1,
+					"Studio simulates a device: set it back with " +
+						'StudioDeviceSimulatorService:SetDeviceAsync("default") ' +
+						"(Places/TestingPlace/CLAUDE.md, The touch pass)",
+				);
+			});
+
 			// ---- keys
 
 			test("a real key presses a Bool action: Pressed, IsPressed, Released", () => {

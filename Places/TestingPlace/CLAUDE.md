@@ -30,8 +30,9 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `server-authority` (server). The `validator-r*` and `hunter-r*` sections are reviewers'
   adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
   (`schemas.ts`; `authority.ts`, the mode each project expects and the warnings' wording;
-  `skip.ts`; and `validator-r4.ts`, `validator-r5.ts` and `validator-r6.ts` for those rounds'
-  sections). Project-specific tests return early under the other projects (`getProject()`).
+  `skip.ts`; and `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts`
+  for those rounds' sections). Project-specific tests return early under the other projects
+  (`getProject()`).
 - **Real keyboard and mouse input:** `src/client/tests/virtual.ts` wraps
   `UserInputService:CreateVirtualInput()` (Studio only; the typings return `RBXObject`, so it is
   cast to `VirtualInput`), whose input IAS treats as hardware, also with the window in the
@@ -113,8 +114,16 @@ other projects:
 7. the window is closed by ending the Studio process the run started (unless `--keep`).
 
 The device is Studio's setting, not the place's: left set, it follows into every other Studio
-window. If a run reports `STUDIO MAY STILL SIMULATE iphone_14`, or was killed before step 6, set it
-back by hand, in any open Studio window:
+window. A run killed outright (a closed terminal, a tool's time limit) never reaches step 6, so
+the run writes a marker, `input-actions-testing-device.json` in the system temp folder, just before
+step 4, and removes it once step 6 has set the device back. Every `bun run test` looks for it after
+building `test.rbxl` and before any project runs: when it is there, the run opens a window of its
+own on a copy, `test.device-restore.rbxl`, sets the device back there, closes it, and goes on; when
+that fails, it stops and says how to fix it by hand. Outside the `touch` project, the `real-input`
+section's first test also fails when a click arrives as a tap.
+
+If a run reports `STUDIO MAY STILL SIMULATE iphone_14`, set it back by hand, in any open Studio
+window, then delete the marker:
 
 - in the command bar (View > Command Bar), run
   `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("default")`;
@@ -207,6 +216,10 @@ commands use npm; use bun here.
   `flamework-test` then lays that over `tests/place.rbxlx` and runs every section in Studio, on the
   server and then on the client. It needs Studio's "MCP server" setting on, and `lune`. A failure
   exits non-zero.
+- Each realm's run may take 600 s (`--timeout 600s`, which `scripts/test.mjs` passes unless the
+  command line gives its own). flamework-test's own 120 s is too short: the client's run under
+  `authority` takes about 160 s, since its real-input tests wait on the server. A run past the limit
+  reports `did not finish within ... (--timeout)` and no results for that realm.
 - Tests live in `src/server/tests`, `src/client/tests` and `src/shared/tests` (both realms). Each
   test file is a `@Provider({ activeIn: ["testing"] })` that calls `defineTests` in `onStart`;
   `src/server/tests/players.ts` is a plain module of helpers beside them. The entry points register

@@ -262,9 +262,11 @@ ViewportPosition may set `PrimaryModifier`/`SecondaryModifier` (Button keys).
 use `AttachButton`. At runtime an unbound binding (no key at all) is legal: the Input Action Manager
 makes them and `Clear()` produces them.
 
-IAS reads `ReleasedThreshold` as at most `PressedThreshold`: `Set({ ReleasedThreshold: 0.8 })` on a
-binding whose `PressedThreshold` is 0.5 reads (and `Get()` returns) 0.5 until `PressedThreshold` is
-raised.
+IAS reads `ReleasedThreshold` as at most `PressedThreshold`, and keeps the value written:
+`Set({ ReleasedThreshold: 0.8 })` on a binding whose `PressedThreshold` is 0.5 reads (and `Get()`
+returns) 0.5 until `PressedThreshold` is raised; after `Set({ PressedThreshold: 0.9 })` it reads 0.8.
+`Set` writes only what the spec changes, and `Reset` only what differs from the defaults, so neither
+writes a clamped reading over a kept value. A save holds what the binding reads.
 
 - The Delta1D and Delta2D keys (`MouseWheel`, `MouseDelta`, `TouchDelta`, trackpad pan and pinch)
   read as **rates**: the amount over that frame's time, for one frame, then 0. Multiply by the

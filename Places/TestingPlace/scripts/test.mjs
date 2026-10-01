@@ -4,9 +4,17 @@
 // `bun scripts/test.mjs` finds no rbxtsc, or a global one instead of the project's. Extra
 // arguments go to flamework-test, as in `bun run test --sections levels`. A project that needs
 // Studio's device simulator (`--project tests/touch.project.json`) runs through
-// scripts/device-test.mjs instead, after the others.
+// scripts/device-test.mjs instead, after the others; and a device an earlier run left set is set
+// back before any project runs.
 
-import { DEVICE_PROJECTS, projectName, runOnDevice } from "./device-test.mjs";
+import { DEVICE_PROJECTS, projectName, restoreLeftDevice, runOnDevice } from "./device-test.mjs";
+
+/**
+ * How long one realm's run may take, unless `--timeout` is given: flamework-test's own 120 s is too
+ * short for the client's sections under `authority`, whose real-input tests wait on the server
+ * (about 160 s in October 2026). A stuck test still ends after 30 s (`testing.timeout`).
+ */
+const RUN_TIMEOUT = "600s";
 
 /**
  * The `--project` values among the arguments (repeated or comma-separated, `--project x` or
@@ -65,10 +73,15 @@ if (code === undefined) {
 }
 // test.rbxl, not place.rbxl: the place `bun run place` builds never holds the tests.
 if (code === 0) code = run(["rojo", "build", "-o", "test.rbxl"]) ?? 127;
+// A device left set by a run killed during the touch pass would put every project on a phone
+if (code === 0 && !(await restoreLeftDevice("test.rbxl"))) code = 1;
 if (code === 0) {
 	// Projects that need Studio's device simulator (`touch`) run through scripts/device-test.mjs,
-	// after the others, which flamework-test runs as they are
-	const { projects, rest } = splitProjects(process.argv.slice(2));
+	// after the others, which flamework-test runs as they are. A `--timeout` given comes later, and
+	// flamework-test takes the last one.
+	const split = splitProjects(process.argv.slice(2));
+	const projects = split.projects;
+	const rest = ["--timeout", RUN_TIMEOUT, ...split.rest];
 	const onDevice = projects.filter((project) => projectName(project) in DEVICE_PROJECTS);
 	const plain = projects.filter((project) => !onDevice.includes(project));
 	if (plain.length > 0 || onDevice.length === 0) {

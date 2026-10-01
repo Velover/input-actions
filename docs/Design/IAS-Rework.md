@@ -298,7 +298,12 @@ Binding handle (non-Scriptable):
   worked out first, then only the properties that differ are written. A property written with the
   value it has changes nothing, but a key written away and back in one frame releases a held
   action (local) or leaves it stuck (under the player) **(probed)**, so `Set(K.Space)` on a Space
-  binding, or importing the save already in effect, leaves a held action held.
+  binding, or importing the save already in effect, leaves a held action held. A value is written
+  only when it differs both from the binding as read before the write and from what it reads at that
+  point: `ReleasedThreshold` reads at most `PressedThreshold` and IAS keeps the value written
+  **(probed)**, so `Set({ PressedThreshold: 0.9 })` brings a stored `ReleasedThreshold` of 0.8 back
+  into view rather than writing the clamped reading over it, and `Reset` keeps a designer's stored
+  value.
 - **A change to a binding's keys** (`KeyCode`, a composite direction, a modifier) makes IAS reset
   every binding of the action, whichever binding changed **(probed)**: on a local context the
   action is released at once; keys still down and Scriptable values count again once pressed or
@@ -365,6 +370,8 @@ own actions.
     and leaves it stuck under the player (see the binding handle above).
   - An `InputCatcher` (a CAS sink over every input) doesn't block a click or tap on a GuiButton, nor
     its `UIButton` binding: GUI gets the input before CAS. It blocks `MouseLeftButton` and the wheel.
+  - A button with `Active = false` no longer fires `Activated`, but its `UIButton` binding still
+    presses the action. `Visible = false` and `Interactable = false` stop both.
 
 ## 7. Saving keybinds as JSON
 
@@ -698,3 +705,4 @@ places, `SignalBehavior = Deferred`:
 | An `InputCatcher` (CAS sink, priority 5000) active, a real click or tap on a GuiButton with a `UIButton` binding (hunt, 2026-10-01) | the binding presses its action and `Activated` fires; a `MouseLeftButton` binding and the wheel are blocked |
 | `Capture("KeyCode")` on a `Direction1D` binding, a real wheel notch (hunt, 2026-10-01) | ignored, the `KeyCode` stays `None`: the wheel raises `InputChanged`, not `InputBegan` |
 | `workspace.Terrain:CanSetNetworkOwnership()` from a `ReplicatedFirst` LocalScript before `game.Loaded` (hunt, 2026-10-01) | errors: `Terrain` is `nil`; once loaded, the `AuthorityMode` message |
+| A real click or tap on a GuiButton with `Active = false`, `Interactable = false` or `Visible = false`, with a `UIButton` binding, with and without an `InputCatcher` (hunt round 2, 2026-10-01) | `Active = false`: `Activated` doesn't fire, the binding still presses its action; `Interactable = false` or `Visible = false`: the binding doesn't press it |

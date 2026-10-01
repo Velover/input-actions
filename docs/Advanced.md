@@ -100,6 +100,9 @@ server under Server Authority).
 
 - The action is pressed while the mouse button (or the finger) is down on the button, and released
   when it comes up. A click on the button doesn't reach `MouseLeftButton` bindings.
+- To keep the button from pressing the action for a while, hide it (`Visible = false`) or set
+  `Interactable = false` on it; to stop for good, call the function `AttachButton` returned.
+  `Active = false` is not enough: it stops the button's `Activated`, not its binding.
 - On a touch device the binding is the action's touch binding: `GetPreferredBinding()` returns it
   once the player touches the screen, and the keyboard's binding after a key press.
 - With gamepad UI navigation, the gamepad's `ButtonA` on a selected button fires its binding. The

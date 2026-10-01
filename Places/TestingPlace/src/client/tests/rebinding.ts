@@ -10,6 +10,7 @@ import {
 	expectTrue,
 	test,
 } from "@flamework-experimental/testing";
+import { RoundFloat } from "@rbxts/input-actions/out/InputActions/BindingState";
 import {
 	DecideCapture,
 	ECaptureDecision,
@@ -145,6 +146,54 @@ export class RebindingTests implements OnStart {
 				expectEqual(keys.PrimaryModifier, Enum.KeyCode.LeftShift);
 			});
 
+			// IAS reads ReleasedThreshold as at most PressedThreshold and keeps the value written
+			// (probed). Set, Reset and imports read the binding first, so they must not write that
+			// clamped reading over the kept value (hunt round 2, H2-F1)
+			test("a ReleasedThreshold above PressedThreshold is kept through Set and Reset", () => {
+				const pad = createTestInput().Gameplay.Actions.Fire.Bindings.Gamepad;
+				const reads = () =>
+					`${RoundFloat(pad.Instance.PressedThreshold)}/${RoundFloat(pad.Instance.ReleasedThreshold)}`;
+				pad.Set({ KeyCode: Enum.KeyCode.ButtonR2, ReleasedThreshold: 0.5 });
+				pad.Set({ KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.3 });
+				expectEqual(reads(), "0.3/0.3", "PressedThreshold lowered below it");
+				pad.Set({ KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.7 });
+				expectEqual(reads(), "0.7/0.5", "PressedThreshold raised again");
+				pad.Set({
+					KeyCode: Enum.KeyCode.ButtonR2,
+					PressedThreshold: 0.3,
+					ReleasedThreshold: 0.25,
+				});
+				expectEqual(reads(), "0.3/0.25", "both written");
+
+				// An adopted binding whose designer stored ReleasedThreshold 0.8 under PressedThreshold 0.5
+				const folder = newFolder();
+				const context = new Instance("InputContext");
+				context.Name = "Gameplay";
+				const fire = new Instance("InputAction");
+				fire.Name = "Fire";
+				fire.Parent = context;
+				const trigger = new Instance("InputBinding");
+				trigger.Name = "FireGamepad";
+				trigger.KeyCode = Enum.KeyCode.ButtonR2;
+				trigger.ReleasedThreshold = 0.8;
+				trigger.Parent = fire;
+				context.Parent = folder;
+				const adopted = createTestInput(folder).Gameplay.Actions.Fire.Bindings.Gamepad;
+				adopted.Set({ KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.9 });
+				expectTrue(
+					nearlyEqual(trigger.ReleasedThreshold, 0.8),
+					`the designer's 0.8 shows: ${trigger.ReleasedThreshold}`,
+				);
+				adopted.Reset();
+				expectTrue(nearlyEqual(trigger.PressedThreshold, 0.5), "Reset: PressedThreshold 0.5");
+				expectTrue(nearlyEqual(trigger.ReleasedThreshold, 0.5), "Reset: reads 0.5");
+				trigger.PressedThreshold = 0.9;
+				expectTrue(
+					nearlyEqual(trigger.ReleasedThreshold, 0.8),
+					`Reset kept the designer's 0.8: ${trigger.ReleasedThreshold}`,
+				);
+			});
+
 			test("Clear unbinds: KeyCode and composites become None", () => {
 				const move = createTestInput().Gameplay.Actions.Move;
 				move.Bindings.KeyboardAndMouse.Clear();
@@ -187,7 +236,10 @@ export class RebindingTests implements OnStart {
 				const message = expectThrows(() =>
 					(jump as unknown as { Clear(slot: string): void }).Clear("Up"),
 				);
-				expectTrue(message.find("Gameplay/Jump/KeyboardAndMouse", 1, true)[0] !== undefined, message);
+				expectTrue(
+					message.find("Gameplay/Jump/KeyboardAndMouse", 1, true)[0] !== undefined,
+					message,
+				);
 			});
 
 			test("a cleared modifier round-trips through a save", () => {
@@ -197,7 +249,9 @@ export class RebindingTests implements OnStart {
 				const json = input.ExportBindings();
 				input.ResetBindings();
 				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.LeftControl);
-				expectArrayEqual(input.ImportBindings(json).Applied, ["Gameplay/QuickSave/KeyboardAndMouse"]);
+				expectArrayEqual(input.ImportBindings(json).Applied, [
+					"Gameplay/QuickSave/KeyboardAndMouse",
+				]);
 				expectEqual(save.Instance.PrimaryModifier, Enum.KeyCode.None);
 				expectEqual(save.Instance.KeyCode, Enum.KeyCode.S);
 			});

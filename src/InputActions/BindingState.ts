@@ -85,22 +85,32 @@ const BINDING_PROPERTIES: readonly (keyof IBindingValues)[] = [
 	"DisplayImage",
 ];
 
+function SameProperty(name: keyof IBindingValues, a: unknown, b: unknown): boolean {
+	return name === "DisplayImage" ? (a as Content).Uri === (b as Content).Uri : a === b;
+}
+
 /**
  * Writes the values that differ from the binding's own, keys first. Writing a property the value it
  * already has changes nothing in IAS, but a key written away and back in one frame releases a held
  * action (probed), so nothing is written for nothing.
+ *
+ * A value is written only when it differs both from the binding as it read before the write and from
+ * what it reads now. IAS reads `ReleasedThreshold` as at most `PressedThreshold` and keeps the value
+ * written (probed): raising `PressedThreshold` brings a stored `ReleasedThreshold` back into view, and
+ * the clamped value read before must not be written over it.
  * @returns whether a key slot (KeyCode, a composite direction, a modifier) changed
  */
-export function WriteBinding(binding: InputBinding, values: IBindingValues): boolean {
+export function WriteBinding(
+	binding: InputBinding,
+	values: IBindingValues,
+	before = ReadBinding(binding),
+): boolean {
 	const instance = binding as unknown as Record<string, unknown>;
 	let keysChanged = false;
 	for (const name of BINDING_PROPERTIES) {
 		const value = values[name];
-		const same =
-			name === "DisplayImage"
-				? (value as Content).Uri === binding.DisplayImage.Uri
-				: instance[name] === value;
-		if (same) continue;
+		if (SameProperty(name, value, before[name]) || SameProperty(name, value, instance[name]))
+			continue;
 		instance[name] = value;
 		if ((KEY_SLOTS as readonly string[]).includes(name)) keysChanged = true;
 	}
@@ -153,7 +163,7 @@ export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding
 	const rebound = new Set<InputAction>();
 	for (const [binding, values] of writes) {
 		const before = ReadBinding(binding);
-		const keysChanged = WriteBinding(binding, values);
+		const keysChanged = WriteBinding(binding, values, before);
 		if (!SameValues(before, ReadBinding(binding))) changed.add(binding);
 		const action = binding.Parent;
 		if (keysChanged && action !== undefined && action.IsA("InputAction")) rebound.add(action);
