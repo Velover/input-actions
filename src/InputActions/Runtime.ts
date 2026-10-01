@@ -114,6 +114,20 @@ function IsCopyReady(standIn: IStandIn, copy: Instance | undefined): copy is Inp
 	return standIn.Links.every((link) => HasActions(copy, link.Schema));
 }
 
+/**
+ * Resets an action that `Destroy` left held: a binding destroyed while it holds its action leaves the
+ * action stuck on (probed), and IAS resets a disabled action. Under Server Authority the release
+ * pairs before have let go of the server's copy already (`ReleaseOnServer`); this covers a local
+ * context, and a copy under the player in a place without Server Authority, where no pair is fired.
+ * An action the package made and destroyed needs nothing.
+ */
+function ResetIfHeld(action: InputAction) {
+	if (action.Parent === undefined || !action.Enabled) return;
+	if (action.GetState() === NEUTRAL_VALUES[action.Type.Name]) return;
+	action.Enabled = false;
+	action.Enabled = true;
+}
+
 /** The template's action of that name, when it has one */
 function TemplateAction(template: InputContext | undefined, name: string): InputAction | undefined {
 	const action = template?.FindFirstChild(name);
@@ -271,9 +285,8 @@ export class InputRuntime implements IRuntime {
 			}
 		}
 		// The template's bindings the package gave them go with their last user
-		for (const action of this._extraActions) {
-			if (!IsShared(action)) ReleaseOnServer(action);
-		}
+		const extras = this._extraActions.filter((action) => !IsShared(action));
+		for (const action of extras) ReleaseOnServer(action);
 		for (const context of this._contexts) context.Destroy();
 		for (let index = this._uses.size() - 1; index >= 0; index--) {
 			const instance = this._uses[index];
@@ -288,14 +301,9 @@ export class InputRuntime implements IRuntime {
 		}
 		this._uses.clear();
 		this._used.clear();
-		for (const action of owned) {
-			// A button binding destroyed above while pressed: IAS resets a disabled action
-			const instance = action.Instance;
-			if (instance.Parent !== undefined && instance.Enabled && action.IsPressed()) {
-				instance.Enabled = false;
-				instance.Enabled = true;
-			}
-		}
+		// A key or button binding destroyed above while it held its action: the action stays held
+		for (const action of owned) ResetIfHeld(action.Instance);
+		for (const action of extras) ResetIfHeld(action);
 		for (const action of actions) action.Destroy();
 		this._bindingsChanged.Destroy();
 	}

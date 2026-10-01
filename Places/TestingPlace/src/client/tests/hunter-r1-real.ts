@@ -645,12 +645,15 @@ export class HunterR1RealTests implements OnStart {
 				context.Parent = folder;
 				folder.Parent = Players.LocalPlayer;
 				eventually(() => input.HunterSwap.IsLinkedToServer(), "linked");
+				// Under Server Authority the copy's state moves on simulation steps (60 Hz), while a
+				// frame is about 5 ms: a fixed few frames may end before the release shows (hunt round
+				// 4, H4-F4). A state that sticks still fails here
 				real.Release(K.J);
-				frames(4);
-				expectFalse(jump.IsPressed());
+				eventually(() => !jump.IsPressed(), "released once J came up");
 				real.Tap(K.J);
+				task.wait(0.2);
+				eventually(() => !jump.IsPressed(), "released after a tap of J");
 				frames(3);
-				expectFalse(jump.IsPressed());
 				const sequence = events.join("");
 				expectTrue(sequence.find("PP", 1, true)[0] === undefined, sequence);
 				expectTrue(sequence.find("RR", 1, true)[0] === undefined, sequence);

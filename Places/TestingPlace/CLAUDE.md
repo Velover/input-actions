@@ -40,9 +40,12 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `MouseUp`, `Click`, `Wheel`, `MouseDelta`), or the reason there is none. What a test presses is
   released when the test ends, pass or fail: pressing a key or button that is already down throws,
   and a held key would leak into later tests. Rules:
-  - mouse positions are screen positions, **including the GUI inset** (58 px here): use
-    `screenCenter(guiObject)` for a GUI object, and `emptyPoint()` for a point over the 3D world
-    clear of CoreGui and the touch controls;
+  - mouse positions are screen positions, counted from the screen's corner: a GUI position plus the
+    GUI inset (58 px here) and, under the simulated phone, the safe area on the left (47 px on the
+    iPhone 14; measured in hunt round 4, where `AbsolutePosition + inset` put taps 47 px left of
+    their target). `toScreen(guiPosition)` converts, from where a ScreenGui with `IgnoreGuiInset`
+    and `ScreenInsets = None` starts; use `screenCenter(guiObject)` for a GUI object, and
+    `emptyPoint()` for a point over the 3D world clear of CoreGui and the touch controls;
   - input that would touch CoreGui throws: the top-left menu area, Escape and other keys Roblox
     reserves (VirtualInput sends gamepad KeyCodes as keyboard input, and `DPadUp`, `ButtonStart`
     throw), and anything while the Roblox menu is open;
@@ -59,7 +62,16 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     right after one cancels it at once). Don't send more than three notches in a row the same way
     within a test, and send wheel input through `Wheel`, not through `Device`;
   - Legacy player scripts (`default`) sink `Left`, `Right`, `I`, `O` (camera) and toggle shift lock
-    on `LeftShift` through CAS: real-input tests use other keys.
+    on `LeftShift` through CAS: real-input tests use other keys;
+  - under `authority`, the state of a copy under the player (the server's copy, or a context a test
+    makes in `LocalPlayer`) moves on simulation steps, 60 Hz, while a frame is about 5 ms: wait for a
+    change there with `eventually`, not a fixed few frames (hunt round 4 saw `frames(3)` end before
+    a release showed). A fixed wait is for checking that something does *not* happen;
+  - the Studio window may lose focus during a run (the user working in another window), and the
+    focus-loss reset of every root handle made with the default `ResetOnFocusLoss` then releases what
+    a test holds. A test that holds keys and doesn't test that reset can create its input with
+    `ResetOnFocusLoss: false`; `real.FocusNote()` adds to a failure message whether the window lost
+    focus during the test.
 - **Skipping:** a test that can't run in this state calls `skip(reason)` from
   `shared/fixtures/skip.ts` and returns. It counts as passed; the reason is a `[SKIP]` warning in
   Studio's output, just before the test's `[FWTEST]` line, and not in the terminal.
@@ -113,11 +125,16 @@ other projects:
 3. Studio is started on the file, and the run waits (up to 180 s) for it to show on the MCP proxy;
 4. `flamework-test studio exec --studio test.touch.rbxl --realm edit` calls
    `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("iphone_14")`;
-5. `flamework-test studio run --studio test.touch.rbxl --realm both` runs the tests (`--sections`,
-   `--realm`, `--timeout`, `--keep`, `--list` and `--json` are passed on);
+5. `flamework-test studio run --studio test.touch.rbxl --realm both` runs the tests, and stops the
+   play session (`--sections`, `--realm`, `--timeout`, `--list` and `--json` are passed on; `--keep`
+   is not, see step 7);
 6. **always**, also after a failure, a timeout or Ctrl+C, `SetDeviceAsync("default")` sets the
-   device back, and the run says so (`Studio's device is back to default`);
-7. the window is closed by ending the Studio process the run started (unless `--keep`).
+   device back, and the run says so (`Studio's device is back to default`). Only the Edit data model
+   can set it (`Edit datamodel is not available in Play mode`), so a play session still running is
+   stopped first (`studio status`, then `studio stop`): Ctrl+C ends the CLI before it stops play;
+7. the window is closed by ending the Studio process the run started. With `--keep` it stays open,
+   in Edit: the play session can't be kept, since the device can't be set back during one (hunt
+   round 4 found `--keep` left the phone simulated).
 
 The device is Studio's setting, not the place's: left set, it follows into every other Studio
 window. A run killed outright (a closed terminal, a tool's time limit) never reaches step 6, so
@@ -137,10 +154,11 @@ window, then delete the marker:
   `bunx flamework-test studio exec --studio test.touch.rbxl --realm edit --code 'game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("default") return game:GetService("StudioDeviceSimulatorService"):GetDeviceAsync()'`,
   which should print `default`.
 
-Ctrl+C during the touch pass stops the CLI's current step; the script itself carries on to set the
-device back and close the window, then rebuilds `out/` and exits with 130. The window helpers come
-from flamework-test's own `cli/src/studio.ts` (finding Studio, and closing a window by the process
-that opened it); the Flamework packages are pinned exactly, so that module can't move under it.
+Ctrl+C during the touch pass stops the CLI's current step; the script itself carries on to stop the
+play session, set the device back and close the window, then rebuilds `out/` and exits with 130.
+The window helpers come from flamework-test's own `cli/src/studio.ts` (finding Studio, telling a
+play session, and closing a window by the process that opened it); the Flamework packages are
+pinned exactly, so that module can't move under it.
 
 ## Stack
 

@@ -115,7 +115,8 @@ client the call throws until the game has loaded (`workspace.Terrain` is `nil` b
 unknown message gives `undefined` rather than a guess. The first `true` or `false` is kept for the
 session; `undefined` is not, so it asks again next time. Never throws or yields. Besides the
 warnings of `Create` and `ProvideToPlayers`, the package reads it before releasing an action on the
-server: with `false` it releases nothing there, since the server's copy is then a local context. See
+server: with `false` it sends the server no release, since the server's copy is then a local context,
+released on the client as any other. See
 [Is Server Authority on?](Advanced.md#is-server-authority-on).
 
 ### SanitizeBindings

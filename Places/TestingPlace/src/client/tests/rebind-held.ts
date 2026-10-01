@@ -14,7 +14,7 @@ import { InputActions } from "@rbxts/input-actions";
 import { ReplicatedStorage } from "@rbxts/services";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
 import { skip } from "shared/fixtures/skip";
-import { countSignal, createTestInput, frame, frames, recordSignal } from "./helpers";
+import { countSignal, createTestInput, frame, frames, newFolder, recordSignal } from "./helpers";
 import { realInput } from "./virtual";
 
 const K = Enum.KeyCode;
@@ -89,7 +89,8 @@ function within(read: () => unknown, value: unknown, seconds = 3) {
  * binding's keys makes IAS reset every binding of the action: a local context releases it at once,
  * and the package releases the server's copy, where IAS would leave it held on both sides. A change
  * that keeps the keys (a threshold, the same key, the save already in effect) writes nothing to the
- * keys and leaves the action held.
+ * keys and leaves the action held. And removing a binding while it holds its action, as `Destroy`
+ * does, which leaves the action stuck on in IAS (hunt round 4, H4-F1).
  */
 @Provider({ activeIn: ["testing"] })
 export class RebindHeldTests implements OnStart {
@@ -203,6 +204,71 @@ export class RebindHeldTests implements OnStart {
 				jump.Fire(false);
 				frames(5);
 				expectEqual(events.join(""), "PRPR", "one more press and release");
+			});
+
+			// ---- Destroy removes a binding while a key holds its action (hunt round 4, H4-F1)
+
+			// A binding destroyed while it holds its action leaves the action stuck on (probed). Destroy
+			// resets an action it leaves held, of any type: before, only a pressed Bool action was reset
+			test("Destroy while a real key holds an adopted Direction2D action through a binding the package made: at rest", () => {
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				const folder = newFolder();
+				const context = new Instance("InputContext");
+				context.Name = "Gameplay";
+				const action = new Instance("InputAction");
+				action.Name = "Move";
+				action.Type = Enum.InputActionType.Direction2D;
+				action.Parent = context;
+				context.Parent = folder;
+				const input = createTestInput(folder);
+				const move = input.Gameplay.Actions.Move;
+				expectEqual(move.Instance, action, "the designer's Move, adopted");
+				const binding = move.Bindings.KeyboardAndMouse.Instance;
+				real.Press(K.W);
+				eventually(() => action.GetState() === new Vector2(0, 1), "W moves Move up");
+				input.Destroy();
+				expectEqual(binding.Parent, undefined, "the binding the package made went");
+				eventually(
+					() => action.GetState() === Vector2.zero,
+					`Move at rest after Destroy (reads ${action.GetState()})`,
+				);
+				real.Release(K.W);
+				expectTrue(
+					staysFalse(() => action.GetState() !== Vector2.zero),
+					`Move after W came up: ${action.GetState()}`,
+				);
+			});
+
+			// The same on the server's copy, which is local without Server Authority: there the package
+			// fires no release pair, and the reset alone lets go of it
+			test("a provided copy: Destroy while a real key holds Move leaves it at rest on the client and the server", () => {
+				const authority = getProject() === "authority";
+				if (authority) settleServerAfter();
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				const input = createSaInput();
+				eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy");
+				const move = input.SaGameplay.Actions.Move;
+				const action = move.Instance;
+				const binding = move.Bindings.KeyboardAndMouse.Instance;
+				real.Press(K.W);
+				eventually(() => action.GetState() === new Vector2(0, 1), "W moves Move up on the copy");
+				if (authority)
+					eventually(() => serverMove() === new Vector2(0, 1), "the server sees W", 10);
+				input.Destroy();
+				expectEqual(binding.Parent, undefined, "the binding the package made went");
+				eventually(
+					() => action.GetState() === Vector2.zero,
+					`Move at rest after Destroy (reads ${action.GetState()}, IsServerAuthority ${InputActions.IsServerAuthority()})`,
+				);
+				real.Release(K.W);
+				expectTrue(
+					staysFalse(() => action.GetState() !== Vector2.zero),
+					`Move after W came up: ${action.GetState()}`,
+				);
+				if (authority)
+					eventually(() => serverMove() === Vector2.zero, "Move at rest on the server", 10);
 			});
 
 			// ---- the server's copy (Server Authority), where IAS would keep the action held

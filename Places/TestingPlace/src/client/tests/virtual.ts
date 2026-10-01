@@ -19,24 +19,57 @@ function getDevice(): VirtualInput | undefined {
 	return device;
 }
 
-/** The GUI inset: `SendMouseButton` positions are screen positions, GUI positions start below it */
+/** The GUI inset: the top bar, above where GUI positions start (58 px here) */
 export function guiInset(): Vector2 {
 	const [inset] = GuiService.GetGuiInset();
 	return inset;
 }
 
+/** A ScreenGui over the whole screen, kept for the session: its corner is where the screen starts */
+let wholeScreen: ScreenGui | undefined;
+
+/**
+ * Where the screen starts in GUI coordinates (`AbsolutePosition`, `InputObject.Position`): the
+ * corner of a ScreenGui that ignores the GUI inset and the safe area (`ScreenInsets.None`).
+ * VirtualInput's positions count from there. In a desktop window that is (0, -58), the GUI inset
+ * alone. Under a simulated phone the safe area moves GUI positions in from the screen's edge too:
+ * (-47, -58) on the iPhone 14 in landscape (probed, hunt round 4), so the inset alone puts a tap
+ * 47 px left of its target. Before the layout has run (a window that renders nothing), the inset.
+ */
+function screenOrigin(): Vector2 {
+	if (wholeScreen === undefined || wholeScreen.Parent === undefined) {
+		const gui = new Instance("ScreenGui");
+		gui.Name = "InputActionsWholeScreen";
+		gui.IgnoreGuiInset = true;
+		gui.ScreenInsets = Enum.ScreenInsets.None;
+		gui.ResetOnSpawn = false;
+		gui.Parent = Players.LocalPlayer.WaitForChild("PlayerGui");
+		wholeScreen = gui;
+	}
+	for (let index = 0; index < 10 && wholeScreen.AbsoluteSize.X === 0; index++) frames(1);
+	if (wholeScreen.AbsoluteSize.X === 0) return guiInset().mul(-1);
+	return wholeScreen.AbsolutePosition;
+}
+
+/** A GUI position (`AbsolutePosition`) as the screen position `SendMouseButton` takes */
+export function toScreen(guiPosition: Vector2): Vector2 {
+	return guiPosition.sub(screenOrigin());
+}
+
 /** The screen position of a GUI object's centre, as `SendMouseButton` takes it */
 export function screenCenter(gui: GuiObject): Vector2 {
-	return gui.AbsolutePosition.add(gui.AbsoluteSize.div(2)).add(guiInset());
+	return toScreen(gui.AbsolutePosition.add(gui.AbsoluteSize.div(2)));
 }
 
 /**
  * A screen point over the 3D world, clear of CoreGui (the top bar and the corners), of the touch
- * controls (the thumbstick on the left, the jump button bottom right) and of the test buttons
+ * controls (the thumbstick on the left, the jump button bottom right) and of the test buttons. The
+ * viewport's corner is at minus the GUI inset in GUI coordinates
  */
 export function emptyPoint(): Vector2 {
 	const viewport = Workspace.CurrentCamera!.ViewportSize;
-	return new Vector2(math.floor(viewport.X * 0.65), math.floor(viewport.Y * 0.3));
+	const inViewport = new Vector2(math.floor(viewport.X * 0.65), math.floor(viewport.Y * 0.3));
+	return toScreen(inViewport.sub(guiInset()));
 }
 
 /** Whether the window renders: GUI layout and hit tests need it (a display that is off stops it) */
@@ -95,10 +128,27 @@ export class RealInput {
 	private readonly _buttons = new Map<Enum.UserInputType, Vector2>();
 	/** The wheel notches sent and not yet sent back, oldest first */
 	private readonly _notches = new Array<number>();
+	/** `WindowFocusReleased` events since the test began */
+	private _focusLosses = 0;
 
 	constructor(virtualInput: VirtualInput) {
 		this.Device = virtualInput;
+		const focus = UserInputService.WindowFocusReleased.Connect(() => this._focusLosses++);
+		defer(() => focus.Disconnect());
 		defer(() => this.ReleaseAll());
+	}
+
+	/**
+	 * For a failure message: whether the Studio window lost focus during the test (the user working
+	 * in another window). The focus-loss reset of a root handle made with the default
+	 * `ResetOnFocusLoss` then released what the test held. Empty when it didn't.
+	 */
+	FocusNote(): string {
+		if (this._focusLosses === 0) return "";
+		return (
+			` (the Studio window lost focus ${this._focusLosses} time(s) during the test: the ` +
+			"focus-loss reset releases what root handles with the default ResetOnFocusLoss held)"
+		);
 	}
 
 	Press(key: Enum.KeyCode) {

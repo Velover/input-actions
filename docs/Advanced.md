@@ -65,6 +65,11 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
   After `Destroy` the handles change nothing: `Fire`, `AttachButton`, requests, rebinding and
   imports are ignored.
+- A binding `Destroy` removes while a key or a button holds its action would leave the action stuck
+  on in IAS. So an action that stays after `Destroy` (an adopted one, or one of the server's copy)
+  and is still not at rest once the package's bindings are gone is reset (`InputAction.Enabled`
+  toggled), whatever its type: a key held through the package's binding doesn't keep a `Move` or a
+  `Jump` held after the handle is gone.
 
 ## Driving actions from code
 
@@ -447,7 +452,8 @@ ordinary local context there: a rebind while a key holds its action releases it 
 local context (measured), and the server never receives its state. So the package fires none of the
 pairs above on it. After a rebind, IAS has released the action already, and a pair would press and
 release it once more. While the mode is unknown (`undefined`), the package fires them, as under
-Server Authority.
+Server Authority. `Destroy` still lets go of what it held on that copy: an action a key holds when
+its binding goes is reset, as on any local context.
 
 ## UI navigation preset
 

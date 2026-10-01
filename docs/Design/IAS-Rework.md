@@ -204,6 +204,13 @@ adopted from existing instances.
   `Create` starts from the same defaults); adopted contexts keep their base state. After `Destroy`
   the handles change nothing: `Fire`, `Tap`, `AttachButton`, `SetEnabled`, requests,
   `Set`/`Reset`/`Clear`/`Capture` and imports are ignored.
+- A binding `Destroy` removes while it holds its action (a key, a button, a template's binding the
+  package gave an extra action) leaves the action stuck on **(probed)**, whatever its type. So once
+  the bindings are gone, every action that stays (adopted, or the server's copy) and that no other
+  live root handle uses is reset when its state is not at rest: `Enabled` toggled off and back on.
+  Under Server Authority the release pairs of §8 have let go of the server's copy already; the
+  reset covers a local context, and the copy in a place without Server Authority, where no pair is
+  fired.
 - The root handle is a table of its own: the contexts by name beside the five public members, so a
   context name can shadow nothing internal. `Schema` (and `Create`) refuse those five names.
 
@@ -503,14 +510,17 @@ client; the server only reads action state, which IAS replicates on its own.
   handles are released once. This covers every action of the copy, including those the schema
   doesn't mention (a template's extras, which the package gives the template's keys): those get the
   pair on a Scriptable binding made for it and destroyed in the same frame, when their context is
-  disabled and when the last root handle using their keys is destroyed.
+  disabled and when the last root handle using their keys is destroyed (and, left held, the reset
+  of §4 once their bindings are gone).
 - **In a place without Server Authority** a context under the player (the server's copy of a
   context marked `ServerAuthority: true`) is an ordinary local context **(probed, hunt round 3)**:
   a rebind while a key holds its action releases it once, and nothing sticks. So the package fires
   none of these pairs (releases, rebinds, `RawInputHandler.ControlSetEnabled`) when
   `IsServerAuthority()` is `false`: after a rebind IAS has released the action already, and the
   pair would press and release it once more. While the mode is `undefined` it fires them, as under
-  Server Authority. `Tap` waits for the press to show only on such a copy too.
+  Server Authority. `Tap` waits for the press to show only on such a copy too. `Destroy` still lets
+  go of what it held there: a binding it removes while a key holds the action would leave the action
+  stuck, so it resets the action, as on any local context (§4; hunt round 4).
 - **Rebinding a held action (probed).** A change to the keys of any binding of an action on the
   copy, while the action is held, leaves it held on both sides (§6, binding handle). A pair fired
   before the change is undone by it when the binding still holds a key that is down; fired after
@@ -624,8 +634,13 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   `SendMousePosition`, `SendPointerAction` (`Wheel`, `Pan`, `Pinch`), `SendTextInput`. Rules:
   - every key or button a test presses is released in `defer`, also when the test fails (pressing
     a button that is already down throws, and a held key leaks into later tests);
-  - `SendMouseButton` positions are screen positions **including the GUI inset**
-    (`GuiService:GetGuiInset()`, 58 px in the test place): `AbsolutePosition + inset`;
+  - `SendMouseButton` positions are screen positions, counted from the screen's corner. In GUI
+    coordinates (`AbsolutePosition`, `InputObject.Position`) that corner is where a ScreenGui with
+    `IgnoreGuiInset = true` and `ScreenInsets = None` starts: (0, -58) in a desktop window, the GUI
+    inset (`GuiService:GetGuiInset()`), and (-47, -58) on the simulated iPhone 14, whose safe area
+    moves GUI positions 47 px in from the left edge as well **(probed, hunt round 4)**. So a screen
+    position is `AbsolutePosition` minus that corner; `AbsolutePosition + inset` alone puts a tap
+    47 px left of its target on the phone;
   - input that would touch CoreGui throws (the top-left menu area, Escape and other keys Roblox
     reserves, and anything while the Roblox menu is open);
   - `SendMousePosition` doesn't register while the Studio window is unfocused (the
@@ -640,10 +655,12 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   `studio exec --realm edit` calling
   `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("iphone_14")` after
   `studio open` and before `studio run`, and `SetDeviceAsync("default")` afterwards **always**, also
-  when the run fails or is interrupted, because the setting belongs to Studio. Under the
-  simulated phone, `PreferredInput` is `Touch`, and `VirtualInput` mouse events arrive as touch:
-  taps (`TouchPosition`), drags (`TouchDelta`, a rate), `UIButton` taps, `UIModifier` regions. One
-  pointer only: no pinch, no multi-touch.
+  when the run fails or is interrupted, because the setting belongs to Studio. Only the Edit data
+  model can set it, so a play session still running is stopped first (Ctrl+C ends `studio run`
+  before it stops play), and `--keep` keeps the window but not the play session (hunt round 4).
+  Under the simulated phone, `PreferredInput` is `Touch`, and `VirtualInput` mouse events arrive as
+  touch: taps (`TouchPosition`), drags (`TouchDelta`, a rate), `UIButton` taps, `UIModifier`
+  regions. One pointer only: no pinch, no multi-touch.
 - **Gamepad, window focus and the Roblox menu can't be simulated from Luau.** Keep driving those
   paths through Scriptable bindings and the TextBox focus path, as now.
 - The server's sections run before the client's in one play session. For Server Authority,
@@ -731,3 +748,5 @@ places, `SignalBehavior = Deferred`:
 | `Capture("KeyCode")` on a `Direction1D` binding, a real wheel notch (hunt, 2026-10-01) | ignored, the `KeyCode` stays `None`: the wheel raises `InputChanged`, not `InputBegan` |
 | `workspace.Terrain:CanSetNetworkOwnership()` from a `ReplicatedFirst` LocalScript before `game.Loaded` (hunt, 2026-10-01) | errors: `Terrain` is `nil`; once loaded, the `AuthorityMode` message |
 | A real click or tap on a GuiButton with `Active = false`, `Interactable = false` or `Visible = false`, with a `UIButton` binding, with and without an `InputCatcher` (hunt round 2, 2026-10-01) | `Active = false`: `Activated` doesn't fire, the binding still presses its action; `Interactable = false` or `Visible = false`: the binding doesn't press it |
+| A real key holds an action, its binding destroyed: a Bool (a template's extra on the server's copy, in places without Server Authority) and a Direction2D (composite `W` under an adopted action) (hunt round 4, 2026-10-01) | the action stays held after the key comes up, with no `Released`; an `Enabled` toggle releases it |
+| Studio simulating the iPhone 14 (landscape): `GetGuiInset()`, the camera's viewport, ScreenGuis by `ScreenInsets` and `IgnoreGuiInset`, and where taps sent with `VirtualInput` land (hunt round 4, 2026-10-01) | inset (0, 58); viewport 749 x 368; `ScreenInsets = None` with `IgnoreGuiInset` at (-47, -58), 843 x 389 (the whole screen), every other setting at x = 0 (`TopbarSafeInsets`: 164); taps sent at (100, 150), (400, 150), (700, 300) land at `InputObject.Position` (53, 92), (353, 92), (653, 242): sent minus (47, 58). `GuiService:GetScreenResolution()` needs RobloxScript |

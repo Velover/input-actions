@@ -15,7 +15,7 @@ import { HUNTER_LATE_SCHEMA, HUNTER_R2_REMOTE } from "shared/fixtures/hunter-r2-
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
 import { skip } from "shared/fixtures/skip";
 import { frames, newFolder } from "./helpers";
-import { clickProblem, realInput, screenCenter, testButton, testGui } from "./virtual";
+import { clickProblem, RealInput, realInput, screenCenter, testButton, testGui } from "./virtual";
 
 const K = Enum.KeyCode;
 
@@ -33,12 +33,35 @@ const serverMove = () => server("state", "sa", "SaGameplay", "Move");
 const serverCharacterMove = () =>
 	server("playerModule", undefined, "CharacterContext", "MoveAction");
 
-/** SA_SCHEMA on the server's copy (the template binds Jump's KeyboardAndMouse to F) */
+/**
+ * SA_SCHEMA on the server's copy (the template binds Jump's KeyboardAndMouse to F). Without the
+ * focus-loss reset: these tests hold real keys on the server's copy, and a `WindowFocusReleased`
+ * from the user working in another window would release them mid-test (hunt round 4, H4-F4); the
+ * reset is tested in sa-release and contexts
+ */
 function createSaInput() {
 	expectTrue(server("provide", "sa") === true);
-	const input = InputActions.Create(SA_SCHEMA, { Folder: server("templates") as Folder });
+	const input = InputActions.Create(SA_SCHEMA, {
+		Folder: server("templates") as Folder,
+		ResetOnFocusLoss: false,
+	});
 	defer(() => input.Destroy());
+	eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy", 10);
 	return input;
+}
+
+/**
+ * Holds `key` until the client and then the server see Jump pressed. A failure says which side
+ * never did, and whether the window lost focus meanwhile
+ */
+function pressUntilServerSees(real: RealInput, key: Enum.KeyCode, jump: InputActions.BoolAction) {
+	real.Press(key);
+	eventually(() => jump.IsPressed(), `${key.Name} presses Jump on the client${real.FocusNote()}`, 5);
+	eventually(
+		() => serverJump() === true,
+		`the server sees ${key.Name} (client ${jump.IsPressed()})${real.FocusNote()}`,
+		10,
+	);
 }
 
 /**
@@ -123,8 +146,7 @@ export class HunterR3SaTests implements OnStart {
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				const read = () => `${jump.IsPressed()}/${serverJump()}`;
-				real.Press(K.F);
-				eventually(() => serverJump() === true, "the server sees F", 5);
+				pressUntilServerSees(real, K.F, jump);
 				const release = input.SaGameplay.Request(false);
 				defer(release);
 				eventually(() => serverJump() === false, "released on the server", 5);
@@ -133,8 +155,8 @@ export class HunterR3SaTests implements OnStart {
 				release();
 				frames(15);
 				expectEqual(read(), "false/false", "back on after F came up while off");
-				real.Press(K.F);
-				eventually(() => serverJump() === true, "F works again", 5);
+				// F works again
+				pressUntilServerSees(real, K.F, jump);
 				real.Release(K.F);
 				expectTrue(within(read, "false/false"), `after a press of F: ${read()}`);
 			});
@@ -147,8 +169,7 @@ export class HunterR3SaTests implements OnStart {
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				defer(() => jump.SetEnabled(true));
 				const read = () => `${jump.IsPressed()}/${serverJump()}`;
-				real.Press(K.F);
-				eventually(() => serverJump() === true, "the server sees F", 5);
+				pressUntilServerSees(real, K.F, jump);
 				jump.SetEnabled(false);
 				eventually(() => serverJump() === false, "released on the server", 5);
 				real.Release(K.F);
@@ -156,8 +177,8 @@ export class HunterR3SaTests implements OnStart {
 				jump.SetEnabled(true);
 				frames(15);
 				expectEqual(read(), "false/false", "enabled again after F came up while disabled");
-				real.Press(K.F);
-				eventually(() => serverJump() === true, "F works again", 5);
+				// F works again
+				pressUntilServerSees(real, K.F, jump);
 				real.Release(K.F);
 				expectTrue(within(read, "false/false"), `after a press of F: ${read()}`);
 			});

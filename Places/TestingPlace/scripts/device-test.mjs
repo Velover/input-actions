@@ -7,11 +7,13 @@
 //   2. a window left open on that file by an earlier run is closed;
 //   3. Studio is started on the file, and the run waits for the window to connect;
 //   4. `studio exec --realm edit` sets the device (StudioDeviceSimulatorService:SetDeviceAsync);
-//   5. `studio run` runs the tests in a play session;
+//   5. `studio run` runs the tests in a play session, and stops it;
 //   6. the device is set back to "default", whatever happened before: a failure, a timeout or
 //      Ctrl+C. The setting belongs to Studio, not to the place, so a device left set would follow
-//      the user into their own windows;
-//   7. the window is closed by ending the process this run started (unless --keep).
+//      the user into their own windows. Only the Edit data model can set it, so a play session
+//      still running (Ctrl+C stops the CLI before it stops play) is stopped first;
+//   7. the window is closed by ending the process this run started (unless --keep, which leaves it
+//      open, in Edit: the play session is not kept, since the device can't be set back during one).
 //
 // A run killed outright (a terminal closed, an orchestrator's time limit) never gets to step 6. So
 // a marker file in the system temp folder records the device from just before step 4 until step 6
@@ -26,7 +28,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { findStudioExe, runCloseScript } from "@flamework-experimental/testing/cli/src/studio.ts";
+import { findStudioExe, isPlaying, runCloseScript } from "@flamework-experimental/testing/cli/src/studio.ts";
 
 /** The device each project runs under: an id from StudioDeviceSimulatorService:GetDeviceListAsync() */
 export const DEVICE_PROJECTS = { touch: "iphone_14" };
@@ -35,15 +37,26 @@ export const DEVICE_PROJECTS = { touch: "iphone_14" };
 const CONNECT_TIMEOUT_MS = 180_000;
 const CONNECT_POLL_MS = 3_000;
 
+/** How long a play session may take to stop before the device is set back, and the polling */
+const STOP_TIMEOUT_MS = 60_000;
+const STOP_POLL_MS = 1_000;
+
+/** How many times setting the device back is tried: a play session may start or stop meanwhile */
+const RESTORE_ATTEMPTS = 3;
+
 /**
  * Written just before a run sets Studio's device, removed once it is set back. The device is
  * Studio's setting, shared by every window of this user, so the marker is the user's too.
  */
 const DEVICE_MARKER = join(tmpdir(), "input-actions-testing-device.json");
 
-/** flamework-test flags that take a value, and the ones `studio run` takes */
+/**
+ * flamework-test flags that take a value, and the ones passed on to `studio run`. Not `--keep`,
+ * which would leave the play session running: the device can only be set back in Edit. This run
+ * keeps the window open for it instead.
+ */
 const VALUE_FLAGS = new Set(["realm", "sections", "timeout", "original", "file", "project"]);
-const RUN_FLAGS = new Set(["realm", "sections", "timeout", "keep", "list", "json"]);
+const RUN_FLAGS = new Set(["realm", "sections", "timeout", "list", "json"]);
 
 /** The project's name, as flamework-test names it: the file name without `.project.json` */
 export function projectName(path) {
@@ -150,16 +163,51 @@ function startStudio(exe, place) {
 }
 
 /**
+ * Stops the play session of the window of `file`, when one is running, and waits until the window
+ * is back in Edit. Resolves with what went wrong, or undefined when it is in Edit.
+ */
+async function stopPlaying(file) {
+	const status = await cliQuiet(["studio", "status", "--studio", file]);
+	if (status.code !== 0) return `studio status failed: ${status.output}`;
+	if (!isPlaying(status.output)) return undefined;
+	console.log(`stopping the play session in ${file}, to set the device back...`);
+	const stopped = await cliQuiet(["studio", "stop", "--studio", file]);
+	if (stopped.code !== 0) return `studio stop failed: ${stopped.output}`;
+	const deadline = Date.now() + STOP_TIMEOUT_MS;
+	let last = stopped.output;
+	while (Date.now() < deadline) {
+		const now = await cliQuiet(["studio", "status", "--studio", file]);
+		last = now.output;
+		if (now.code === 0 && !isPlaying(now.output)) return undefined;
+		await Bun.sleep(STOP_POLL_MS);
+	}
+	return `the play session did not stop within ${STOP_TIMEOUT_MS / 1000} s: ${last}`;
+}
+
+/**
  * Sets the device back to "default" in the window of `file`, and removes the marker once Studio
- * answers that it is. Resolves with whether it did, and what the call printed.
+ * answers that it is. Only the Edit data model has the simulator, so a play session still running
+ * (`studio run` cut short by Ctrl+C) is stopped first. Resolves with whether it did, and what the
+ * last call printed.
  */
 async function setDeviceBack(file) {
-	const restored = await cliQuiet([
-		"studio", "exec", "--studio", file, "--realm", "edit", "--code", deviceScript("default"),
-	]);
-	const ok = restored.code === 0 && restored.output.includes("default");
-	if (ok) rmSync(DEVICE_MARKER, { force: true });
-	return { ok, output: restored.output };
+	let output = "";
+	for (let attempt = 0; attempt < RESTORE_ATTEMPTS; attempt++) {
+		const problem = await stopPlaying(file);
+		if (problem !== undefined) {
+			output = problem;
+			continue;
+		}
+		const restored = await cliQuiet([
+			"studio", "exec", "--studio", file, "--realm", "edit", "--code", deviceScript("default"),
+		]);
+		output = restored.output;
+		if (restored.code === 0 && restored.output.includes("default")) {
+			rmSync(DEVICE_MARKER, { force: true });
+			return { ok: true, output };
+		}
+	}
+	return { ok: false, output };
 }
 
 /** Says, after `heading`, how to set the device back by hand */
@@ -288,7 +336,7 @@ export async function runOnDevice(projectPath, built, original, args) {
 				if (code === 0) code = 1;
 			}
 		}
-		if (keep) console.log("Studio left open (--keep)");
+		if (keep) console.log("Studio left open, in Edit (--keep; the device can only be set back there)");
 		else if (pid !== undefined && closeWindows({ pid, file: place }, file)) await removeLock(place, pid);
 		process.off("SIGINT", onInterrupt);
 	}
