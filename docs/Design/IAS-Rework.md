@@ -65,6 +65,9 @@ Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
 const release = Input.Ui.Request(true);
 const saved = Input.ExportBindings();
 
+// either realm: best-effort, true / false / undefined (unknown)
+InputActions.IsServerAuthority();
+
 // server (Server Authority contexts only)
 InputActions.ProvideToPlayers(InputSchema);
 InputActions.ForPlayer(InputSchema, player).Gameplay.Actions.Move.GetState();
@@ -317,6 +320,28 @@ own actions.
 - A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
   silently ignored.
 - A fired value persists until something changes it.
+- **Real input, measured with `VirtualInput` (2026-10-01):**
+  - Last write wins for real keys too: holding R and F on one action, then releasing R, releases it.
+  - **A chord does not block the plain key:** with `Ctrl+C` and plain `C` bound, `Ctrl` then `C`
+    fires both. The modifier must be pressed first (`C` then `Ctrl` fires only the plain `C`), and
+    releasing a modifier releases the chord. The package can't make chords exclusive.
+  - `MouseWheel`, `MouseDelta`, `TouchDelta` (and trackpad pan/pinch) report a **rate**: the amount
+    divided by that frame's time (one wheel notch reads about 190 at 190 fps, 64 at 60 fps), for one
+    frame, then 0. Multiply by the frame's delta time to get notches or pixels. The `Scroll` preset
+    is a rate too.
+  - A sinking context blocks only the keys it binds; a CAS `Sink` blocks IAS for that key, `Pass`
+    doesn't; a focused TextBox blocks key bindings.
+  - A click on a GuiButton fires its `UIButton` binding and blocks a `MouseLeftButton` action;
+    a click on empty space fires the `MouseLeftButton` action.
+  - Opening the Roblox menu does **not** release held actions (the package's focus-loss reset
+    does); losing window focus does, on the engine side.
+  - **Gamepad UI navigation:** while a GuiButton is selected (`GuiService.SelectedObject`), the
+    keyboard's Return activates it (`Activated` fires) but does **not** fire its `UIButton` binding,
+    and Return and the arrows never reach IAS; the gamepad's ButtonA (and R2) drive the `UIButton`
+    binding and never reach IAS. Thumbstick updates are unreliable while something is selected.
+  - Thumbstick deadzones are fixed: radial 0.1 with rescale on sticks, linear 0.1 on triggers;
+    `PressedThreshold` applies to the rescaled value. A stick moving on both axes can fire
+    `StateChanged` twice in one frame, with an intermediate value first.
 
 ## 7. Saving keybinds as JSON
 
@@ -437,12 +462,33 @@ client; the server only reads action state, which IAS replicates on its own.
   doesn't mention (a template's extras, which the package gives the template's keys): those get the
   pair on a Scriptable binding made for it and destroyed in the same frame, when their context is
   disabled and when the last root handle using their keys is destroyed.
-- `Workspace.AuthorityMode` cannot be read by scripts **(probed)**. Don't try to detect the mode.
-  **The user docs must say so plainly:** the package cannot tell whether the place runs Server
-  Authority, so it cannot warn when it is off. A context marked `ServerAuthority: true` in a place
-  without Server Authority still works on the client (the server's copy replicates either way), but
-  the server never receives its state. The `Timeout` warning only means the server's copy never
-  arrived; it says nothing about the mode.
+- `Workspace.AuthorityMode` cannot be read by scripts **(probed)**, but the mode shows in an engine
+  error message **(probed 2026-10-01, game scripts at identity 2, both realms)**:
+  `workspace.Terrain:CanSetNetworkOwnership()` (security None; creates nothing) returns
+  `(false, reason)`, and the reason depends on the mode:
+
+  | Realm | Under Server Authority | Otherwise |
+  |---|---|---|
+  | client | `Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.` | `Network Ownership API can only be called from the Server.` |
+  | server | the same `AuthorityMode` message | `Network Ownership API cannot be used on Terrain` |
+
+- **`InputActions.IsServerAuthority(): boolean | undefined`**, on both realms. `true` when the
+  reason mentions `AuthorityMode`; `false` when it is one of the known messages for the other mode
+  above; `undefined` in every other case (the call succeeded, threw, or returned a message not seen
+  before, e.g. because Roblox reworded it). The first `true` or `false` is cached (the mode can't
+  change during a session); `undefined` is never cached. It never throws.
+- **Warnings:** `Create` (client) and `ProvideToPlayers` (server) warn once per call when the schema
+  marks a context `ServerAuthority: true` and `IsServerAuthority()` returns `false`, naming the
+  contexts and saying the server will never receive their state. `undefined` stays silent.
+- **The user docs must explain it plainly**, replacing every statement that the package "can't
+  tell" or "can't warn":
+  - what `IsServerAuthority` reads: the engine's error message, quoted as in the table above;
+  - that it is best-effort: if Roblox changes the wording it returns `undefined`, and the warning
+    goes quiet rather than wrong;
+  - that a context marked `ServerAuthority: true` in a place without Server Authority still works on
+    the client (the server's copy replicates either way), but the server never receives its state;
+  - that the `Timeout` warning only means the server's copy never arrived; it says nothing about
+    the mode.
 - Roblox's own PlayerModule puts its contexts in `player.InputContexts` under Server Authority
   (`CameraContext` P=100, `CharacterContext` P=150, `VehicleContext` P=200 Sink, `TransformerContext`
   P=300 Sink) **(probed)**. The package's folder name must not collide with it.
@@ -512,8 +558,31 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   (`scripts/link-package.mjs`), then runs every section in Studio under three projects:
   `default` (legacy player scripts), `ias` (IAS player scripts) and `authority` (Server Authority).
   `getProject()` from `@flamework-experimental/testing` tells a test which one it runs under.
-- Hardware input can't be simulated. Drive actions through Scriptable bindings (`Fire`), and check
-  hardware bindings structurally (instance properties).
+- **Real keyboard and mouse input:** `UserInputService:CreateVirtualInput()` (client and server,
+  in Studio; the typings return `RBXObject`, so cast to `VirtualInput`) returns a `VirtualInput`
+  that IAS treats as hardware: `SendKey`, `SendMouseButton`, `SendMouseDelta` (cursor locked only),
+  `SendMousePosition`, `SendPointerAction` (`Wheel`, `Pan`, `Pinch`), `SendTextInput`. Rules:
+  - every key or button a test presses is released in `defer`, also when the test fails (pressing
+    a button that is already down throws, and a held key leaks into later tests);
+  - `SendMouseButton` positions are screen positions **including the GUI inset**
+    (`GuiService:GetGuiInset()`, 58 px in the test place): `AbsolutePosition + inset`;
+  - input that would touch CoreGui throws (the top-left menu area, Escape and other keys Roblox
+    reserves, and anything while the Roblox menu is open);
+  - `SendMousePosition` doesn't register while the Studio window is unfocused (the
+    `MousePosition` action reads (-1, -1)); don't depend on it, or skip with a clear message;
+  - the window may not render (display off): GUI clicks have not been verified in that state;
+    a test that needs layout must cope or skip with a message.
+- **Touch:** an extra pass, `bun run test:touch` (and part of `test:all`), runs the tests in a
+  place made under a `touch` project with Studio simulating a phone:
+  `studio exec --realm edit` calling
+  `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("iphone_14")` after
+  `studio open` and before `studio run`, and `SetDeviceAsync("default")` afterwards **always**, also
+  when the run fails or is interrupted, because the setting belongs to Studio. Under the
+  simulated phone, `PreferredInput` is `Touch`, and `VirtualInput` mouse events arrive as touch:
+  taps (`TouchPosition`), drags (`TouchDelta`, a rate), `UIButton` taps, `UIModifier` regions. One
+  pointer only: no pinch, no multi-touch.
+- **Gamepad, window focus and the Roblox menu can't be simulated from Luau.** Keep driving those
+  paths through Scriptable bindings and the TextBox focus path, as now.
 - The server's sections run before the client's in one play session. For Server Authority,
   the server's sections can leave a `RemoteFunction` behind that the client's tests call to read
   server-side state.
@@ -527,7 +596,15 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   stand-in (a client `Create` before the server's copy exists, then the copy arrives: connections
   made before the swap keep firing, rebinds, requests and held Scriptable values carry over,
   `LinkedToServer` fires once; with a short `Timeout` and no copy, one warning and a working
-  stand-in).
+  stand-in); `IsServerAuthority()` in every project and realm (`false` under `default` and `ias`,
+  `true` under `authority`) and the warning when a marked context meets `false`; and with
+  `VirtualInput`: hardware bindings driven by real keys and clicks (Bool, composites, chords),
+  rebinding then pressing the new key, `Capture` with a real key press (including cancel keys and
+  illegal keys), sinking between the package's own contexts, the TextBox focus reset with a key
+  held, `AttachButton` with a real click, the wheel as a rate, and `RawInputHandler`'s rotation and
+  zoom from real mouse input where the cursor can be locked; under `touch`: `PreferredBinding`
+  switching to the touch binding, `AttachButton` with a tap, a `TouchPosition`/`UIModifier`
+  binding.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 
@@ -556,6 +633,11 @@ places, `SignalBehavior = Deferred`:
 | `ReleasedThreshold = 0.8` with `PressedThreshold` 0.5; then `PressedThreshold = 0.9` | reads 0.5 (clamped when read, to `PressedThreshold`); then 0.8: the stored value was kept. `PressedThreshold` is never clamped |
 | `Enum.KeyCode.FromName` | `"Space"` → Space; `"Unknown"` → `None`; `"Nope"` → `nil`, no error |
 | `Workspace.AuthorityMode`, `Workspace.SignalBehavior` from a script | not readable |
+| `workspace.Terrain:CanSetNetworkOwnership()` from game scripts | Server Authority, both realms: `false, Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.`; otherwise client `false, Network Ownership API can only be called from the Server.`, server `false, Network Ownership API cannot be used on Terrain` |
+| `UserInputService:CreateVirtualInput()` from game scripts in Studio | a `VirtualInput` on the client and the server; IAS treats its input as hardware, also with the window in the background |
+| `VirtualInput:SendKey` with gamepad KeyCodes | reaches UIS as Keyboard input, never IAS gamepad bindings; `DPadUp`, `ButtonStart`, `Escape` throw (reserved by CoreGui) |
+| `StudioDeviceSimulatorService:SetDeviceAsync("iphone_14")` (edit realm, plugin level) before play | `PreferredInput = Touch`; `VirtualInput` mouse events arrive as touch (`TouchStarted`, `TouchPosition`, `TouchDelta`, `UIButton` taps, `UIModifier`); restore with `"default"` |
+| Displays turned off during a play session | 0 render steps a second, Heartbeat 240 Hz; minimized: about 60 fps |
 | Server Authority: client-made Scriptable binding under a server-made action | drives it; the server's `GetState`, `Pressed`, `StateChanged`, `BindToSimulation` all see the state |
 | Server Authority: client disables the context while a binding holds the action | client `false`; the server keeps `true` (its `Enabled` stays `true`); re-enabled, the client is `true` again |
 | Server Authority: client toggles the action's `Enabled` while held | the same: the server keeps the value, the client's comes back |
