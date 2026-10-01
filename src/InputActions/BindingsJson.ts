@@ -1,6 +1,12 @@
 import { HttpService } from "@rbxts/services";
 import { DecodeSavedEntry, SAVED_PROPERTIES } from "./BindingRules";
-import { EncodeSavedValue, IBindingValues, ReadBinding, SameValues } from "./BindingState";
+import {
+	ApplySaved,
+	BindingWrite,
+	EncodeSavedValue,
+	IBindingValues,
+	WriteBindings,
+} from "./BindingState";
 import { SCRIPTABLE } from "./Builders";
 import type { BindingHandle } from "./Handles/BindingHandle";
 import { IRuntime, JoinPath } from "./Internal";
@@ -29,15 +35,30 @@ export function ExportBindings(handles: readonly BindingHandle[]): string {
 	return EncodeSave(bindings);
 }
 
+/**
+ * Gives each binding its values in one write, and reports the bindings that changed. Only what
+ * differs is written, so a binding that keeps its keys leaves a held action alone; an action whose
+ * keys changed while held is released (see `WriteBindings`).
+ */
+function WriteAll(
+	runtime: IRuntime,
+	handles: readonly BindingHandle[],
+	values: ReadonlyMap<BindingHandle, IBindingValues>,
+) {
+	const writes = new Array<BindingWrite>();
+	for (const handle of handles) writes.push([handle.Instance, values.get(handle)!]);
+	const changed = WriteBindings(writes);
+	for (const handle of handles) {
+		if (changed.has(handle.Instance)) runtime.NotifyBindingChanged(handle.Path);
+	}
+}
+
 /** Returns every binding to its defaults, reporting the ones that changed */
 export function ResetBindings(runtime: IRuntime, handles: readonly BindingHandle[]) {
 	if (runtime.IsDestroyed()) return;
-	for (const handle of handles) {
-		const before = ReadBinding(handle.Instance);
-		handle.ResetQuietly();
-		if (!SameValues(before, ReadBinding(handle.Instance)))
-			runtime.NotifyBindingChanged(handle.Path);
-	}
+	const values = new Map<BindingHandle, IBindingValues>();
+	for (const handle of handles) values.set(handle, handle.GetDefaults());
+	WriteAll(runtime, handles, values);
 }
 
 /** A save nests 4 deep at most: the save, `Bindings`, an entry, a vector */
@@ -104,12 +125,13 @@ export function ImportBindings(
 		result.Skipped.push({ Path: "", Reason: "the handle was destroyed" });
 		return result;
 	}
-	const before = new Map<BindingHandle, IBindingValues>();
+	// What each binding is to have, written at the end: a binding that keeps its values isn't
+	// touched, so importing the save already in effect leaves held actions alone
+	const values = new Map<BindingHandle, IBindingValues>();
 	const byPath = new Map<string, BindingHandle>();
 	for (const handle of handles) {
-		before.set(handle, ReadBinding(handle.Instance));
+		values.set(handle, { ...handle.GetDefaults() });
 		byPath.set(handle.Path, handle);
-		handle.ResetQuietly();
 	}
 
 	const bindings = DecodeSave(json);
@@ -126,20 +148,17 @@ export function ImportBindings(
 				skip(other ? `not a binding of ${context}` : "unknown path");
 				continue;
 			}
-			const values = DecodeSavedEntry(handle.ActionType, entry, handle.GetDefaults().KeyCode);
-			if (typeIs(values, "string")) {
-				skip(values);
+			const saved = DecodeSavedEntry(handle.ActionType, entry, handle.GetDefaults().KeyCode);
+			if (typeIs(saved, "string")) {
+				skip(saved);
 				continue;
 			}
-			handle.ApplySavedQuietly(values);
+			ApplySaved(values.get(handle)!, saved);
 			result.Applied.push(handle.Path);
 		}
 	}
 
-	for (const handle of handles) {
-		if (!SameValues(before.get(handle)!, ReadBinding(handle.Instance)))
-			runtime.NotifyBindingChanged(handle.Path);
-	}
+	WriteAll(runtime, handles, values);
 	result.Applied.sort();
 	result.Skipped.sort((a, b) => a.Path < b.Path);
 	return result;

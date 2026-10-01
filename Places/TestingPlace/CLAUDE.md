@@ -25,12 +25,13 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
   `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
   server when the client resets an action; authority only), `real-input` (real keys and mouse
-  through VirtualInput), `touch` (taps on the simulated phone; touch only) (client);
-  `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial tests, kept
-  as regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`; `authority.ts`, the
-  mode each project expects and the warnings' wording; `skip.ts`; and `validator-r4.ts`,
-  `validator-r5.ts` and `validator-r6.ts` for those rounds' sections). Project-specific tests
-  return early under the other projects (`getProject()`).
+  through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
+  context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
+  `server-authority` (server). The `validator-r*` and `hunter-r*` sections are reviewers'
+  adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
+  (`schemas.ts`; `authority.ts`, the mode each project expects and the warnings' wording;
+  `skip.ts`; and `validator-r4.ts`, `validator-r5.ts` and `validator-r6.ts` for those rounds'
+  sections). Project-specific tests return early under the other projects (`getProject()`).
 - **Real keyboard and mouse input:** `src/client/tests/virtual.ts` wraps
   `UserInputService:CreateVirtualInput()` (Studio only; the typings return `RBXObject`, so it is
   cast to `VirtualInput`), whose input IAS treats as hardware, also with the window in the
@@ -44,9 +45,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   - input that would touch CoreGui throws: the top-left menu area, Escape and other keys Roblox
     reserves (VirtualInput sends gamepad KeyCodes as keyboard input, and `DPadUp`, `ButtonStart`
     throw), and anything while the Roblox menu is open;
-  - `SendMouseDelta` registers only while the cursor is locked (`lockCursor()` in
-    `real-input.ts`, through `MouseController`); `SendMousePosition` doesn't register while the
-    window is unfocused, so no test depends on it;
+  - `SendMouseDelta` registers only while the cursor is locked: `moveLockedMouse(real, delta)` in
+    `real-input.ts` locks it through `MouseController`, and returns false when it never locks, for
+    the test to skip. `SendMousePosition` doesn't register while the window is unfocused, so no
+    test depends on it;
   - a window that renders nothing (display off) has no GUI layout: `clickProblem(guiObject)` says
     so, and the test skips;
   - Legacy player scripts (`default`) sink `Left`, `Right`, `I`, `O` (camera) and toggle shift lock

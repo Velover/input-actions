@@ -1,5 +1,5 @@
 import { Players, RunService } from "@rbxts/services";
-import { CarryChanges } from "../BindingState";
+import { CarryChanges, ReadBinding, WriteBindings } from "../BindingState";
 import { IRuntime, IsLive, NEUTRAL_VALUES } from "../Internal";
 import {
 	ClearHeldValue,
@@ -95,7 +95,9 @@ export function MoveBindings(
 			const defaults = GetEntry(binding)?.Defaults;
 			if (defaults !== undefined && existing.Type === binding.Type) {
 				GetEntry(existing)!.Defaults ??= defaults;
-				CarryChanges(binding, defaults, existing);
+				const values = ReadBinding(existing);
+				CarryChanges(ReadBinding(binding), defaults, values);
+				WriteBindings([[existing, values]]);
 			}
 			moved.set(binding, existing);
 		}

@@ -11,7 +11,8 @@ export class InputCatcher {
 	private _isActive = false;
 
 	/**
-	 * Creates a new InputCatcher for blocking all input
+	 * Creates a new InputCatcher, which blocks input to the game; GUI still gets clicks and taps
+	 * (a GuiButton, and an action's AttachButton binding on it, keep working)
 	 * @param priority Priority level for the input catch (higher catches earlier)
 	 */
 	constructor(priority: number) {

@@ -109,10 +109,12 @@ scripts can't read directly. It reads the reason `workspace.Terrain:CanSetNetwor
 | server | the same message | `Network Ownership API cannot be used on Terrain` |
 
 `true` when the reason mentions `AuthorityMode`; `false` for the two messages of the other mode;
-`undefined` for anything else: the call succeeded or threw, or Roblox reworded the message. Best-effort:
-it depends on that wording, and an unknown message gives `undefined` rather than a guess. The first
-`true` or `false` is kept for the session; `undefined` is not, so it asks again next time. Never
-throws. See [Is Server Authority on?](Advanced.md#is-server-authority-on).
+`undefined` for anything else: the call succeeded or threw, or Roblox reworded the message. On the
+client the call throws until the game has loaded (`workspace.Terrain` is `nil` before
+`game.Loaded`), so ask after it, as `Create` does. Best-effort: it depends on that wording, and an
+unknown message gives `undefined` rather than a guess. The first `true` or `false` is kept for the
+session; `undefined` is not, so it asks again next time. Never throws or yields. See
+[Is Server Authority on?](Advanced.md#is-server-authority-on).
 
 ### SanitizeBindings
 
@@ -164,7 +166,7 @@ What `Create` returns: one property per context, by name, plus:
 | --- | --- |
 | `BindingsChanged: RBXScriptSignal<(path: string) => void>` | a binding changed through `Set`/`Reset`/`Clear`/`Capture`, an import or a reset; `path` is `Context/Action/Slot` |
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
-| `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save; never throws |
+| `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |
 | `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing. On an action another root handle still uses, it releases only what it held itself (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
 
@@ -229,7 +231,11 @@ A slot with keys:
 | `Set(binding: BindingShape<A>)` | rebinds; objects merge; throws on what the action type doesn't allow, and on a number a float can't hold (beyond ±3.4e38) |
 | `Reset()` | back to the binding right after `Create` |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
-| `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot`, applies it, calls `callback(key)`; `options.Cancel` keys stop it |
+| `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot` that begins (`UserInputService.InputBegan`: keys, buttons, mouse buttons, taps; never the wheel, mouse movement or a drag), applies it, calls `callback(key)`; `options.Cancel` keys stop it |
+
+Only what changes is written. A change to a binding's keys while its action is held releases the
+action, whatever holds it, on the server too under Server Authority; a change that leaves the keys
+as they are (a threshold, the same key) leaves it held. See [Rebinding](Advanced.md#rebinding).
 
 A slot declared `InputActions.Scriptable`: `Instance`, `Name`, `Fire(value: V)`.
 

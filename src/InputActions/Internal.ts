@@ -43,10 +43,15 @@ const RELEASE_BINDING_NAME = "InputActionsRelease";
  * value at rest, releases both sides, even on a binding made and destroyed in that frame. For
  * actions the package drives no binding of: a binding named `name` is made for the pair and goes at
  * once.
+ * @param state the value to release: the action's state unless it was read before a change that
+ * reset the action (see `WriteBindings`)
  */
-export function ReleaseOnServer(action: InputAction, name = RELEASE_BINDING_NAME) {
+export function ReleaseOnServer(
+	action: InputAction,
+	name = RELEASE_BINDING_NAME,
+	state: unknown = action.GetState(),
+) {
 	if (!IsLive(action) || !action.IsDescendantOf(Players.LocalPlayer)) return;
-	const state = action.GetState();
 	const neutral = NEUTRAL_VALUES[action.Type.Name];
 	if (state === neutral) return;
 	const binding = new Instance("InputBinding");

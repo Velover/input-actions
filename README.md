@@ -17,11 +17,12 @@ requests, on-screen buttons and Server Authority support.
   releases held keys.
 - **Server Authority:** opt in per context with `ServerAuthority: true`. The server provides those
   contexts to each player and reads the state; the keybinds stay on the client.
-  `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority
-  (scripts can't read `Workspace.AuthorityMode`, so it reads the engine's message from
-  `workspace.Terrain:CanSetNetworkOwnership()`, and answers `undefined` if Roblox rewords it).
-  `Create` and `ProvideToPlayers` warn when a marked context meets a place without it
-  ([details](docs/Advanced.md#is-server-authority-on)).
+  `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority.
+  Scripts can't read `Workspace.AuthorityMode`, so it reads the error message
+  `workspace.Terrain:CanSetNetworkOwnership()` gives, which names the mode. It answers `undefined`
+  when it can't tell: on the client before the game has loaded (there is no `Terrain` yet), or if
+  Roblox rewords the message. `Create` and `ProvideToPlayers` warn when a marked context meets a
+  place without it ([details](docs/Advanced.md#is-server-authority-on)).
 - Kept from 0.5: `MouseController`, `InputCatcher`, `RawInputHandler`.
 
 ## Installation

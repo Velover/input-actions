@@ -10,7 +10,9 @@ import {
 	SavedProperty,
 	SavedValue,
 } from "./BindingRules";
+import { NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import { EKeyGroup, GetKeyGroup, IsKeyCode } from "./KeyGroups";
+import { ClearHeldValue, GetHeldValue, IHeldValue } from "./Registry";
 
 /** Everything `Set` can change on a binding, and so everything `Reset` restores */
 export interface IBindingValues {
@@ -57,12 +59,6 @@ export function ReadBinding(binding: InputBinding): IBindingValues {
 	};
 }
 
-export function WriteBinding(binding: InputBinding, values: Partial<IBindingValues>) {
-	for (const [name, value] of pairs(values)) {
-		(binding as unknown as Record<string, unknown>)[name] = value;
-	}
-}
-
 /** Whether the saved properties of two binding states are equal */
 export function SameSavedValues(a: IBindingValues, b: IBindingValues): boolean {
 	for (const name of SAVED_PROPERTIES) {
@@ -81,12 +77,104 @@ export function SameValues(a: IBindingValues, b: IBindingValues): boolean {
 	);
 }
 
+/** Every property in `IBindingValues`, keys first */
+const BINDING_PROPERTIES: readonly (keyof IBindingValues)[] = [
+	...SAVED_PROPERTIES,
+	"ClampMagnitudeToOne",
+	"DisplayName",
+	"DisplayImage",
+];
+
+/**
+ * Writes the values that differ from the binding's own, keys first. Writing a property the value it
+ * already has changes nothing in IAS, but a key written away and back in one frame releases a held
+ * action (probed), so nothing is written for nothing.
+ * @returns whether a key slot (KeyCode, a composite direction, a modifier) changed
+ */
+export function WriteBinding(binding: InputBinding, values: IBindingValues): boolean {
+	const instance = binding as unknown as Record<string, unknown>;
+	let keysChanged = false;
+	for (const name of BINDING_PROPERTIES) {
+		const value = values[name];
+		const same =
+			name === "DisplayImage"
+				? (value as Content).Uri === binding.DisplayImage.Uri
+				: instance[name] === value;
+		if (same) continue;
+		instance[name] = value;
+		if ((KEY_SLOTS as readonly string[]).includes(name)) keysChanged = true;
+	}
+	return keysChanged;
+}
+
+/** A change to one binding: the values it is to have */
+export type BindingWrite = [binding: InputBinding, values: IBindingValues];
+
+/** The binding `WriteBindings` makes for a moment, to release an action on the server */
+const REBIND_RELEASE_NAME = "InputActionsRebindRelease";
+
+/**
+ * The value an action holds before its bindings change: its state, or, while that rests, the latest
+ * value the package fired on it (a Server Authority copy shows a Fire one simulation step later)
+ */
+function HeldState(action: InputAction): unknown {
+	const state = action.GetState();
+	if (state !== NEUTRAL_VALUES[action.Type.Name]) return state;
+	let latest: IHeldValue | undefined;
+	for (const child of action.GetChildren()) {
+		const held = child.IsA("InputBinding") ? GetHeldValue(child) : undefined;
+		if (held !== undefined && (latest === undefined || held.Order > latest.Order)) latest = held;
+	}
+	return latest !== undefined ? latest.Value : state;
+}
+
+/**
+ * Writes binding changes (`Set`, `Reset`, `Clear`, `Capture`, imports), each only where it differs
+ * from the instance. A change to any binding's keys makes IAS reset every binding of its action
+ * (probed). On a local context the action is released at once, and keys still down count again
+ * once pressed again. On a context under the player (Server Authority) the client's state is
+ * pressed again instead, and stays held on the client and the server until the new keys are pressed
+ * and released. So an action whose keys changed while it was not at rest is released after the
+ * writes, as IAS releases a local one: the package forgets the values it held on it, and on a copy
+ * under the player a same-frame pair, the value it held then the value at rest, is the last write on
+ * both sides (a release before the writes would be undone by them). States are read before any
+ * write, so bindings of one action changed together release it once.
+ * @returns the bindings whose values changed
+ */
+export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding> {
+	const states = new Map<InputAction, unknown>();
+	for (const [binding, values] of writes) {
+		const action = binding.Parent;
+		if (action === undefined || !action.IsA("InputAction") || states.has(action)) continue;
+		if (KEY_SLOTS.some((slot) => binding[slot] !== values[slot]))
+			states.set(action, HeldState(action));
+	}
+	const changed = new Set<InputBinding>();
+	const rebound = new Set<InputAction>();
+	for (const [binding, values] of writes) {
+		const before = ReadBinding(binding);
+		const keysChanged = WriteBinding(binding, values);
+		if (!SameValues(before, ReadBinding(binding))) changed.add(binding);
+		const action = binding.Parent;
+		if (keysChanged && action !== undefined && action.IsA("InputAction")) rebound.add(action);
+	}
+	for (const action of rebound) {
+		const state = states.get(action);
+		if (state === undefined || state === NEUTRAL_VALUES[action.Type.Name]) continue;
+		for (const child of action.GetChildren()) {
+			if (child.IsA("InputBinding")) ClearHeldValue(child);
+		}
+		ReleaseOnServer(action, REBIND_RELEASE_NAME, state);
+	}
+	return changed;
+}
+
 /** Unbinds: the KeyCode and every composite direction become `None`, and the modifiers when asked */
-export function ClearKeys(binding: InputBinding, modifiers = false) {
-	binding.KeyCode = Enum.KeyCode.None;
-	for (const slot of COMPOSITE_SLOTS) binding[slot] = Enum.KeyCode.None;
+export function ClearKeys(values: IBindingValues, modifiers = false) {
+	values.KeyCode = Enum.KeyCode.None;
+	for (const slot of COMPOSITE_SLOTS) values[slot] = Enum.KeyCode.None;
 	if (modifiers) {
-		for (const slot of MODIFIER_SLOTS) binding[slot] = Enum.KeyCode.None;
+		for (const slot of MODIFIER_SLOTS) values[slot] = Enum.KeyCode.None;
 	}
 }
 
@@ -94,15 +182,15 @@ export function ClearKeys(binding: InputBinding, modifiers = false) {
  * Writes one key slot, keeping one input source per binding: a KeyCode clears the composite
  * directions, and a composite direction clears the KeyCode.
  */
-export function WriteKey(binding: InputBinding, slot: string, key: Enum.KeyCode) {
+export function WriteKey(values: IBindingValues, slot: string, key: Enum.KeyCode) {
 	if (slot === "KeyCode") {
-		if (key !== Enum.KeyCode.None) ClearKeys(binding);
-		binding.KeyCode = key;
+		if (key !== Enum.KeyCode.None) ClearKeys(values);
+		values.KeyCode = key;
 	} else if (IsCompositeSlot(slot)) {
-		if (key !== Enum.KeyCode.None) binding.KeyCode = Enum.KeyCode.None;
-		binding[slot] = key;
+		if (key !== Enum.KeyCode.None) values.KeyCode = Enum.KeyCode.None;
+		values[slot] = key;
 	} else if (slot === "PrimaryModifier" || slot === "SecondaryModifier") {
-		binding[slot] = key;
+		values[slot] = key;
 	}
 }
 
@@ -110,44 +198,47 @@ export function WriteKey(binding: InputBinding, slot: string, key: Enum.KeyCode)
  * Applies a validated binding spec. A bare key sets KeyCode and clears the composites; an object
  * merges into the binding (a KeyCode in it clears the composites, a composite clears the KeyCode).
  */
-export function ApplySpec(binding: InputBinding, spec: unknown) {
+export function ApplySpec(values: IBindingValues, spec: unknown) {
 	if (IsKeyCode(spec)) {
-		WriteKey(binding, "KeyCode", spec);
+		WriteKey(values, "KeyCode", spec);
 		return;
 	}
 	const record = spec as Record<string, unknown>;
-	if (IsKeyCode(record.KeyCode)) WriteKey(binding, "KeyCode", record.KeyCode);
+	if (IsKeyCode(record.KeyCode)) WriteKey(values, "KeyCode", record.KeyCode);
 	for (const slot of KEY_SLOTS) {
 		if (slot === "KeyCode") continue;
 		const key = record[slot];
-		if (IsKeyCode(key)) WriteKey(binding, slot, key);
+		if (IsKeyCode(key)) WriteKey(values, slot, key);
 	}
 	for (const [name, value] of pairs(record)) {
 		if ((KEY_SLOTS as readonly string[]).includes(name as string)) continue;
-		if (name === "DisplayImage") binding.DisplayImage = Content.fromUri(value as string);
-		else (binding as unknown as Record<string, unknown>)[name as string] = value;
+		if (name === "DisplayImage") values.DisplayImage = Content.fromUri(value as string);
+		else (values as unknown as Record<string, unknown>)[name as string] = value;
 	}
 }
 
 /** Applies decoded saved properties (import), with the same one-source rule as `ApplySpec` */
-export function ApplySaved(binding: InputBinding, values: Map<SavedProperty, SavedValue>) {
-	const keyCode = values.get("KeyCode");
-	if (keyCode !== undefined) WriteKey(binding, "KeyCode", keyCode as Enum.KeyCode);
-	for (const [name, value] of values) {
+export function ApplySaved(values: IBindingValues, saved: Map<SavedProperty, SavedValue>) {
+	const keyCode = saved.get("KeyCode");
+	if (keyCode !== undefined) WriteKey(values, "KeyCode", keyCode as Enum.KeyCode);
+	for (const [name, value] of saved) {
 		if (name === "KeyCode") continue;
 		if ((KEY_SLOTS as readonly string[]).includes(name))
-			WriteKey(binding, name, value as Enum.KeyCode);
-		else (binding as unknown as Record<string, unknown>)[name] = value;
+			WriteKey(values, name, value as Enum.KeyCode);
+		else (values as unknown as Record<string, unknown>)[name] = value;
 	}
 }
 
 /**
- * Writes onto `target` what `source` changed from `defaults`, as an import of those changes would
- * (one input source per binding), and leaves the rest of `target` as it is. A Server Authority
- * swap carries a stand-in's rebinds this way onto the binding another root handle made on the copy.
+ * Applies onto `target` what `current` changed from `defaults`, as an import of those changes would
+ * (one input source per binding), and leaves the rest of `target` as it is. A Server Authority swap
+ * carries a stand-in's rebinds this way onto the binding another root handle made on the copy.
  */
-export function CarryChanges(source: InputBinding, defaults: IBindingValues, target: InputBinding) {
-	const current = ReadBinding(source);
+export function CarryChanges(
+	current: IBindingValues,
+	defaults: IBindingValues,
+	target: IBindingValues,
+) {
 	const saved = new Map<SavedProperty, SavedValue>();
 	for (const name of SAVED_PROPERTIES) {
 		if (current[name] !== defaults[name]) saved.set(name, current[name]);

@@ -180,8 +180,26 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`gameProcessed`) is ignored; a key another IAS binding uses, even in a sinking context, is not
   game-processed and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
+- **`Capture` takes only input that begins:** it listens to `UserInputService.InputBegan`, which a
+  key, a gamepad button, a mouse button or a tap raises. The mouse wheel, mouse movement, touch
+  drags and trackpad pan and pinch only change (`InputChanged`), so it never sees them: a wheel
+  notch doesn't land in a `Direction1D` slot (measured), and from keyboard and mouse a
+  `Direction2D` `KeyCode` slot, which takes only thumbsticks and those deltas, captures nothing.
+  Offer those as choices in your settings UI and apply them with `Set`
+  (`Set(Enum.KeyCode.MouseWheel)`).
 - `BindingsChanged` fires on `Set`, `Reset`, `Clear` and `Capture`, and for every binding an import
   or `ResetBindings` changed.
+- **Rebinding a held action releases it.** When a binding's keys change (`KeyCode`, a composite
+  direction or a modifier, through any of the calls above, an import or `ResetBindings`) while its
+  action is held, the action is released, whatever holds it: a key, a button, a value fired from
+  code. IAS does that on a local context, even when the binding that changed isn't the one holding
+  the action (it resets every binding of the action). On a Server Authority context IAS would keep
+  the action held, on the client and the server, so the package releases it there, on both sides
+  (see [Releasing on the server](#releasing-on-the-server)). A key still down counts again once it
+  is pressed again, and a value fired from code must be fired again.
+- Only what changes is written. A `Set` or an import that leaves a binding's keys as they are (a
+  threshold, a scale, the key it already has, the save already in effect) leaves a held action
+  held.
 
 ## Saving keybinds
 
@@ -334,34 +352,53 @@ when you mark contexts this way. The package warns you when it can tell that you
 
 ### Is Server Authority on?
 
-Scripts can't read `Workspace.AuthorityMode`, but the engine names the mode in an error message, and
-`InputActions.IsServerAuthority()` reads it, on either realm:
+Scripts can't read `Workspace.AuthorityMode`, but the engine names the mode in an error message,
+and `InputActions.IsServerAuthority()` reads it, on either realm:
 
 ```ts
-InputActions.IsServerAuthority(); // true, false, or undefined (an engine message it doesn't know)
+InputActions.IsServerAuthority(); // true, false, or undefined (it can't tell)
 ```
 
-It calls `workspace.Terrain:CanSetNetworkOwnership()`, which changes nothing and answers `false`
-with a reason. The reason depends on the mode (measured on 2026-10-01 from game scripts):
+**The message.** `workspace.Terrain:CanSetNetworkOwnership()` asks whether a script may set the
+network owner of the terrain. It changes nothing, and always answers `false` with a reason, which
+depends on the mode (measured on 2026-10-01 from game scripts):
 
 | Realm | Under Server Authority | Otherwise |
 | --- | --- | --- |
 | client | `Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.` | `Network Ownership API can only be called from the Server.` |
 | server | the same message | `Network Ownership API cannot be used on Terrain` |
 
-`IsServerAuthority()` is `true` when the reason mentions `AuthorityMode`, `false` when it is one of
-the two messages for the other mode, and `undefined` in every other case. The first `true` or
-`false` is kept for the session (the mode can't change while it runs). It never throws.
+Under Server Authority the network ownership API is refused as a whole, with a message that names
+`workspace.AuthorityMode`. Otherwise the client gets the usual "server only" refusal, and the
+server the refusal for terrain, which can't have a network owner.
 
-**It is best-effort.** It reads the wording of an engine message, which Roblox may change without
-notice. A message it doesn't know gives `undefined`, not a guess.
+**The function.** `IsServerAuthority()` makes that call inside `pcall` and reads the reason:
+
+- `true` when it mentions `AuthorityMode`;
+- `false` when it is one of the two messages for the other mode;
+- `undefined` in every other case: the call threw, succeeded, or gave a message it doesn't know.
+
+The first `true` or `false` is kept for the session (the mode can't change while it runs);
+`undefined` is not kept, so a later call asks again. It never throws or yields.
+
+**When it is `undefined`:**
+
+- On the client before the game has loaded. `workspace.Terrain` is `nil` until `game.Loaded`, so
+  the call throws (measured from a `ReplicatedFirst` LocalScript: an error on the first frames,
+  the `AuthorityMode` message once loaded). Ask after `game.Loaded`; `Create` waits for it first.
+- If Roblox rewords one of the messages. **It is best-effort:** it reads the wording of an engine
+  message, which may change without notice, and a message it doesn't know gives `undefined`, not a
+  guess.
+
+What the package does with it:
 
 - `Create` (client) and `ProvideToPlayers` (server) warn once per call when the schema marks
   contexts `ServerAuthority: true` and `IsServerAuthority()` is `false`. The warning names those
   contexts and says the server will never receive their state.
-- When it is `undefined`, because Roblox reworded the message, they stay silent: the warning goes
-  quiet rather than wrong. So no warning doesn't prove Server Authority is on; `true` does.
-- The `Timeout` warning is another matter: it only means the server's copy never arrived.
+- When it is `undefined` they stay silent: the warning goes quiet rather than wrong. So no warning
+  doesn't prove Server Authority is on; `true` does.
+- The `Timeout` warning is another matter: it only means the server's copy never arrived. It says
+  nothing about the mode.
 
 ### Releasing on the server
 
@@ -384,6 +421,18 @@ way:
 The server sees one `Released`. If you disable a context by writing `InputContext.Enabled` yourself,
 or disable an action through its instance, the server keeps the state: go through the handles.
 `RawInputHandler.ControlSetEnabled(false)` does the same for the PlayerModule's `CharacterContext`.
+
+**Rebinding a held action.** On the server's copy, a change to a binding's keys while the action is
+held (any binding of the action, not only the one holding it) leaves it held, on the client and the
+server, until the new keys are pressed and released: IAS resets the action's bindings, and the
+client's state is pressed again (probed). A local context is released instead. So after `Set`,
+`Reset`, `Clear`, `Capture`, `ImportBindings` or `ResetBindings` changes the keys of a held action,
+the package fires the same-frame pair, the value it held before the change then the value at rest,
+through a binding made for it and removed in the same frame. It goes after the change, because a
+release before it would be undone by it; an import that changes several bindings of one action
+releases it once. The values the package fired on that action are forgotten: IAS reset them too.
+Write keys through the binding handles: a key you write on the instance yourself leaves the action
+held.
 
 ## UI navigation preset
 
@@ -434,7 +483,9 @@ IAS code, with or without this package:
   movement (it acts on composites), and `Scale`/`Vector2Scale` apply as usual.
 - **Sinking:** a context with `Sink` blocks lower contexts only for the keys it binds itself. Since
   2026-02, a ContextActionService binding that returns `Sink` blocks IAS for its keys (this is how
-  `InputCatcher` still blocks everything); one that returns `Pass` doesn't. With the legacy player
+  `InputCatcher` blocks your actions); one that returns `Pass` doesn't. GUI gets clicks and taps
+  before ContextActionService, so a CAS sink never blocks a button, nor its `UIButton` binding
+  (`AttachButton`). With the legacy player
   scripts, the default camera sinks `Left`, `Right`, `I` and `O` through CAS; the IAS player
   scripts don't.
 - **TextBoxes:** a focused TextBox keeps new key presses from key bindings. A key already held when

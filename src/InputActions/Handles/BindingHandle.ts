@@ -6,11 +6,8 @@ import {
 	IsPropertyOf,
 	IsSlotOf,
 	SAVED_PROPERTIES,
-	SavedProperty,
-	SavedValue,
 } from "../BindingRules";
 import {
-	ApplySaved,
 	ApplySpec,
 	ClearKeys,
 	EncodeSavedValue,
@@ -18,7 +15,7 @@ import {
 	IBindingValues,
 	IsSavableValue,
 	ReadBinding,
-	WriteBinding,
+	WriteBindings,
 	WriteKey,
 } from "../BindingState";
 import { IRuntime, IsLive } from "../Internal";
@@ -101,14 +98,14 @@ export class BindingHandle {
 		const problem = CheckBindingSpec(this.ActionType, spec);
 		if (problem !== undefined) error(`InputActions: ${this.Path}: ${problem}`, 2);
 		if (this._runtime.IsDestroyed()) return;
-		ApplySpec(this.Instance, spec);
-		this._runtime.NotifyBindingChanged(this.Path);
+		const values = ReadBinding(this.Instance);
+		ApplySpec(values, spec);
+		this.Write(values);
 	}
 
 	Reset() {
 		if (this._runtime.IsDestroyed()) return;
-		this.ResetQuietly();
-		this._runtime.NotifyBindingChanged(this.Path);
+		this.Write(this._defaults);
 	}
 
 	/** Unbinds: every key slot becomes `None`, modifiers included; with a slot, only that one */
@@ -117,9 +114,10 @@ export class BindingHandle {
 			error(`InputActions: ${this.Path}: ${slot} is not a slot of a ${this.ActionType} binding`, 2);
 		}
 		if (this._runtime.IsDestroyed()) return;
-		if (slot === undefined) ClearKeys(this.Instance, true);
-		else WriteKey(this.Instance, slot, Enum.KeyCode.None);
-		this._runtime.NotifyBindingChanged(this.Path);
+		const values = ReadBinding(this.Instance);
+		if (slot === undefined) ClearKeys(values, true);
+		else WriteKey(values, slot, Enum.KeyCode.None);
+		this.Write(values);
 	}
 
 	Capture(
@@ -156,16 +154,18 @@ export class BindingHandle {
 
 	/** Writes a captured key into a slot and reports the change (Capture's last step) */
 	ApplyCapturedKey(slot: string, key: Enum.KeyCode) {
-		WriteKey(this.Instance, slot, key);
+		const values = ReadBinding(this.Instance);
+		WriteKey(values, slot, key);
+		this.Write(values);
+	}
+
+	/**
+	 * Gives the binding these values and reports it. Only what differs is written, and an action
+	 * held when its keys change is released (see `WriteBindings`)
+	 */
+	private Write(values: IBindingValues) {
+		WriteBindings([[this.Instance, values]]);
 		this._runtime.NotifyBindingChanged(this.Path);
-	}
-
-	ResetQuietly() {
-		WriteBinding(this.Instance, this._defaults);
-	}
-
-	ApplySavedQuietly(values: Map<SavedProperty, SavedValue>) {
-		ApplySaved(this.Instance, values);
 	}
 
 	/** The saved properties that differ from the defaults, as JSON values; undefined when none do */

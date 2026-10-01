@@ -21,7 +21,7 @@ package author; the facts marked **(probed)** were measured in Studio on 2026-09
 | `InputKeyCodeHelper` (custom key icons) | Removed (no icons) |
 | `InputActionsInitializationHelper` | Removed |
 | `MouseController`, `EMouseLockAction`, `EMouseLockActionPriority` | **Kept.** `MouseDebugMode` becomes `MouseController.SetForceUnlockAction(action)` |
-| `InputCatcher` | **Kept, unchanged in behaviour** (CAS sink; since 2026-02 a CAS sink also blocks IAS) |
+| `InputCatcher` | **Kept, unchanged in behaviour** (CAS sink; since 2026-02 a CAS sink also blocks IAS; GUI gets clicks first, so buttons and their `UIButton` bindings still work **(probed)**) |
 | `RawInputHandler` | **Kept, same public API**, reworked to read the IAS PlayerModule (see §10) |
 
 - Dependencies: only `@rbxts/services`. Drop `@rbxts/tool_pack` (reimplement the two array helpers
@@ -293,6 +293,22 @@ Binding handle (non-Scriptable):
 - `Set(spec)`: typed as the action type's binding shape (§3), validated at runtime (throws on a
   key or property the action type doesn't allow). Object specs **merge** into the binding; a
   bare key sets `KeyCode` and clears the composites.
+- **Writing bindings** (`Set`, `Reset`, `Clear`, `Capture`, `ImportBindings`, `ResetBindings`, the
+  swap's carried rebinds, `Destroy` giving adopted bindings their defaults): the target values are
+  worked out first, then only the properties that differ are written. A property written with the
+  value it has changes nothing, but a key written away and back in one frame releases a held
+  action (local) or leaves it stuck (under the player) **(probed)**, so `Set(K.Space)` on a Space
+  binding, or importing the save already in effect, leaves a held action held.
+- **A change to a binding's keys** (`KeyCode`, a composite direction, a modifier) makes IAS reset
+  every binding of the action, whichever binding changed **(probed)**: on a local context the
+  action is released at once; keys still down and Scriptable values count again once pressed or
+  fired again. Under the player (Server Authority) the client's state is pressed again instead and
+  stays held, on the client and the server, until the new keys are pressed and released. So when a
+  write changes the keys of an action that is not at rest (its state, or the latest value the
+  package fired on it), the package forgets its held values on that action and, on a copy under
+  the player, fires the pair of §8 after the writes. States are read before any write of the batch,
+  so one import releases an action once. A threshold, `Scale` or other tuning change leaves a held
+  action held **(probed)**.
 - `Reset()`: back to the defaults snapshot (§4). `Clear(slot?)`: with no slot, unbinds: KeyCode,
   composites and modifiers become `None`. With a slot (`"KeyCode"`, `"Up"`, ...,
   `"PrimaryModifier"`, typed as for `Capture`), clears only that one, e.g. `Clear("PrimaryModifier")`
@@ -300,7 +316,10 @@ Binding handle (non-Scriptable):
 - `Capture(slot, callback, options?): () => void`: waits for the next key that is legal for that
   slot of this binding (`"KeyCode"`, `"Up"`, ..., `"PrimaryModifier"`), applies it, then calls
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
-  Uses `UserInputService.InputBegan`; ignores `gameProcessed` input.
+  Uses `UserInputService.InputBegan`; ignores `gameProcessed` input. The wheel, mouse movement,
+  touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
+  keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
+  to `Set`.
 
 Scriptable binding handle: `Instance`, `Name`, `Fire(value: V)`.
 
@@ -342,6 +361,10 @@ own actions.
   - Thumbstick deadzones are fixed: radial 0.1 with rescale on sticks, linear 0.1 on triggers;
     `PressedThreshold` applies to the rescaled value. A stick moving on both axes can fire
     `StateChanged` twice in one frame, with an intermediate value first.
+  - Changing a binding's keys while its action is held releases the action on a local context,
+    and leaves it stuck under the player (see the binding handle above).
+  - An `InputCatcher` (a CAS sink over every input) doesn't block a click or tap on a GuiButton, nor
+    its `UIButton` binding: GUI gets the input before CAS. It blocks `MouseLeftButton` and the wheel.
 
 ## 7. Saving keybinds as JSON
 
@@ -462,6 +485,13 @@ client; the server only reads action state, which IAS replicates on its own.
   doesn't mention (a template's extras, which the package gives the template's keys): those get the
   pair on a Scriptable binding made for it and destroyed in the same frame, when their context is
   disabled and when the last root handle using their keys is destroyed.
+- **Rebinding a held action (probed).** A change to the keys of any binding of an action on the
+  copy, while the action is held, leaves it held on both sides (§6, binding handle). A pair fired
+  before the change is undone by it when the binding still holds a key that is down; fired after
+  the change, with the value read before it, it releases the action in every case measured (held
+  key rebound, another binding rebound, a composite direction changed with its held key kept, a
+  modifier added, a held Scriptable value), with one `Released` and no `Enabled` toggle. So the
+  package fires it after the writes, on a binding made and destroyed in that frame.
 - `Workspace.AuthorityMode` cannot be read by scripts **(probed)**, but the mode shows in an engine
   error message **(probed 2026-10-01, game scripts at identity 2, both realms)**:
   `workspace.Terrain:CanSetNetworkOwnership()` (security None; creates nothing) returns
@@ -475,8 +505,10 @@ client; the server only reads action state, which IAS replicates on its own.
 - **`InputActions.IsServerAuthority(): boolean | undefined`**, on both realms. `true` when the
   reason mentions `AuthorityMode`; `false` when it is one of the known messages for the other mode
   above; `undefined` in every other case (the call succeeded, threw, or returned a message not seen
-  before, e.g. because Roblox reworded it). The first `true` or `false` is cached (the mode can't
-  change during a session); `undefined` is never cached. It never throws.
+  before, e.g. because Roblox reworded it). On the client before `game.Loaded`, `workspace.Terrain`
+  is `nil` and the call throws **(probed)**: `undefined`, which the docs name as the other reason.
+  The first `true` or `false` is cached (the mode can't change during a session); `undefined` is
+  never cached. It never throws.
 - **Warnings:** `Create` (client) and `ProvideToPlayers` (server) warn once per call when the schema
   marks a context `ServerAuthority: true` and `IsServerAuthority()` returns `false`, naming the
   contexts and saying the server will never receive their state. `undefined` stays silent.
@@ -601,10 +633,11 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   `VirtualInput`: hardware bindings driven by real keys and clicks (Bool, composites, chords),
   rebinding then pressing the new key, `Capture` with a real key press (including cancel keys and
   illegal keys), sinking between the package's own contexts, the TextBox focus reset with a key
-  held, `AttachButton` with a real click, the wheel as a rate, and `RawInputHandler`'s rotation and
-  zoom from real mouse input where the cursor can be locked; under `touch`: `PreferredBinding`
-  switching to the touch binding, `AttachButton` with a tap, a `TouchPosition`/`UIModifier`
-  binding.
+  held, `AttachButton` with a real click, the wheel as a rate, rebinding while a key or a fired
+  value holds the action (local, and the server's copy under `authority`), and `RawInputHandler`'s
+  rotation and zoom from real mouse input where the cursor can be locked; under `touch`:
+  `PreferredBinding` switching to the touch binding, `AttachButton` with a tap, a
+  `TouchPosition`/`UIModifier` binding.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 
@@ -657,3 +690,11 @@ places, `SignalBehavior = Deferred`:
 | PlayerModule contexts | legacy scripts: none; IAS scripts: `StarterPlayer.PlayerModule.InputContexts`; Server Authority: `player.InputContexts` |
 | A destroyed instance's `Parent` | writing `nil` (its value) succeeds; writing an instance errors `The Parent property of X is locked`; a live instance made its own parent errors `Attempt to set X as its own parent`; connecting to a destroyed instance's events works and reports `Connected` |
 | Server Authority: which `CameraContext` the CameraModule tunes | `StarterPlayer.PlayerModule.InputContexts`: its `CameraRotationAction` bindings (`MouseBinding`, `TrackpadBinding`, `GamepadBinding`, `MicroGamepadBinding`) had `Scale` 0.36; the player's copy keeps 1 |
+| A real key held, its binding's `KeyCode` changed; or another binding of the action rebound; or a modifier added; or a composite direction changed while its held key stays (2026-10-01, local context) | released at once, one `Released`; the old key's release changes nothing; the key counts again once pressed again |
+| The same under the player (a context in `LocalPlayer`, simulated as under Server Authority) | `Released` then `Pressed`: stays held after the key comes up, until the new keys are pressed and released |
+| A Scriptable binding holds `true`, a key binding of the action rebound (2026-10-01) | local: released, and the next `Fire(true)` presses again; under the player: stays held, and a later `Fire(false)` on that binding is ignored |
+| Under the player: a pair (held value, value at rest) on a temporary Scriptable binding, before or after the key change (2026-10-01) | before: works when the held key left the binding, undone (held again, stuck) when it stays in it; after, with the value read before the change: released in every case above, one `Released`; an `Enabled` toggle adds nothing, and alone doesn't release. On a local context the same pair after the change adds a second `Pressed`/`Released` |
+| A binding property written with the value it has; `KeyCode` written `None` and back in one frame; `PressedThreshold` or `Scale` changed on a held binding (2026-10-01) | nothing; released (local) or stuck (under the player); nothing, released with its key, on both |
+| An `InputCatcher` (CAS sink, priority 5000) active, a real click or tap on a GuiButton with a `UIButton` binding (hunt, 2026-10-01) | the binding presses its action and `Activated` fires; a `MouseLeftButton` binding and the wheel are blocked |
+| `Capture("KeyCode")` on a `Direction1D` binding, a real wheel notch (hunt, 2026-10-01) | ignored, the `KeyCode` stays `None`: the wheel raises `InputChanged`, not `InputBegan` |
+| `workspace.Terrain:CanSetNetworkOwnership()` from a `ReplicatedFirst` LocalScript before `game.Loaded` (hunt, 2026-10-01) | errors: `Terrain` is `nil`; once loaded, the `AuthorityMode` message |

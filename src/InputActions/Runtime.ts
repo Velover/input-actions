@@ -9,7 +9,7 @@ import {
 import { EveryFrame } from "../Internal/EveryFrame";
 import { WarnIfNotServerAuthority } from "./AuthorityMode";
 import { CheckBindingKeys } from "./BindingRules";
-import { ApplySpec, ReadBinding, WriteBinding } from "./BindingState";
+import { ApplySpec, ReadBinding, WriteBinding, WriteBindings } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
 import { ROOT_MEMBERS, SCRIPTABLE } from "./Builders";
 import { ActionHandle, IMovedBindings, MoveBindings, RefireHeldValues } from "./Handles/ActionHandle";
@@ -271,7 +271,8 @@ export class InputRuntime implements IRuntime {
 			if (entry.Created) instance.Destroy();
 			else if (entry.TemplateEnabled !== undefined) {
 				if (instance.Parent !== undefined) (instance as InputContext).Enabled = entry.TemplateEnabled;
-			} else if (entry.Defaults !== undefined) WriteBinding(instance as InputBinding, entry.Defaults);
+			} else if (entry.Defaults !== undefined)
+				WriteBindings([[instance as InputBinding, entry.Defaults]]);
 		}
 		this._uses.clear();
 		this._used.clear();
@@ -752,7 +753,11 @@ export class InputRuntime implements IRuntime {
 			binding = new Instance("InputBinding");
 			binding.Name = actionName + slot;
 			if (scriptable) binding.Type = Enum.InputBindingType.Scriptable;
-			else ApplySpec(binding, spec);
+			else {
+				const values = ReadBinding(binding);
+				ApplySpec(values, spec);
+				WriteBinding(binding, values);
+			}
 			binding.Parent = action;
 			this.TrackCreated(binding);
 		} else if (scriptable !== (binding.Type === Enum.InputBindingType.Scriptable)) {
