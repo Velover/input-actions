@@ -2,7 +2,32 @@
 // scope whatever happened, so out/ never keeps a build that hosts the tests (guide 12, "Setting
 // up"). Start it with `bun run test`, which puts node_modules/.bin on the PATH; run on its own,
 // `bun scripts/test.mjs` finds no rbxtsc, or a global one instead of the project's. Extra
-// arguments go to flamework-test, as in `bun run test --sections levels`.
+// arguments go to flamework-test, as in `bun run test --sections levels`. A project that needs
+// Studio's device simulator (`--project tests/touch.project.json`) runs through
+// scripts/device-test.mjs instead, after the others.
+
+import { DEVICE_PROJECTS, projectName, runOnDevice } from "./device-test.mjs";
+
+/**
+ * The `--project` values among the arguments (repeated or comma-separated, `--project x` or
+ * `--project=x`), and the other arguments as they are.
+ */
+function splitProjects(args) {
+	const projects = [];
+	const rest = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		let value;
+		if (arg === "--project") value = args[++index] ?? "";
+		else if (arg.startsWith("--project=")) value = arg.slice("--project=".length);
+		else {
+			rest.push(arg);
+			continue;
+		}
+		for (const entry of value.split(",")) if (entry.trim() !== "") projects.push(entry.trim());
+	}
+	return { projects, rest };
+}
 
 /** Runs a command in the terminal. Returns its exit code, or undefined when it can't be started. */
 function run(command, env = process.env) {
@@ -41,8 +66,25 @@ if (code === undefined) {
 // test.rbxl, not place.rbxl: the place `bun run place` builds never holds the tests.
 if (code === 0) code = run(["rojo", "build", "-o", "test.rbxl"]) ?? 127;
 if (code === 0) {
-	const args = ["test", "test.rbxl", "--original", "tests/place.rbxlx", ...process.argv.slice(2)];
-	code = run(["flamework-test", ...args]) ?? 127;
+	// Projects that need Studio's device simulator (`touch`) run through scripts/device-test.mjs,
+	// after the others, which flamework-test runs as they are
+	const { projects, rest } = splitProjects(process.argv.slice(2));
+	const onDevice = projects.filter((project) => projectName(project) in DEVICE_PROJECTS);
+	const plain = projects.filter((project) => !onDevice.includes(project));
+	if (plain.length > 0 || onDevice.length === 0) {
+		const projectArgs = plain.length > 0 ? ["--project", plain.join(",")] : [];
+		const args = ["test", "test.rbxl", "--original", "tests/place.rbxlx", ...projectArgs, ...rest];
+		code = run(["flamework-test", ...args]) ?? 127;
+	}
+	const outcomes = [];
+	for (const project of onDevice) {
+		const deviceCode = await runOnDevice(project, "test.rbxl", "tests/place.rbxlx", rest);
+		outcomes.push(`${projectName(project)} ${deviceCode === 0 ? "passed" : "FAILED"}`);
+		code = Math.max(code, deviceCode);
+		// Ctrl+C: the device was set back and the window closed; the rest is skipped
+		if (deviceCode === 130) break;
+	}
+	if (outcomes.length > 0) console.log(`\nprojects on a simulated device: ${outcomes.join(", ")}`);
 }
 
 // The scope is set to nothing rather than left out, so that a scope in .env.local, or one exported

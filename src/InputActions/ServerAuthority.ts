@@ -1,4 +1,5 @@
 import { Players, ReplicatedStorage, RunService } from "@rbxts/services";
+import { WarnIfNotServerAuthority } from "./AuthorityMode";
 import { Entries, JoinPath } from "./Internal";
 import {
 	CheckActionType,
@@ -48,7 +49,8 @@ function AddMissingActions(context: InputContext, name: string, schema: IContext
  * from it without its bindings; otherwise it is built from the schema. The copy and its actions are
  * enabled whatever the template or schema says: IAS on the server ignores the client's input for a
  * context or action the server disabled (probed), so the client owns `Enabled` and starts from the
- * template's or the schema's. Returns a function that stops providing.
+ * template's or the schema's. Warns when the place doesn't run Server Authority
+ * (`IsServerAuthority()` is `false`). Returns a function that stops providing.
  */
 export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
 	schema: IInputSchema<S>,
@@ -68,6 +70,7 @@ export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
 			FindAction(template, actionName, definition.Type, JoinPath(name, actionName));
 		}
 	}
+	WarnIfNotServerAuthority("InputActions.ProvideToPlayers", schema.Contexts);
 
 	const Provide = (player: Player) => {
 		let playerFolder = player.FindFirstChild(playerFolderName);

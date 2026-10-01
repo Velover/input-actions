@@ -16,9 +16,12 @@ requests, on-screen buttons and Server Authority support.
 - **Contexts:** a base state plus `Request(true | false)` holds; focus loss (TextBox, window, menu)
   releases held keys.
 - **Server Authority:** opt in per context with `ServerAuthority: true`. The server provides those
-  contexts to each player and reads the state; the keybinds stay on the client. The package can't
-  tell whether the place actually runs Server Authority, so it can't warn when it's off
-  ([details](docs/Advanced.md)).
+  contexts to each player and reads the state; the keybinds stay on the client.
+  `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority
+  (scripts can't read `Workspace.AuthorityMode`, so it reads the engine's message from
+  `workspace.Terrain:CanSetNetworkOwnership()`, and answers `undefined` if Roblox rewords it).
+  `Create` and `ProvideToPlayers` warn when a marked context meets a place without it
+  ([details](docs/Advanced.md#is-server-authority-on)).
 - Kept from 0.5: `MouseController`, `InputCatcher`, `RawInputHandler`.
 
 ## Installation

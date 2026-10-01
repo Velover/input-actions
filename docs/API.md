@@ -6,7 +6,8 @@ import { InputActions, MouseController, EMouseLockAction, InputCatcher, RawInput
 
 - [InputActions](#inputactions)
   - [Builders](#builders) · [Schema](#schema) · [Create](#create) · [Server](#server) ·
-    [SanitizeBindings](#sanitizebindings) · [Presets](#presets) · [Types](#types)
+    [IsServerAuthority](#isserverauthority) · [SanitizeBindings](#sanitizebindings) ·
+    [Presets](#presets) · [Types](#types)
 - [Handles](#handles): [root](#root-handle) · [context](#context-handle) · [action](#action-handle) ·
   [binding](#binding-handle) · [server](#server-handles)
 - [Binding shapes](#binding-shapes) · [Key groups](#key-groups)
@@ -71,7 +72,9 @@ the [root handle](#root-handle).
 
 Throws when an existing action's `Type` differs from the schema, or when a child named like a
 context or action is not an `InputContext`/`InputAction`. See
-[Get-or-create](Introduction.md#get-or-create).
+[Get-or-create](Introduction.md#get-or-create). Warns once when the schema marks contexts
+`ServerAuthority: true` in a place that doesn't run Server Authority
+([`IsServerAuthority()`](#isserverauthority) is `false`): their state would never reach the server.
 
 ### Server
 
@@ -86,8 +89,30 @@ InputActions.ForPlayer(schema, player, options?): InputActions.ServerHandle<S>
   `PlayerFolderName` (default `"Inputs"`). Returns a function that stops providing.
 - `ForPlayer` returns [server handles](#server-handles). Options: `PlayerFolderName`, `Timeout`
   (default 10 s, then it throws naming the missing contexts).
+- `ProvideToPlayers`, like `Create`, warns once when the schema marks contexts `ServerAuthority: true`
+  and [`IsServerAuthority()`](#isserverauthority) is `false`.
 
 See [Server Authority](Advanced.md#server-authority).
+
+### IsServerAuthority
+
+```ts
+InputActions.IsServerAuthority(): boolean | undefined
+```
+
+Either realm. Whether the place runs Server Authority (`Workspace.AuthorityMode = Server`), which
+scripts can't read directly. It reads the reason `workspace.Terrain:CanSetNetworkOwnership()` gives:
+
+| Realm | Under Server Authority | Otherwise |
+| --- | --- | --- |
+| client | `Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.` | `Network Ownership API can only be called from the Server.` |
+| server | the same message | `Network Ownership API cannot be used on Terrain` |
+
+`true` when the reason mentions `AuthorityMode`; `false` for the two messages of the other mode;
+`undefined` for anything else: the call succeeded or threw, or Roblox reworded the message. Best-effort:
+it depends on that wording, and an unknown message gives `undefined` rather than a guess. The first
+`true` or `false` is kept for the session; `undefined` is not, so it asks again next time. Never
+throws. See [Is Server Authority on?](Advanced.md#is-server-authority-on).
 
 ### SanitizeBindings
 
@@ -234,6 +259,14 @@ makes them and `Clear()` produces them.
 IAS reads `ReleasedThreshold` as at most `PressedThreshold`: `Set({ ReleasedThreshold: 0.8 })` on a
 binding whose `PressedThreshold` is 0.5 reads (and `Get()` returns) 0.5 until `PressedThreshold` is
 raised.
+
+- The Delta1D and Delta2D keys (`MouseWheel`, `MouseDelta`, `TouchDelta`, trackpad pan and pinch)
+  read as **rates**: the amount over that frame's time, for one frame, then 0. Multiply by the
+  frame's delta time. `Scale` and `Vector2Scale` apply to them; `ClampMagnitudeToOne` doesn't.
+- Thumbstick and trigger deadzones are fixed (radial 0.1 with rescaling on sticks, linear 0.1 on
+  triggers); `PressedThreshold` applies after them.
+- A key with `PrimaryModifier`/`SecondaryModifier` doesn't block other bindings of the plain key.
+  See [IAS behaviours to know](Advanced.md#ias-behaviours-to-know).
 
 ## Key groups
 

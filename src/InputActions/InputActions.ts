@@ -1,3 +1,4 @@
+import { IsServerAuthority as IsServerAuthorityImpl } from "./AuthorityMode";
 import { SanitizeBindings as SanitizeBindingsImpl } from "./BindingsJson";
 import * as Builders from "./Builders";
 import type * as Keys from "./KeyGroups";
@@ -40,6 +41,15 @@ export namespace InputActions {
 
 	/** Server: typed read-only handles over one player's Server Authority contexts */
 	export const ForPlayer = ForPlayerImpl;
+
+	/**
+	 * Either realm, best-effort: whether the place runs Server Authority
+	 * (`Workspace.AuthorityMode = Server`), which scripts can't read. It reads the reason
+	 * `workspace.Terrain:CanSetNetworkOwnership()` gives: under Server Authority it names
+	 * `AuthorityMode`. `undefined` when the reason is not one the package knows (Roblox reworded
+	 * it). Never throws.
+	 */
+	export const IsServerAuthority = IsServerAuthorityImpl;
 
 	/**
 	 * Runs the `ImportBindings` validation against the schema alone (no instances; works on the

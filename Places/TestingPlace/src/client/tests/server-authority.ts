@@ -12,8 +12,21 @@ import {
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
 import { Players, ReplicatedStorage } from "@rbxts/services";
+import {
+	expectedServerAuthority,
+	isModeWarning,
+	isTimeoutWarning,
+	names,
+} from "shared/fixtures/authority";
 import { SA_LATE_FOLDER_NAME, SA_LATE_SCHEMA, SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { countSignal, frames, newFolder, recordSignal, recordWarnings } from "./helpers";
+import {
+	countSignal,
+	createTestInput,
+	frames,
+	newFolder,
+	recordSignal,
+	recordWarnings,
+} from "./helpers";
 
 const K = Enum.KeyCode;
 const BOOL = Enum.InputActionType.Bool;
@@ -257,12 +270,16 @@ export class ServerAuthorityClientTests implements OnStart {
 				input.SaNever.Actions.Poke.Fire(true);
 				expectTrue(input.SaNever.Actions.Poke.GetState());
 				task.wait(1);
-				const mine = warnings.filter(
-					(message) => message.find("SaNever", 1, true)[0] !== undefined,
-				);
-				expectEqual(mine.size(), 1, "warnings naming SaNever");
-				expectTrue(mine[0].find("InputsNever", 1, true)[0] !== undefined, mine[0]);
-				expectTrue(mine[0].find("ProvideToPlayers", 1, true)[0] !== undefined, mine[0]);
+				const mine = warnings.filter((message) => names(message, "SaNever"));
+				const timeouts = mine.filter(isTimeoutWarning);
+				expectEqual(timeouts.size(), 1, "Timeout warnings naming SaNever");
+				expectTrue(names(timeouts[0], "InputsNever"), timeouts[0]);
+				expectTrue(names(timeouts[0], "ProvideToPlayers"), timeouts[0]);
+				// The Timeout warning says nothing about the mode; that is a warning of its own
+				expectFalse(isModeWarning(timeouts[0]), timeouts[0]);
+				const modeWarnings = expectedServerAuthority() === false ? 1 : 0;
+				expectEqual(mine.filter(isModeWarning).size(), modeWarnings, "Server Authority warnings");
+				expectEqual(mine.size(), 1 + modeWarnings, mine.join(" | "));
 				expectTrue(input.SaNever.Actions.Poke.GetState());
 			});
 
@@ -292,14 +309,58 @@ export class ServerAuthorityClientTests implements OnStart {
 				});
 				defer(() => input.Destroy());
 				expectFalse(input.SaPartial.IsLinkedToServer());
-				eventually(
-					() => warnings.some((message) => message.find("SaPartial", 1, true)[0] !== undefined),
-					"the Timeout warning",
-				);
-				const message = warnings.find((text) => text.find("SaPartial", 1, true)[0] !== undefined)!;
-				expectTrue(message.find("lacks Prod", 1, true)[0] !== undefined, message);
+				const timeout = (message: string) =>
+					isTimeoutWarning(message) && names(message, "SaPartial");
+				eventually(() => warnings.some(timeout), "the Timeout warning");
+				const message = warnings.find(timeout)!;
+				expectTrue(names(message, "lacks Prod"), message);
 				input.SaPartial.Actions.Prod.Fire(true);
 				expectTrue(input.SaPartial.Actions.Prod.GetState(), "the stand-in works");
+			});
+
+			// ---- the place's mode (IsServerAuthority)
+
+			test("Create warns once when marked contexts meet a place without Server Authority", () => {
+				const warnings = recordWarnings();
+				const schema = InputActions.Schema({
+					ModeMarkedB: { ServerAuthority: true, Actions: { Poke: InputActions.Bool() } },
+					ModeMarkedA: { ServerAuthority: true, Actions: { Poke: InputActions.Bool() } },
+					ModeLocal: { Actions: { Poke: InputActions.Bool() } },
+				});
+				const input = InputActions.Create(schema, {
+					Folder: newFolder(),
+					PlayerFolderName: "InputsMode",
+					Timeout: 1000,
+				});
+				defer(() => input.Destroy());
+				frames(3);
+				const mode = warnings.filter(isModeWarning);
+				if (expectedServerAuthority() !== false) {
+					expectEqual(mode.size(), 0, mode.join(" | "));
+					return;
+				}
+				expectEqual(mode.size(), 1, mode.join(" | "));
+				const message = mode[0];
+				expectTrue(names(message, "InputActions.Create"), message);
+				expectTrue(names(message, "ModeMarkedA, ModeMarkedB are marked"), message);
+				expectFalse(names(message, "ModeLocal"), message);
+				expectTrue(names(message, "never receive"), message);
+				// still working on the client
+				const poke = input.ModeMarkedA.Actions.Poke;
+				poke.Fire(true);
+				expectTrue(poke.GetState());
+				poke.Fire(false);
+			});
+
+			test("a schema without marked contexts never warns about the mode", () => {
+				const warnings = recordWarnings();
+				createTestInput();
+				frames(3);
+				// TEST_SCHEMA's contexts; another test's warning may still be on its way
+				const about = warnings.filter(
+					(message) => isModeWarning(message) && names(message, ": Gameplay"),
+				);
+				expectEqual(about.size(), 0, about.join(" | "));
 			});
 
 			// ---- the server's copy is always enabled; the client owns Enabled (R4-F1)

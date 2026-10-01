@@ -11,7 +11,8 @@ import {
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
-import { ReplicatedStorage } from "@rbxts/services";
+import { LogService, ReplicatedStorage, RunService } from "@rbxts/services";
+import { expectedServerAuthority, isModeWarning, names } from "shared/fixtures/authority";
 import {
 	BuildSaTemplate,
 	SA_LATE_FOLDER_NAME,
@@ -199,6 +200,39 @@ export class ServerAuthorityTests implements OnStart {
 				);
 				expectTrue(message.find("SaGameplay/Jump", 1, true)[0] !== undefined, message);
 				expectEqual(player.FindFirstChild(name), undefined);
+			});
+
+			test("ProvideToPlayers warns once when the place doesn't run Server Authority", () => {
+				const warnings = new Array<string>();
+				const connection = LogService.MessageOut.Connect((message, messageType) => {
+					if (messageType === Enum.MessageType.MessageWarning) warnings.push(message);
+				});
+				defer(() => connection.Disconnect());
+				const player = waitForPlayer();
+				const name = testFolderName(player);
+				// Names of its own: the warnings of the tests before it may still be on their way
+				const schema = InputActions.Schema({
+					ModeServerB: { ServerAuthority: true, Actions: { Poke: InputActions.Bool() } },
+					ModeServerA: { ServerAuthority: true, Actions: { Poke: InputActions.Bool() } },
+					ModeServerLocal: { Actions: { Poke: InputActions.Bool() } },
+				});
+				defer(InputActions.ProvideToPlayers(schema, { Folder: scratch(), PlayerFolderName: name }));
+				for (let index = 0; index < 3; index++) RunService.Heartbeat.Wait();
+				const mode = warnings.filter(
+					(message) => isModeWarning(message) && names(message, "ModeServer"),
+				);
+				if (expectedServerAuthority() !== false) {
+					expectEqual(mode.size(), 0, mode.join(" | "));
+					return;
+				}
+				expectEqual(mode.size(), 1, mode.join(" | "));
+				const message = mode[0];
+				expectTrue(names(message, "InputActions.ProvideToPlayers"), message);
+				expectTrue(names(message, "ModeServerA, ModeServerB are marked"), message);
+				expectFalse(names(message, "ModeServerLocal"), message);
+				expectTrue(names(message, "never receive"), message);
+				// the copies are still provided: they replicate either way
+				expectDefined(player.FindFirstChild(name)?.FindFirstChild("ModeServerA"));
 			});
 
 			test("PlayerFolderName can't be Roblox's InputContexts", () => {

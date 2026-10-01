@@ -7,24 +7,55 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 
 - `bun run test:all` builds the package from `../../` and copies it into
   `node_modules/@rbxts/input-actions` (`scripts/link-package.mjs`, also `bun run link`), then runs
-  every test section in Studio under three Rojo projects:
+  every test section in Studio under four Rojo projects:
   - `default` (`default.project.json`): legacy player scripts;
   - `ias` (`tests/ias.project.json`): `Workspace.PlayerScriptsUseInputActionSystem = Enabled`;
   - `authority` (`tests/authority.project.json`): Server Authority on (with the IAS player scripts,
-    next-generation replication, fixed simulation, streaming, deferred signals).
-- `bun run test`, `test:ias` and `test:authority` run one project. `getProject()` from
-  `@flamework-experimental/testing` returns `default`, `ias` or `authority` inside the place.
+    next-generation replication, fixed simulation, streaming, deferred signals);
+  - `touch` (`tests/touch.project.json`): the IAS player scripts, with Studio simulating a phone
+    (see [The touch pass](#the-touch-pass)).
+- `bun run test`, `test:ias`, `test:authority` and `test:touch` run one project. `getProject()` from
+  `@flamework-experimental/testing` returns `default`, `ias`, `authority` or `touch` inside the
+  place.
 - The package is not in `package.json`: the link script puts it in `node_modules`, and every test
   run refreshes it. Import it as `@rbxts/input-actions`.
 - The design the package implements: `../../docs/Design/IAS-Rework.md`.
-- The sections: `schema`, `rules`, `sanitize`, `presets` (shared); `create`, `actions`,
-  `track-previous`, `contexts`, `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`,
-  `raw-input`, `server-authority`, `shared-handles` (several `Create`s on one folder, `Destroy`),
-  `sa-release` (what reaches the server when the client resets an action; authority only)
-  (client); `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial
-  tests, kept as regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`, and
-  `validator-r4.ts` and `validator-r5.ts` for those rounds' sections). Project-specific tests
+- The sections: `schema`, `rules`, `sanitize`, `presets`, `authority-mode`
+  (`IsServerAuthority`) (shared); `create`, `actions`, `track-previous`, `contexts`,
+  `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
+  `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
+  server when the client resets an action; authority only), `real-input` (real keys and mouse
+  through VirtualInput), `touch` (taps on the simulated phone; touch only) (client);
+  `server-authority` (server). The `validator-r*` sections are a reviewer's adversarial tests, kept
+  as regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`; `authority.ts`, the
+  mode each project expects and the warnings' wording; `skip.ts`; and `validator-r4.ts`,
+  `validator-r5.ts` and `validator-r6.ts` for those rounds' sections). Project-specific tests
   return early under the other projects (`getProject()`).
+- **Real keyboard and mouse input:** `src/client/tests/virtual.ts` wraps
+  `UserInputService:CreateVirtualInput()` (Studio only; the typings return `RBXObject`, so it is
+  cast to `VirtualInput`), whose input IAS treats as hardware, also with the window in the
+  background. `realInput()` gives a test a `RealInput` (`Press`, `Release`, `Tap`, `MouseDown`,
+  `MouseUp`, `Click`, `Wheel`, `MouseDelta`), or the reason there is none. What a test presses is
+  released when the test ends, pass or fail: pressing a key or button that is already down throws,
+  and a held key would leak into later tests. Rules:
+  - mouse positions are screen positions, **including the GUI inset** (58 px here): use
+    `screenCenter(guiObject)` for a GUI object, and `emptyPoint()` for a point over the 3D world
+    clear of CoreGui and the touch controls;
+  - input that would touch CoreGui throws: the top-left menu area, Escape and other keys Roblox
+    reserves (VirtualInput sends gamepad KeyCodes as keyboard input, and `DPadUp`, `ButtonStart`
+    throw), and anything while the Roblox menu is open;
+  - `SendMouseDelta` registers only while the cursor is locked (`lockCursor()` in
+    `real-input.ts`, through `MouseController`); `SendMousePosition` doesn't register while the
+    window is unfocused, so no test depends on it;
+  - a window that renders nothing (display off) has no GUI layout: `clickProblem(guiObject)` says
+    so, and the test skips;
+  - Legacy player scripts (`default`) sink `Left`, `Right`, `I`, `O` (camera) and toggle shift lock
+    on `LeftShift` through CAS: real-input tests use other keys.
+- **Skipping:** a test that can't run in this state calls `skip(reason)` from
+  `shared/fixtures/skip.ts` and returns. It counts as passed; the reason is a `[SKIP]` warning in
+  Studio's output, just before the test's `[FWTEST]` line, and not in the terminal.
+- Gamepad input, window focus and the Roblox menu can't be simulated from Luau: those paths are
+  driven through Scriptable bindings (`Fire`) and the TextBox focus path.
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
@@ -55,6 +86,44 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `node_modules/.bin/flamework-test patch probe.rbxl --original tests/place.rbxlx [--project tests/authority.project.json]`,
   `studio open <patched file>`, `studio play`, `studio exec --realm client|server --script <file.luau>`,
   `studio stop`, `studio close`.
+
+## The touch pass
+
+`bun run test:touch` (and the last part of `bun run test:all`) runs every section with Studio
+simulating an iPhone 14, so `UserInputService.PreferredInput` is `Touch` and VirtualInput's mouse
+events arrive as touch: taps (`TouchPosition`), drags (`TouchDelta`), `UIButton` taps, `UIModifier`
+regions. One finger only: no pinch, no multi-touch. Tests that need a mouse skip under it, and the
+`touch` section runs only under it.
+
+`flamework-test test` has no step between opening a window and playing, so `scripts/test.mjs` hands
+every project named in `DEVICE_PROJECTS` (`scripts/device-test.mjs`) to `runOnDevice`, after the
+other projects:
+
+1. `flamework-test patch` makes `test.touch.rbxl` under `tests/touch.project.json`;
+2. a window left open on that file by an earlier run is closed;
+3. Studio is started on the file, and the run waits (up to 180 s) for it to show on the MCP proxy;
+4. `flamework-test studio exec --studio test.touch.rbxl --realm edit` calls
+   `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("iphone_14")`;
+5. `flamework-test studio run --studio test.touch.rbxl --realm both` runs the tests (`--sections`,
+   `--realm`, `--timeout`, `--keep`, `--list` and `--json` are passed on);
+6. **always**, also after a failure, a timeout or Ctrl+C, `SetDeviceAsync("default")` sets the
+   device back, and the run says so (`Studio's device is back to default`);
+7. the window is closed by ending the Studio process the run started (unless `--keep`).
+
+The device is Studio's setting, not the place's: left set, it follows into every other Studio
+window. If a run reports `STUDIO MAY STILL SIMULATE iphone_14`, or was killed before step 6, set it
+back by hand, in any open Studio window:
+
+- in the command bar (View > Command Bar), run
+  `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("default")`;
+- or, while a window of `test.touch.rbxl` is open,
+  `bunx flamework-test studio exec --studio test.touch.rbxl --realm edit --code 'game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("default") return game:GetService("StudioDeviceSimulatorService"):GetDeviceAsync()'`,
+  which should print `default`.
+
+Ctrl+C during the touch pass stops the CLI's current step; the script itself carries on to set the
+device back and close the window, then rebuilds `out/` and exits with 130. The window helpers come
+from flamework-test's own `cli/src/studio.ts` (finding Studio, and closing a window by the process
+that opened it); the Flamework packages are pinned exactly, so that module can't move under it.
 
 ## Stack
 

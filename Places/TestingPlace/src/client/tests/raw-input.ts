@@ -56,9 +56,10 @@ function scriptableBinding(action: InputAction, reset: unknown) {
 	return binding;
 }
 
+/** The IAS player scripts run under these projects; `default` has the legacy ones */
 function usesIas() {
 	const project = getProject();
-	return project === "ias" || project === "authority";
+	return project === "ias" || project === "authority" || project === "touch";
 }
 
 /** RawInputHandler over the IAS PlayerModule, with the legacy fallback (design spec §10) */

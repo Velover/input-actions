@@ -29,10 +29,12 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   package makes that release reach the server too (see
   [Releasing on the server](#releasing-on-the-server)).
 - **Focus loss.** A key held when a TextBox takes focus, the window loses focus or the Roblox menu
-  opens can have its release swallowed, and stay stuck. By default `Create` holds every context
+  opens can have its release swallowed, and stay stuck: IAS itself keeps a held action pressed when a
+  TextBox takes focus or the Roblox menu opens (measured). By default `Create` holds every context
   disabled for one frame on `UserInputService.TextBoxFocused`, `WindowFocusReleased` and
-  `GuiService.MenuOpened`. Listeners see one `false`/`true` pair on contexts that were enabled, and
-  the base state doesn't change. Turn it off with `Create(schema, { ResetOnFocusLoss: false })`.
+  `GuiService.MenuOpened`, which releases them. Listeners see one `false`/`true` pair on contexts
+  that were enabled, and the base state doesn't change. Turn it off with
+  `Create(schema, { ResetOnFocusLoss: false })`.
 - Actions have `SetEnabled`/`IsEnabled` too, which pass through to `InputAction.Enabled`; IAS resets
   an action's state when it is disabled (and the package releases it on the server first, as for
   contexts).
@@ -95,6 +97,13 @@ destroyed gets no binding, and the function returned does nothing. Destroying a 
 it holds the action leaves the action stuck on in IAS, so when the binding goes while the action is
 pressed, the package resets the action (toggles `InputAction.Enabled`, after releasing it on the
 server under Server Authority).
+
+- The action is pressed while the mouse button (or the finger) is down on the button, and released
+  when it comes up. A click on the button doesn't reach `MouseLeftButton` bindings.
+- On a touch device the binding is the action's touch binding: `GetPreferredBinding()` returns it
+  once the player touches the screen, and the keyboard's binding after a key press.
+- With gamepad UI navigation, the gamepad's `ButtonA` on a selected button fires its binding. The
+  keyboard's `Return` on a selected button only fires `Activated`, not the binding.
 
 The package has nothing React-specific. A hook in your project can look like this:
 
@@ -160,11 +169,17 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
 - `Clear(slot)` clears one slot; it is how a modifier comes off (`Set` can't write `None`):
   `Clear("PrimaryModifier")` turns Ctrl+S into S. `Clear()` with no slot unbinds everything,
   modifiers included.
+- A chord (a key with `PrimaryModifier`/`SecondaryModifier`) doesn't keep another action bound to
+  its plain key from firing: Ctrl+S on `QuickSave` and S on `Move` both fire on Ctrl then S. IAS
+  needs the modifier pressed first, and releasing it releases the chord. See
+  [IAS behaviours to know](#ias-behaviours-to-know).
 - `Capture(slot, callback, { Cancel })` waits for the next key legal for that slot (`"KeyCode"`,
   `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`. Mouse buttons and touch
   count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`/`TouchPosition`. Keys in `Cancel`
   stop it without a change; the returned function stops it too. Input the game already processed
-  (`gameProcessed`) is ignored.
+  (`gameProcessed`) is ignored; a key another IAS binding uses, even in a sinking context, is not
+  game-processed and is captured (measured with real keys). The captured key also does whatever it
+  is bound to while it is pressed.
 - `BindingsChanged` fires on `Set`, `Reset`, `Clear` and `Capture`, and for every binding an import
   or `ResetBindings` changed.
 
@@ -248,11 +263,11 @@ const Input = InputActions.Create(InputSchema);
 Input.Gameplay.LinkedToServer.Connect(() => print("now on the server's copy"));
 ```
 
-**The package can't tell whether the place runs Server Authority.** `Workspace.AuthorityMode` can't
-be read by scripts, so nothing warns you when it is off. A context marked `ServerAuthority: true` in
-a place without Server Authority still works on the client (the server's copy replicates either
-way), but the server never receives its state: `ForPlayer(...).GetState()` stays at rest. Turn on
-Server Authority in the place's Workspace settings when you mark contexts this way.
+A context marked `ServerAuthority: true` in a place without Server Authority still works on the
+client (the server's copy replicates either way), but the server never receives its state:
+`ForPlayer(...).GetState()` stays at rest. Turn on Server Authority in the place's Workspace settings
+when you mark contexts this way. The package warns you when it can tell that you haven't (see
+[Is Server Authority on?](#is-server-authority-on)).
 
 - **Server:** `ProvideToPlayers(schema, options?)` puts every Server Authority context into
   `player.Inputs` (option `PlayerFolderName`), for each player now and as they join. When
@@ -299,7 +314,8 @@ Server Authority in the place's Workspace settings when you mark contexts this w
     and the path it expects. The usual causes: `ProvideToPlayers` isn't called on the server, or it
     uses another `PlayerFolderName`. The stand-in keeps working, and the swap still happens if the
     copy arrives later. The warning only means the copy never arrived; it says nothing about the
-    authority mode.
+    authority mode, which has a warning of its own (see
+    [Is Server Authority on?](#is-server-authority-on)).
   - The template context in `ReplicatedStorage.Inputs` is disabled locally, so it doesn't process
     the same keys beside the stand-in or the player's copy.
 - Keybinds and saves work as usual; only the state goes to the server.
@@ -315,6 +331,37 @@ Server Authority in the place's Workspace settings when you mark contexts this w
   hold on the same Scriptable binding stays held until neither does.
 - A server's copy whose action has another `Type` than the schema's: `Create` warns, naming the
   path, and the context stays on its (working) stand-in.
+
+### Is Server Authority on?
+
+Scripts can't read `Workspace.AuthorityMode`, but the engine names the mode in an error message, and
+`InputActions.IsServerAuthority()` reads it, on either realm:
+
+```ts
+InputActions.IsServerAuthority(); // true, false, or undefined (an engine message it doesn't know)
+```
+
+It calls `workspace.Terrain:CanSetNetworkOwnership()`, which changes nothing and answers `false`
+with a reason. The reason depends on the mode (measured on 2026-10-01 from game scripts):
+
+| Realm | Under Server Authority | Otherwise |
+| --- | --- | --- |
+| client | `Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.` | `Network Ownership API can only be called from the Server.` |
+| server | the same message | `Network Ownership API cannot be used on Terrain` |
+
+`IsServerAuthority()` is `true` when the reason mentions `AuthorityMode`, `false` when it is one of
+the two messages for the other mode, and `undefined` in every other case. The first `true` or
+`false` is kept for the session (the mode can't change while it runs). It never throws.
+
+**It is best-effort.** It reads the wording of an engine message, which Roblox may change without
+notice. A message it doesn't know gives `undefined`, not a guess.
+
+- `Create` (client) and `ProvideToPlayers` (server) warn once per call when the schema marks
+  contexts `ServerAuthority: true` and `IsServerAuthority()` is `false`. The warning names those
+  contexts and says the server will never receive their state.
+- When it is `undefined`, because Roblox reworded the message, they stay silent: the warning goes
+  quiet rather than wrong. So no warning doesn't prove Server Authority is on; `true` does.
+- The `Timeout` warning is another matter: it only means the server's copy never arrived.
 
 ### Releasing on the server
 
@@ -357,14 +404,55 @@ ContextActionService, and a CAS sink blocks IAS: the arrow-key composite of `Nav
 or right there. `RawInputHandler`'s legacy fork does the same. The IAS player scripts
 (`Workspace.PlayerScriptsUseInputActionSystem = Enabled`) don't.
 
+- `Scroll` reads as a rate: the wheel gives notches per second for one frame, then 0. Multiply its
+  state by the frame's delta time (see [IAS behaviours to know](#ias-behaviours-to-know)).
+- While Roblox's own gamepad UI navigation has a GUI object selected (`GuiService.SelectedObject`),
+  `Return` and the arrow keys never reach IAS, so `Accept` and the keyboard's `Navigate` don't fire;
+  `Return` activates the selected button instead. Use the preset for menus that don't select GUI
+  objects, or deselect them.
+
 ## IAS behaviours to know
 
-These were measured in Studio (with `SignalBehavior = Deferred`) and hold for any IAS code, with or
-without this package:
+These were measured in Studio (with `SignalBehavior = Deferred`; real keyboard, mouse and touch
+input through `VirtualInput` and the device simulator, and a gamepad, on 2026-10-01) and hold for any
+IAS code, with or without this package:
 
 - **Several bindings on one action are not combined: the last one to change wins.** Holding A and
-  B, then releasing A, releases the action. The same goes for Direction2D: the state is the value of
-  the binding that fired or moved last.
+  B, then releasing A, releases the action, with real keys as with `Fire`. The same goes for
+  Direction2D: the state is the value of the binding that fired or moved last.
+- **A chord doesn't block its plain key.** With `Ctrl+C` on one action and plain `C` on another,
+  pressing `Ctrl` then `C` fires both. The modifier must go down first (`C` then `Ctrl` fires only
+  the plain `C`), and letting go of the modifier releases the chord while `C` stays held. The package
+  can't make chords exclusive: if the plain action must not fire, check the modifier in its handler
+  (`UserInputService.IsKeyDown(Enum.KeyCode.LeftControl)`).
+- **Mouse wheel, mouse movement and touch drags read as rates.** `MouseWheel`, `MouseDelta`,
+  `TouchDelta` (and trackpad pan and pinch) give the amount divided by that frame's time, for one
+  frame, then 0: one wheel notch reads about 190 at 190 fps, 64 at 60 fps. Multiply `GetState()` by
+  the frame's delta time to get notches or pixels. Treat the `Scroll` preset as a rate too: its
+  wheel is one, and its `PageUp`/`PageDown` keys and stick hold at most 1 while held, which times
+  delta time gives one unit a second. `ClampMagnitudeToOne` doesn't clamp the wheel or the mouse
+  movement (it acts on composites), and `Scale`/`Vector2Scale` apply as usual.
+- **Sinking:** a context with `Sink` blocks lower contexts only for the keys it binds itself. Since
+  2026-02, a ContextActionService binding that returns `Sink` blocks IAS for its keys (this is how
+  `InputCatcher` still blocks everything); one that returns `Pass` doesn't. With the legacy player
+  scripts, the default camera sinks `Left`, `Right`, `I` and `O` through CAS; the IAS player
+  scripts don't.
+- **TextBoxes:** a focused TextBox keeps new key presses from key bindings. A key already held when
+  it takes focus stays pressed in IAS until it comes up, which is why the package's focus-loss reset
+  releases it (see [Contexts](#contexts)).
+- **Clicks on GUI:** a click on a GuiButton fires that button's `UIButton` binding and keeps the click
+  from a `MouseLeftButton` action; a click on empty space goes to the `MouseLeftButton` action.
+- **The Roblox menu doesn't release held actions**; the package's focus-loss reset does. Losing
+  window focus releases them on the engine side as well.
+- **Gamepad UI navigation:** while a GuiButton is selected (`GuiService.SelectedObject`), the
+  keyboard's `Return` activates it (`Activated` fires) but doesn't fire its `UIButton` binding, and
+  `Return` and the arrow keys never reach IAS. The gamepad's `ButtonA` (and `R2`) drive the selected
+  button's `UIButton` binding and never reach IAS either. Thumbstick updates are unreliable while
+  something is selected.
+- **Thumbstick deadzones are fixed:** a radial deadzone of 0.1 with rescaling on sticks, and a
+  linear 0.1 on triggers; there is no property for them. `PressedThreshold` applies to the rescaled
+  value. A stick moving on both axes can fire `StateChanged` twice in one frame, with an
+  intermediate value first.
 - `GetState()` updates synchronously after a `Fire`; the events (`Pressed`, `StateChanged`) are
   deferred under `SignalBehavior = Deferred`. Under Server Authority, contexts under the player are
   simulated: the fired value shows in `GetState()` on the next simulation step. The handles' own
@@ -377,9 +465,6 @@ without this package:
 - A fired value persists until something changes it.
 - IAS applies no `Scale`, clamp or `Vector2Scale` to fired values.
 - Destroying a binding while it holds an action leaves the action stuck on, with no `Released`.
-- Since 2026-02, a ContextActionService binding that sinks an input also blocks IAS for it (this is
-  how `InputCatcher` still blocks everything). With the legacy player scripts, the default controls
-  sink keys through CAS; the IAS player scripts don't.
 
 The full IAS reference the package was built against is in
 [Reference/RobloxInputActionSystem.md](Reference/RobloxInputActionSystem.md).

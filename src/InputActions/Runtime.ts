@@ -7,6 +7,7 @@ import {
 	UserInputService,
 } from "@rbxts/services";
 import { EveryFrame } from "../Internal/EveryFrame";
+import { WarnIfNotServerAuthority } from "./AuthorityMode";
 import { CheckBindingKeys } from "./BindingRules";
 import { ApplySpec, ReadBinding, WriteBinding } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
@@ -822,5 +823,6 @@ export function Create<S extends Record<string, IContextSchema>>(
 		runtime.Destroy();
 		error(problem, 0);
 	}
+	WarnIfNotServerAuthority("InputActions.Create", schema.Contexts);
 	return runtime.Root as unknown as InputHandle<S>;
 }

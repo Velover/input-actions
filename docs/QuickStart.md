@@ -77,6 +77,7 @@ Move.StateChanged.Connect((direction) => print(direction)); // Vector2
 // polling, for continuous input
 RunService.RenderStepped.Connect((deltaTime) => {
 	const direction = Move.GetState();
+	// MouseDelta (like MouseWheel and TouchDelta) reads as a rate: times the frame's time, pixels
 	const turn = Look.GetState().mul(deltaTime);
 	if (Crouch.IsJustPressed()) print("crouch"); // needs TrackPrevious: true
 });

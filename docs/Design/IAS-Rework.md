@@ -638,6 +638,11 @@ places, `SignalBehavior = Deferred`:
 | `VirtualInput:SendKey` with gamepad KeyCodes | reaches UIS as Keyboard input, never IAS gamepad bindings; `DPadUp`, `ButtonStart`, `Escape` throw (reserved by CoreGui) |
 | `StudioDeviceSimulatorService:SetDeviceAsync("iphone_14")` (edit realm, plugin level) before play | `PreferredInput = Touch`; `VirtualInput` mouse events arrive as touch (`TouchStarted`, `TouchPosition`, `TouchDelta`, `UIButton` taps, `UIModifier`); restore with `"default"` |
 | Displays turned off during a play session | 0 render steps a second, Heartbeat 240 Hz; minimized: about 60 fps |
+| A real key held when a TextBox takes focus, `ResetOnFocusLoss: false` (2026-10-01) | the action stays pressed while the TextBox has focus; the key-up comes as `gameProcessed` and releases it. `TextBox:ReleaseFocus()` lands a frame or two later: a key pressed at once still goes to the TextBox |
+| `UserInputService.InputBegan` for a key bound in a sinking IAS context (2026-10-01) | `gameProcessed` is `false`: `Capture` takes keys already in use |
+| `MouseWheel` on the `UiNavigation` preset's `Scroll` (`ClampMagnitudeToOne` left at its default) and on an unclamped binding, one notch (2026-10-01) | the same value, about the frame rate: the clamp ignores a single-key source. `MouseDelta` with `Scale 0.02`, `Vector2Scale (1, -1)`: scaled and flipped, not clamped |
+| `VirtualInput:SendMouseDelta` (2026-10-01) | throws `cursor is not locked` until a frame after `MouseBehavior` reads `LockCenter`; in a window without focus the cursor never locks, and it keeps throwing |
+| A Studio test window during a run (2026-10-01) | may receive `WindowFocusReleased` (the user working in another window), which the focus-loss reset answers by releasing held actions; VirtualInput input never focuses the window |
 | Server Authority: client-made Scriptable binding under a server-made action | drives it; the server's `GetState`, `Pressed`, `StateChanged`, `BindToSimulation` all see the state |
 | Server Authority: client disables the context while a binding holds the action | client `false`; the server keeps `true` (its `Enabled` stays `true`); re-enabled, the client is `true` again |
 | Server Authority: client toggles the action's `Enabled` while held | the same: the server keeps the value, the client's comes back |

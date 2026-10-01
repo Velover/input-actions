@@ -273,11 +273,11 @@ A drag-and-drop label that renders an action's `PreferredBinding`. It is **not p
 | **Direction1D** | Analog `KeyCode` or `Up` | 0 → 1. |
 | Direction1D | Analog `Down` | 0 → −1. |
 | Direction1D | Digital `KeyCode` or `Up` / digital `Down` | 1 or 0 / −1 or 0. |
-| Direction1D | `MouseWheel` / `TrackpadPinch` / `TouchPinch` | Velocity-style delta. Not bounded to ±1, so set `ClampMagnitudeToOne = false` and scale it yourself. Units and return-to-zero behaviour are **UNVERIFIED**. |
+| Direction1D | `MouseWheel` / `TrackpadPinch` / `TouchPinch` | A **rate**: the amount divided by that frame's time, for one frame, then 0 (one wheel notch reads about 190 at 190 fps, 64 at 60 fps). Multiply by the frame's delta time for notches. `ClampMagnitudeToOne` does not clamp it `[Probe 2026-10-01, MouseWheel]`. |
 | **Direction2D** | `Thumbstick1`/`Thumbstick2` | Vector2 in (−1..1, −1..1) after a built-in deadzone. Up is +Y. |
 | Direction2D | Digital composites | `Up` (0,1), `Down` (0,−1), `Left` (−1,0), `Right` (1,0), summed then clamped to magnitude 1 by default. |
 | Direction2D | Analog composites (triggers, per-axis stick codes) | Each component 0..±1 as pressed. |
-| Direction2D | `MouseDelta` / `TouchDelta` / `TrackpadPan` | Pixel or velocity delta; the guide scales by 0.01 and multiplies `GetState()` by `dt` each frame. Whether it is per-frame or per-second, and whether it resets to zero when motion stops, is **UNVERIFIED**. |
+| Direction2D | `MouseDelta` / `TouchDelta` / `TrackpadPan` | A **rate**: pixels divided by that frame's time, for one frame, then 0; the guide scales by 0.01 and multiplies `GetState()` by `dt` each frame, which gives pixels. `Scale` and `Vector2Scale` apply; `ClampMagnitudeToOne` does not clamp it `[Probe 2026-10-01, MouseDelta and TouchDelta]`. |
 | **Direction3D** | Digital composites | `Up` (0,1,0), `Down` (0,−1,0), `Left` (−1,0,0), `Right` (1,0,0), `Forward` (0,0,−1), `Backward` (0,0,1). |
 | Direction3D | Analog composites | Components 0..±1. Whether `KeyCode` (such as a thumbstick) is accepted on Direction3D is **UNVERIFIED**; the docs only mention composites. |
 | **ViewportPosition** | `MousePosition` / `TouchPosition` | Absolute pixel Vector2 from (0,0) to the viewport size. |
@@ -297,7 +297,7 @@ Type-mismatch rules: a mismatched hardware binding either does not fire, or deli
 
 ### Thresholds, deadzone and curve
 - Bool analog thresholds are hysteresis (0.5 press, 0.2 release by default). Setting `PressedThreshold < ReleasedThreshold` is clamped.
-- Thumbsticks have a **built-in, non-configurable deadzone**. Users measured about 10–12%, remapped as `sign(x)*max(|x|-dz,0)/(1-dz)` per component `[User]`. Staff said in 2025-08 that "we will make them configurable", but no property exists in the 2026-09 dump. **UNVERIFIED** values.
+- Thumbsticks have a **built-in, non-configurable deadzone**. Users measured about 10–12%, remapped as `sign(x)*max(|x|-dz,0)/(1-dz)` per component `[User]`. Staff said in 2025-08 that "we will make them configurable", but no property exists in the 2026-09 dump. Measured with a gamepad: radial 0.1 with rescaling on sticks, linear 0.1 on triggers, and `PressedThreshold` applies to the rescaled value. A stick moving on both axes can fire `StateChanged` twice in one frame, with an intermediate value first `[Probe 2026-10-01]`.
 - `ResponseCurve` shapes stick magnitude; it does not change the deadzone.
 
 ### Composite and directional input
@@ -309,7 +309,7 @@ Type-mismatch rules: a mismatched hardware binding either does not fire, or deli
 
 ### Modifiers (chords)
 - `PrimaryModifier` and `SecondaryModifier` give up to **two** modifier keys per binding (so Ctrl+Shift+K is possible). Modifiers must be held **before** the main key. The two modifiers can be pressed in either order.
-- **UNVERIFIED (important for design):** whether a plain `C` binding also fires while Ctrl is held, in other words whether matching is exclusive. Likewise whether `Ctrl+C` and `Ctrl+Shift+C` in the same or equal-priority contexts suppress each other. Godot-style exact matching is **not** documented. Test before relying on it.
+- **Matching is not exclusive** `[Probe 2026-10-01]`: with `Ctrl+C` and plain `C` bound, `Ctrl` then `C` fires both; `C` then `Ctrl` fires only the plain `C`; releasing the modifier releases the chord. **UNVERIFIED:** whether `Ctrl+C` and `Ctrl+Shift+C` in the same or equal-priority contexts suppress each other.
 - On Mac, Ctrl reports as Ctrl and Cmd reports as Meta. Use two bindings for Ctrl or Cmd shortcuts `[Staff 2026-04-07]`.
 - `UIModifier` is the touch equivalent: a `GuiButton` region that must be held.
 
@@ -328,7 +328,7 @@ Type-mismatch rules: a mismatched hardware binding either does not fire, or deli
 
 ### Mouse, trackpad and pointer
 - `MouseDelta`, `MouseWheel`, `TrackpadPan` and `TrackpadPinch` are supported since the 2026-06 full release. Before that, scroll wheel and mouse delta were missing.
-- A user reports that a `MouseDelta` Direction2D binding only registered while the right mouse button was held `[User 2026-06-13]`. **UNVERIFIED.** It may depend on camera or mouse-lock state or on default contexts. Test with the IAS PlayerScripts both on and off.
+- A user reports that a `MouseDelta` Direction2D binding only registered while the right mouse button was held `[User 2026-06-13]`. With the cursor locked (`MouseBehavior.LockCenter`), a `MouseDelta` binding registers with no button held, under the legacy and the IAS PlayerScripts `[Probe 2026-10-01]`; unlocked and unpressed is **UNVERIFIED**.
 - GUI under the cursor (for example ProximityPrompts or buttons) sinks mouse input, including `MouseDelta`, and there is no opt-out to "receive even if sunk" `[User 2026-06-15]`.
 
 ### Rebinding
@@ -704,9 +704,9 @@ UserInputService.TextBoxFocusReleased.Connect(() => {
 ## 9. Open questions (UNVERIFIED; test in Studio before designing around them)
 
 1. How simultaneous bindings aggregate: OR for Bool; sum, last-write or max for directional (§1.6).
-2. Whether modifier matching is exclusive (does `C` fire during Ctrl+C?) and whether chords shadow each other.
+2. ~~Whether modifier matching is exclusive~~ (answered 2026-10-01: `C` fires during Ctrl+C; see §5). Still open: whether chords shadow each other.
 3. Whether `Fire()` values are post-processed (`Scale`, curve, clamp), how they combine with hardware bindings, and whether they persist until re-fired.
-4. Delta sources (`MouseDelta`, `MouseWheel`, `TouchDelta`, `TrackpadPan` and pinches): units, per-frame versus per-second, and return to zero. Also the RMB-gating report on `MouseDelta`.
+4. ~~Delta sources: units, per-frame versus per-second, and return to zero~~ (answered 2026-10-01: rates, for one frame, then 0; see §4). Still open: the RMB-gating report on `MouseDelta` with the cursor unlocked.
 5. Priority and Sink of the implicit default context and of the default PlayerScripts contexts.
 6. Sinking edge cases: disabled actions, unmet modifiers, Scriptable bindings, `GuiObject.InputSink` modes, GuiService selection mode, and whether IAS sinks CAS or UIS (`gameProcessedEvent`).
 7. Whether events fire on the server under Server Authority (docs show polling only).

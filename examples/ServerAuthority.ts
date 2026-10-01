@@ -30,6 +30,7 @@ export const InputSchema = InputActions.Schema({
 
 // server
 export function StartServer() {
+	// Warns when the place doesn't run Server Authority: InputActions.IsServerAuthority() is false
 	InputActions.ProvideToPlayers(InputSchema);
 
 	const handles = new Map<Player, InputActions.ServerHandle<typeof InputSchema.Contexts>>();
