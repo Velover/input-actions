@@ -33,9 +33,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
   refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
   `bun run build` and `bun run test` run it, and an unused directive fails them.
-- Whether the Studio window a run opens renders varies, and the cause isn't known. Some automated
-  runs saw no render steps at all (`RenderStepped` and `BindToRenderStep` never fire, while
-  Heartbeat runs at about 240 Hz). Minimizing the window does not cause that: measured on
+- Whether the Studio window a run opens renders varies. Some automated runs saw no render steps
+  at all (`RenderStepped` and `BindToRenderStep` never fire, while Heartbeat runs at about 240 Hz).
+  The likely cause, not yet confirmed, is the machine idling with its display off: those runs were
+  during long unattended stretches. Minimizing the window does not cause it: measured on
   2026-10-01, a play session minimized as it opened kept rendering at about 60 fps (about 200 fps
   when visible). In every case the render cadence doesn't follow Heartbeat. The package's per-frame
   work (`src/Internal/EveryFrame.ts`) runs once per frame, at the render step or else at
