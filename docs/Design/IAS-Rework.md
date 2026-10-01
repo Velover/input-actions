@@ -299,11 +299,22 @@ Binding handle (non-Scriptable):
   value it has changes nothing, but a key written away and back in one frame releases a held
   action (local) or leaves it stuck (under the player) **(probed)**, so `Set(K.Space)` on a Space
   binding, or importing the save already in effect, leaves a held action held. A value is written
-  only when it differs both from the binding as read before the write and from what it reads at that
-  point: `ReleasedThreshold` reads at most `PressedThreshold` and IAS keeps the value written
-  **(probed)**, so `Set({ PressedThreshold: 0.9 })` brings a stored `ReleasedThreshold` of 0.8 back
-  into view rather than writing the clamped reading over it, and `Reset` keeps a designer's stored
-  value.
+  when it differs from what the binding reads at that point, `PressedThreshold` before
+  `ReleasedThreshold`. `ReleasedThreshold` reads at most `PressedThreshold` and IAS keeps the value
+  written **(probed)**, so a binding can store a value it doesn't show, and a target read back from a
+  binding (the defaults snapshot, a save) holds only the reading. Three cases:
+  - `Reset`, `ResetBindings`, imports, `Destroy` and the swap's carried rebinds give the binding the
+    target's reading: `ReleasedThreshold` is written when the binding, its `PressedThreshold`
+    written, would read otherwise. A stored value stays only when the binding reads the target with
+    it, so `Reset` keeps a designer's 0.8 stored under a default `PressedThreshold` of 0.5, but
+    brings back a default of 0.6 under 0.9 when a player stored 0.8 then lowered
+    `PressedThreshold` (comparing with the binding as read before the write would skip that 0.6,
+    which equals the clamped reading before it).
+  - A `Set` or a schema binding that names `ReleasedThreshold` stores it, even where it reads as
+    `PressedThreshold`.
+  - A write that doesn't name it (`Set({ PressedThreshold: 0.9 })`, `Clear`, `Capture`, the swap
+    when the stand-in kept it) leaves the stored value, which comes back into view when
+    `PressedThreshold` is raised, rather than writing the clamped reading over it.
 - **A change to a binding's keys** (`KeyCode`, a composite direction, a modifier) makes IAS reset
   every binding of the action, whichever binding changed **(probed)**: on a local context the
   action is released at once; keys still down and Scriptable values count again once pressed or
@@ -311,9 +322,10 @@ Binding handle (non-Scriptable):
   stays held, on the client and the server, until the new keys are pressed and released. So when a
   write changes the keys of an action that is not at rest (its state, or the latest value the
   package fired on it), the package forgets its held values on that action and, on a copy under
-  the player, fires the pair of §8 after the writes. States are read before any write of the batch,
-  so one import releases an action once. A threshold, `Scale` or other tuning change leaves a held
-  action held **(probed)**.
+  the player in a place that runs Server Authority, fires the pair of §8 after the writes (not when
+  `IsServerAuthority()` is `false`: the copy is local there, §8). States are read before any write
+  of the batch, so one import releases an action once. A threshold, `Scale` or other tuning change
+  leaves a held action held **(probed)**.
 - `Reset()`: back to the defaults snapshot (§4). `Clear(slot?)`: with no slot, unbinds: KeyCode,
   composites and modifiers become `None`. With a slot (`"KeyCode"`, `"Up"`, ...,
   `"PrimaryModifier"`, typed as for `Capture`), clears only that one, e.g. `Clear("PrimaryModifier")`
@@ -492,6 +504,13 @@ client; the server only reads action state, which IAS replicates on its own.
   doesn't mention (a template's extras, which the package gives the template's keys): those get the
   pair on a Scriptable binding made for it and destroyed in the same frame, when their context is
   disabled and when the last root handle using their keys is destroyed.
+- **In a place without Server Authority** a context under the player (the server's copy of a
+  context marked `ServerAuthority: true`) is an ordinary local context **(probed, hunt round 3)**:
+  a rebind while a key holds its action releases it once, and nothing sticks. So the package fires
+  none of these pairs (releases, rebinds, `RawInputHandler.ControlSetEnabled`) when
+  `IsServerAuthority()` is `false`: after a rebind IAS has released the action already, and the
+  pair would press and release it once more. While the mode is `undefined` it fires them, as under
+  Server Authority. `Tap` waits for the press to show only on such a copy too.
 - **Rebinding a held action (probed).** A change to the keys of any binding of an action on the
   copy, while the action is held, leaves it held on both sides (§6, binding handle). A pair fired
   before the change is undone by it when the binding still holds a key that is down; fired after
@@ -519,6 +538,8 @@ client; the server only reads action state, which IAS replicates on its own.
 - **Warnings:** `Create` (client) and `ProvideToPlayers` (server) warn once per call when the schema
   marks a context `ServerAuthority: true` and `IsServerAuthority()` returns `false`, naming the
   contexts and saying the server will never receive their state. `undefined` stays silent.
+- **Releases:** `false` also turns off the releases on the server ("Releasing on the server" above);
+  `undefined` keeps them.
 - **The user docs must explain it plainly**, replacing every statement that the package "can't
   tell" or "can't warn":
   - what `IsServerAuthority` reads: the engine's error message, quoted as in the table above;
@@ -610,7 +631,10 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   - `SendMousePosition` doesn't register while the Studio window is unfocused (the
     `MousePosition` action reads (-1, -1)); don't depend on it, or skip with a clear message;
   - the window may not render (display off): GUI clicks have not been verified in that state;
-    a test that needs layout must cope or skip with a message.
+    a test that needs layout must cope or skip with a message;
+  - wheel notches zoom the player's camera too, and four in from the start put it in first person,
+    which locks the cursor at the centre: every later click misses its button **(probed, hunt
+    round 3)**. The test helper sends a test's notches back, last first, when the test ends.
 - **Touch:** an extra pass, `bun run test:touch` (and part of `test:all`), runs the tests in a
   place made under a `touch` project with Studio simulating a phone:
   `studio exec --realm edit` calling
@@ -698,9 +722,10 @@ places, `SignalBehavior = Deferred`:
 | A destroyed instance's `Parent` | writing `nil` (its value) succeeds; writing an instance errors `The Parent property of X is locked`; a live instance made its own parent errors `Attempt to set X as its own parent`; connecting to a destroyed instance's events works and reports `Connected` |
 | Server Authority: which `CameraContext` the CameraModule tunes | `StarterPlayer.PlayerModule.InputContexts`: its `CameraRotationAction` bindings (`MouseBinding`, `TrackpadBinding`, `GamepadBinding`, `MicroGamepadBinding`) had `Scale` 0.36; the player's copy keeps 1 |
 | A real key held, its binding's `KeyCode` changed; or another binding of the action rebound; or a modifier added; or a composite direction changed while its held key stays (2026-10-01, local context) | released at once, one `Released`; the old key's release changes nothing; the key counts again once pressed again |
-| The same under the player (a context in `LocalPlayer`, simulated as under Server Authority) | `Released` then `Pressed`: stays held after the key comes up, until the new keys are pressed and released |
+| The same under the player, in a Server Authority place (a context the client made in `LocalPlayer`, standing in for the server's copy) | `Released` then `Pressed`: stays held after the key comes up, until the new keys are pressed and released |
+| The same in a place without Server Authority: a context in `ReplicatedStorage`, one the client made in `LocalPlayer`, and the server's copy under the player (hunt round 3, 2026-10-01) | one `Released`, state `false`, nothing stuck after the key comes up: under the player is a local context there |
 | A Scriptable binding holds `true`, a key binding of the action rebound (2026-10-01) | local: released, and the next `Fire(true)` presses again; under the player: stays held, and a later `Fire(false)` on that binding is ignored |
-| Under the player: a pair (held value, value at rest) on a temporary Scriptable binding, before or after the key change (2026-10-01) | before: works when the held key left the binding, undone (held again, stuck) when it stays in it; after, with the value read before the change: released in every case above, one `Released`; an `Enabled` toggle adds nothing, and alone doesn't release. On a local context the same pair after the change adds a second `Pressed`/`Released` |
+| Under the player: a pair (held value, value at rest) on a temporary Scriptable binding, before or after the key change (2026-10-01) | before: works when the held key left the binding, undone (held again, stuck) when it stays in it; after, with the value read before the change: released in every case above, one `Released`; an `Enabled` toggle adds nothing, and alone doesn't release. On a local context (also under the player without Server Authority) the same pair after the change adds a second `Pressed`/`Released` |
 | A binding property written with the value it has; `KeyCode` written `None` and back in one frame; `PressedThreshold` or `Scale` changed on a held binding (2026-10-01) | nothing; released (local) or stuck (under the player); nothing, released with its key, on both |
 | An `InputCatcher` (CAS sink, priority 5000) active, a real click or tap on a GuiButton with a `UIButton` binding (hunt, 2026-10-01) | the binding presses its action and `Activated` fires; a `MouseLeftButton` binding and the wheel are blocked |
 | `Capture("KeyCode")` on a `Direction1D` binding, a real wheel notch (hunt, 2026-10-01) | ignored, the `KeyCode` stays `None`: the wheel raises `InputChanged`, not `InputBegan` |

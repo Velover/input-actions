@@ -113,7 +113,9 @@ scripts can't read directly. It reads the reason `workspace.Terrain:CanSetNetwor
 client the call throws until the game has loaded (`workspace.Terrain` is `nil` before
 `game.Loaded`), so ask after it, as `Create` does. Best-effort: it depends on that wording, and an
 unknown message gives `undefined` rather than a guess. The first `true` or `false` is kept for the
-session; `undefined` is not, so it asks again next time. Never throws or yields. See
+session; `undefined` is not, so it asks again next time. Never throws or yields. Besides the
+warnings of `Create` and `ProvideToPlayers`, the package reads it before releasing an action on the
+server: with `false` it releases nothing there, since the server's copy is then a local context. See
 [Is Server Authority on?](Advanced.md#is-server-authority-on).
 
 ### SanitizeBindings
@@ -265,8 +267,16 @@ makes them and `Clear()` produces them.
 IAS reads `ReleasedThreshold` as at most `PressedThreshold`, and keeps the value written:
 `Set({ ReleasedThreshold: 0.8 })` on a binding whose `PressedThreshold` is 0.5 reads (and `Get()`
 returns) 0.5 until `PressedThreshold` is raised; after `Set({ PressedThreshold: 0.9 })` it reads 0.8.
-`Set` writes only what the spec changes, and `Reset` only what differs from the defaults, so neither
-writes a clamped reading over a kept value. A save holds what the binding reads.
+The package writes it this way:
+
+- `Set` and the schema store the `ReleasedThreshold` they name, even where it reads as
+  `PressedThreshold`. One they don't name keeps the value stored, so `Set({ PressedThreshold })`
+  never writes the clamped reading over it.
+- `Reset`, `ResetBindings`, an import and `Destroy` (for adopted bindings) give the binding what its
+  defaults read: `PressedThreshold` first, then `ReleasedThreshold` when the binding would read
+  otherwise. A value stored above the default `PressedThreshold` (a designer's 0.8 under 0.5) is
+  kept when the defaults read it as 0.5.
+- A save holds what the binding reads.
 
 - The Delta1D and Delta2D keys (`MouseWheel`, `MouseDelta`, `TouchDelta`, trackpad pan and pinch)
   read as **rates**: the amount over that frame's time, for one frame, then 0. Multiply by the

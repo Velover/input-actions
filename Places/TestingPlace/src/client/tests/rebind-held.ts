@@ -166,9 +166,43 @@ export class RebindHeldTests implements OnStart {
 				expectEqual(released.count, 0, "Released");
 				expectEqual(input.Gameplay.Actions.Crouch.Bindings.KeyboardAndMouse.Instance.KeyCode, K.V);
 				// Reset reports its binding (as Set does); the bulk resets and the import report what changed
-				expectEqual(changes.join(","), "Gameplay/Jump/KeyboardAndMouse,Gameplay/Crouch/KeyboardAndMouse");
+				expectEqual(
+					changes.join(","),
+					"Gameplay/Jump/KeyboardAndMouse,Gameplay/Crouch/KeyboardAndMouse",
+				);
 				real.Release(K.Space);
 				eventually(() => !jump.IsPressed(), "released with the key");
+			});
+
+			// ---- the server's copy in a place without Server Authority: a local context there
+
+			// IAS releases it as any local context, and the package fires no pair for a server that
+			// never receives its state: after the change, the pair would press and release it once
+			// more (hunt round 3, H3-F2; hunter-r3-real holds a real key instead)
+			test("a provided copy in a place without Server Authority: a rebind releases a fired value once", () => {
+				if (getProject() === "authority") return;
+				const input = createSaInput();
+				eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy");
+				expectEqual(InputActions.IsServerAuthority(), false);
+				const jump = input.SaGameplay.Actions.Jump;
+				const events = new Array<string>();
+				const pressed = jump.Pressed.Connect(() => events.push("P"));
+				const released = jump.Released.Connect(() => events.push("R"));
+				defer(() => {
+					pressed.Disconnect();
+					released.Disconnect();
+				});
+				jump.Fire(true);
+				eventually(() => events.size() === 1, "Fire(true) presses Jump");
+				jump.Bindings.KeyboardAndMouse.Set(K.G);
+				frames(10);
+				expectEqual(events.join(""), "PR", "Pressed/Released, the rebind 10 frames ago");
+				expectFalse(jump.IsPressed(), "released");
+				jump.Fire(true);
+				eventually(() => jump.IsPressed(), "Fire(true) again");
+				jump.Fire(false);
+				frames(5);
+				expectEqual(events.join(""), "PRPR", "one more press and release");
 			});
 
 			// ---- the server's copy (Server Authority), where IAS would keep the action held

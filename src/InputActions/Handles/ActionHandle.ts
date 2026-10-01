@@ -1,6 +1,6 @@
-import { Players, RunService } from "@rbxts/services";
+import { RunService } from "@rbxts/services";
 import { CarryChanges, ReadBinding, WriteBindings } from "../BindingState";
-import { IRuntime, IsLive, NEUTRAL_VALUES } from "../Internal";
+import { IRuntime, IsLive, IsServerAuthorityCopy, NEUTRAL_VALUES } from "../Internal";
 import {
 	ClearHeldValue,
 	GetEntry,
@@ -19,7 +19,8 @@ const TAP_PRESS_TIMEOUT = 0.5;
 /** `<Action>UIButton<n>` with the lowest `n` no child of `action` has */
 function FreeButtonName(action: InputAction, actionName: string): string {
 	let index = 1;
-	while (action.FindFirstChild(`${actionName}${BUTTON_BINDING_INFIX}${index}`) !== undefined) index++;
+	while (action.FindFirstChild(`${actionName}${BUTTON_BINDING_INFIX}${index}`) !== undefined)
+		index++;
 	return `${actionName}${BUTTON_BINDING_INFIX}${index}`;
 }
 
@@ -95,9 +96,7 @@ export function MoveBindings(
 			const defaults = GetEntry(binding)?.Defaults;
 			if (defaults !== undefined && existing.Type === binding.Type) {
 				GetEntry(existing)!.Defaults ??= defaults;
-				const values = ReadBinding(existing);
-				CarryChanges(ReadBinding(binding), defaults, values);
-				WriteBindings([[existing, values]]);
+				WriteBindings([CarryChanges(ReadBinding(binding), defaults, existing)]);
 			}
 			moved.set(binding, existing);
 		}
@@ -321,11 +320,7 @@ export class ActionHandle {
 			// The server's copy takes the press on its next simulation step, which may be frames
 			// away: a release before it would land in the same step, and the server would see no press
 			const deadline = os.clock() + TAP_PRESS_TIMEOUT;
-			while (
-				!this.IsPressed() &&
-				this.Instance.IsDescendantOf(Players.LocalPlayer) &&
-				os.clock() < deadline
-			) {
+			while (!this.IsPressed() && IsServerAuthorityCopy(this.Instance) && os.clock() < deadline) {
 				RunService.Heartbeat.Wait();
 			}
 			this.Fire(false);
@@ -372,7 +367,8 @@ export class ActionHandle {
 	 * keeps the last value it received, and the client's comes back when re-enabled (probed). So an
 	 * action on the server's copy still held by anything else (a key, a button, a binding the
 	 * package doesn't drive) gets a same-frame pair on `<Action>Script`, its value then the value at
-	 * rest: the last write wins, on both sides.
+	 * rest: the last write wins, on both sides. Not in a place without Server Authority, where the
+	 * copy is a local context (see `IsServerAuthorityCopy`).
 	 */
 	Release() {
 		const action = this.Instance;
@@ -388,7 +384,7 @@ export class ActionHandle {
 			for (const binding of held) pcall(() => binding.Fire(this._neutral));
 			return;
 		}
-		if (!action.IsDescendantOf(Players.LocalPlayer)) return;
+		if (!IsServerAuthorityCopy(action)) return;
 		const state = action.GetState();
 		if (state === this._neutral) return;
 		const binding = this.GetScriptBinding();

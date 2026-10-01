@@ -1,4 +1,5 @@
 import { Players } from "@rbxts/services";
+import { IsServerAuthority } from "./AuthorityMode";
 
 /** What the handles need from the root handle that owns them */
 export interface IRuntime {
@@ -33,6 +34,18 @@ export function IsLive(action: InputAction): boolean {
 	return context === undefined || !context.IsA("InputContext") || context.Enabled;
 }
 
+/**
+ * Whether the server keeps a state of its own for this action, which a reset on the client doesn't
+ * release: the action is under the player (the server's copy of a Server Authority context, or the
+ * PlayerModule's `player.InputContexts`) in a place that runs Server Authority. Without Server
+ * Authority a copy under the player is an ordinary local context (probed): IAS releases it as any
+ * other, and a pair fired for the server would press and release it once more. While the mode is
+ * unknown (`IsServerAuthority()` is `undefined`) it counts as on.
+ */
+export function IsServerAuthorityCopy(action: Instance): boolean {
+	return action.IsDescendantOf(Players.LocalPlayer) && IsServerAuthority() !== false;
+}
+
 /** The binding `ReleaseOnServer` makes for a moment */
 const RELEASE_BINDING_NAME = "InputActionsRelease";
 
@@ -42,7 +55,7 @@ const RELEASE_BINDING_NAME = "InputActionsRelease";
  * value it received (probed). A same-frame pair on a Scriptable binding, the held value then the
  * value at rest, releases both sides, even on a binding made and destroyed in that frame. For
  * actions the package drives no binding of: a binding named `name` is made for the pair and goes at
- * once.
+ * once. Nothing is fired for an action that isn't on such a copy (`IsServerAuthorityCopy`).
  * @param state the value to release: the action's state unless it was read before a change that
  * reset the action (see `WriteBindings`)
  */
@@ -51,7 +64,7 @@ export function ReleaseOnServer(
 	name = RELEASE_BINDING_NAME,
 	state: unknown = action.GetState(),
 ) {
-	if (!IsLive(action) || !action.IsDescendantOf(Players.LocalPlayer)) return;
+	if (!IsLive(action) || !IsServerAuthorityCopy(action)) return;
 	const neutral = NEUTRAL_VALUES[action.Type.Name];
 	if (state === neutral) return;
 	const binding = new Instance("InputBinding");

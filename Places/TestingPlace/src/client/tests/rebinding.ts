@@ -1,5 +1,6 @@
 import { OnStart, Provider } from "@flamework-experimental/core";
 import {
+	defer,
 	defineTests,
 	eventually,
 	expectArrayEqual,
@@ -10,6 +11,7 @@ import {
 	expectTrue,
 	test,
 } from "@flamework-experimental/testing";
+import { InputActions } from "@rbxts/input-actions";
 import { RoundFloat } from "@rbxts/input-actions/out/InputActions/BindingState";
 import {
 	DecideCapture,
@@ -191,6 +193,48 @@ export class RebindingTests implements OnStart {
 				expectTrue(
 					nearlyEqual(trigger.ReleasedThreshold, 0.8),
 					`Reset kept the designer's 0.8: ${trigger.ReleasedThreshold}`,
+				);
+			});
+
+			// A value Set or the schema names is stored even where the binding reads it already (it
+			// reads at most PressedThreshold), so a later PressedThreshold raise shows that value, not
+			// one stored before (hunt round 3, H3-F1; hunter-r3 covers Reset, imports and Destroy)
+			test("a ReleasedThreshold that Set or the schema names is stored, even where PressedThreshold hides it", () => {
+				const pad = createTestInput().Gameplay.Actions.Fire.Bindings.Gamepad;
+				const reads = () =>
+					`${RoundFloat(pad.Instance.PressedThreshold)}/${RoundFloat(pad.Instance.ReleasedThreshold)}`;
+				// the schema's PressedThreshold is 0.6: 0.875 is stored, and reads 0.6
+				pad.Set({ KeyCode: Enum.KeyCode.ButtonR2, ReleasedThreshold: 0.875 });
+				pad.Set({
+					KeyCode: Enum.KeyCode.ButtonR2,
+					PressedThreshold: 0.5,
+					ReleasedThreshold: 0.5,
+				});
+				expectEqual(reads(), "0.5/0.5", "both 0.5");
+				pad.Set({ KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.75 });
+				expectEqual(reads(), "0.75/0.5", "the 0.5 Set named, not the 0.875 stored before it");
+
+				const schema = InputActions.Schema({
+					Hidden: {
+						Actions: {
+							Fire: InputActions.Bool({
+								Pad: {
+									KeyCode: Enum.KeyCode.ButtonR2,
+									PressedThreshold: 0.125,
+									ReleasedThreshold: 0.125,
+								},
+							}),
+						},
+					},
+				});
+				const input = InputActions.Create(schema, { Folder: newFolder() });
+				defer(() => input.Destroy());
+				const hidden = input.Hidden.Actions.Fire.Bindings.Pad.Instance;
+				hidden.PressedThreshold = 0.5;
+				expectEqual(
+					RoundFloat(hidden.ReleasedThreshold),
+					0.125,
+					"the schema's 0.125, not the 0.2 a new binding has",
 				);
 			});
 

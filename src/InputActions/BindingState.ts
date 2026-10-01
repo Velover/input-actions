@@ -90,35 +90,67 @@ function SameProperty(name: keyof IBindingValues, a: unknown, b: unknown): boole
 }
 
 /**
- * Writes the values that differ from the binding's own, keys first. Writing a property the value it
- * already has changes nothing in IAS, but a key written away and back in one frame releases a held
- * action (probed), so nothing is written for nothing.
- *
- * A value is written only when it differs both from the binding as it read before the write and from
- * what it reads now. IAS reads `ReleasedThreshold` as at most `PressedThreshold` and keeps the value
- * written (probed): raising `PressedThreshold` brings a stored `ReleasedThreshold` back into view, and
- * the clamped value read before must not be written over it.
+ * What a write does with `ReleasedThreshold`. IAS reads it as at most `PressedThreshold` and keeps
+ * the value written (probed): a binding can store a value it doesn't show, and a target read back
+ * from a binding holds only the reading.
+ */
+export const enum EReleasedThreshold {
+	/**
+	 * The target is a reading (`Reset`, imports, `Destroy`): written when the binding, its
+	 * `PressedThreshold` written first, would read otherwise. A stored value stays only when the
+	 * binding reads the target with it.
+	 */
+	Read,
+	/**
+	 * The write doesn't name it (`Set({ PressedThreshold })`, `Clear`, `Capture`): not written. The
+	 * stored value comes back into view when `PressedThreshold` is raised, instead of the clamped
+	 * reading the target was made from being written over it.
+	 */
+	Keep,
+	/** The write names it (`Set({ ReleasedThreshold })`): written, so the binding stores the target */
+	Store,
+}
+
+/** What writing a binding spec (`Set`, a schema binding) does with `ReleasedThreshold` */
+export function SpecReleasedThreshold(spec: unknown): EReleasedThreshold {
+	const named =
+		!IsKeyCode(spec) && (spec as { ReleasedThreshold?: unknown }).ReleasedThreshold !== undefined;
+	return named ? EReleasedThreshold.Store : EReleasedThreshold.Keep;
+}
+
+/**
+ * Writes the values that differ from what the binding reads at that point, keys first, and
+ * `ReleasedThreshold` as `releasedThreshold` says. Writing a property the value it already has
+ * changes nothing in IAS, but a key written away and back in one frame releases a held action
+ * (probed), so nothing is written for nothing.
  * @returns whether a key slot (KeyCode, a composite direction, a modifier) changed
  */
 export function WriteBinding(
 	binding: InputBinding,
 	values: IBindingValues,
-	before = ReadBinding(binding),
+	releasedThreshold = EReleasedThreshold.Read,
 ): boolean {
 	const instance = binding as unknown as Record<string, unknown>;
 	let keysChanged = false;
 	for (const name of BINDING_PROPERTIES) {
 		const value = values[name];
-		if (SameProperty(name, value, before[name]) || SameProperty(name, value, instance[name]))
+		if (name === "ReleasedThreshold" && releasedThreshold !== EReleasedThreshold.Read) {
+			if (releasedThreshold === EReleasedThreshold.Store) instance[name] = value;
 			continue;
+		}
+		if (SameProperty(name, value, instance[name])) continue;
 		instance[name] = value;
 		if ((KEY_SLOTS as readonly string[]).includes(name)) keysChanged = true;
 	}
 	return keysChanged;
 }
 
-/** A change to one binding: the values it is to have */
-export type BindingWrite = [binding: InputBinding, values: IBindingValues];
+/** A change to one binding: the values it is to have, and what is done with `ReleasedThreshold` */
+export type BindingWrite = [
+	binding: InputBinding,
+	values: IBindingValues,
+	releasedThreshold?: EReleasedThreshold,
+];
 
 /** The binding `WriteBindings` makes for a moment, to release an action on the server */
 const REBIND_RELEASE_NAME = "InputActionsRebindRelease";
@@ -142,13 +174,15 @@ function HeldState(action: InputAction): unknown {
  * Writes binding changes (`Set`, `Reset`, `Clear`, `Capture`, imports), each only where it differs
  * from the instance. A change to any binding's keys makes IAS reset every binding of its action
  * (probed). On a local context the action is released at once, and keys still down count again
- * once pressed again. On a context under the player (Server Authority) the client's state is
- * pressed again instead, and stays held on the client and the server until the new keys are pressed
- * and released. So an action whose keys changed while it was not at rest is released after the
- * writes, as IAS releases a local one: the package forgets the values it held on it, and on a copy
- * under the player a same-frame pair, the value it held then the value at rest, is the last write on
- * both sides (a release before the writes would be undone by them). States are read before any
- * write, so bindings of one action changed together release it once.
+ * once pressed again. On a context under the player in a place that runs Server Authority the
+ * client's state is pressed again instead, and stays held on the client and the server until the
+ * new keys are pressed and released. So an action whose keys changed while it was not at rest is
+ * released after the writes, as IAS releases a local one: the package forgets the values it held on
+ * it, and on such a copy a same-frame pair, the value it held then the value at rest, is the last
+ * write on both sides (a release before the writes would be undone by them). Without Server
+ * Authority the copy under the player is local, and IAS has released it already: no pair, which
+ * would press and release it once more (`ReleaseOnServer`). States are read before any write, so
+ * bindings of one action changed together release it once.
  * @returns the bindings whose values changed
  */
 export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding> {
@@ -161,9 +195,9 @@ export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding
 	}
 	const changed = new Set<InputBinding>();
 	const rebound = new Set<InputAction>();
-	for (const [binding, values] of writes) {
+	for (const [binding, values, releasedThreshold] of writes) {
 		const before = ReadBinding(binding);
-		const keysChanged = WriteBinding(binding, values, before);
+		const keysChanged = WriteBinding(binding, values, releasedThreshold);
 		if (!SameValues(before, ReadBinding(binding))) changed.add(binding);
 		const action = binding.Parent;
 		if (keysChanged && action !== undefined && action.IsA("InputAction")) rebound.add(action);
@@ -241,24 +275,31 @@ export function ApplySaved(values: IBindingValues, saved: Map<SavedProperty, Sav
 
 /**
  * Applies onto `target` what `current` changed from `defaults`, as an import of those changes would
- * (one input source per binding), and leaves the rest of `target` as it is. A Server Authority swap
- * carries a stand-in's rebinds this way onto the binding another root handle made on the copy.
+ * (one input source per binding), and leaves the rest of `target` as it is: its stored
+ * `ReleasedThreshold` too, unless that changed. A Server Authority swap carries a stand-in's rebinds
+ * this way onto the binding another root handle made on the copy.
+ * @returns the write that does it
  */
 export function CarryChanges(
 	current: IBindingValues,
 	defaults: IBindingValues,
-	target: IBindingValues,
-) {
+	target: InputBinding,
+): BindingWrite {
+	const values = ReadBinding(target);
 	const saved = new Map<SavedProperty, SavedValue>();
 	for (const name of SAVED_PROPERTIES) {
 		if (current[name] !== defaults[name]) saved.set(name, current[name]);
 	}
-	ApplySaved(target, saved);
+	ApplySaved(values, saved);
 	if (current.ClampMagnitudeToOne !== defaults.ClampMagnitudeToOne)
-		target.ClampMagnitudeToOne = current.ClampMagnitudeToOne;
-	if (current.DisplayName !== defaults.DisplayName) target.DisplayName = current.DisplayName;
+		values.ClampMagnitudeToOne = current.ClampMagnitudeToOne;
+	if (current.DisplayName !== defaults.DisplayName) values.DisplayName = current.DisplayName;
 	if (current.DisplayImage.Uri !== defaults.DisplayImage.Uri)
-		target.DisplayImage = current.DisplayImage;
+		values.DisplayImage = current.DisplayImage;
+	const releasedThreshold = saved.has("ReleasedThreshold")
+		? EReleasedThreshold.Read
+		: EReleasedThreshold.Keep;
+	return [target, values, releasedThreshold];
 }
 
 const DEFAULT_SCALE = 1;

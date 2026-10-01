@@ -17,7 +17,7 @@ import {
 	MouseController,
 	RawInputHandler,
 } from "@rbxts/input-actions";
-import { GuiService, RunService, UserInputService } from "@rbxts/services";
+import { GuiService, RunService, UserInputService, Workspace } from "@rbxts/services";
 import { skip } from "shared/fixtures/skip";
 import {
 	countSignal,
@@ -544,6 +544,54 @@ export class RealInputTests implements OnStart {
 					return skip(`${CURSOR_UNLOCKED}: rotation untested`);
 				eventually(() => rotations.size() > 0, "a rotation");
 				expectTrue(rotations[0].X !== 0, `${rotations[0]}`);
+			});
+
+			// Wheel notches zoom the player's camera too. Four in from the start put it in first person,
+			// which locks the cursor at the centre, and every later click then misses its button (hunt
+			// round 3, H3-F3): RealInput sends a test's notches back when it ends
+			test("RealInput sends a test's wheel notches back: the camera ends at the zoom it started with", () => {
+				if (isTouch()) return skip(MOUSE_AS_TOUCH);
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				const camera = expectDefined(Workspace.CurrentCamera, "the camera");
+				const zoom = () => camera.CFrame.Position.sub(camera.Focus.Position).Magnitude;
+				// The camera eases to a new zoom over several frames
+				const settled = () => {
+					let last = zoom();
+					for (let index = 0; index < 40; index++) {
+						frames(4);
+						const now = zoom();
+						if (math.abs(now - last) < 1e-3) return now;
+						last = now;
+					}
+					return last;
+				};
+				const start = settled();
+				// A RealInput of its own, whose end this test calls itself
+				const inner = new RealInput(real.Device);
+				inner.Wheel(1);
+				frames(3);
+				inner.Wheel(1);
+				frames(3);
+				inner.Wheel(-1);
+				frames(3);
+				inner.Wheel(1);
+				const zoomedIn = settled();
+				if (zoomedIn > start - 0.5)
+					return skip(`the camera didn't zoom with the wheel (${start} to ${zoomedIn})`);
+				inner.ReleaseAll();
+				const sentBack = settled();
+				expectTrue(
+					math.abs(sentBack - start) < start * 0.15,
+					`zoom ${start} at the start, ${zoomedIn} after two notches in, ${sentBack} after ReleaseAll`,
+				);
+				expectTrue(
+					UserInputService.MouseBehavior !== Enum.MouseBehavior.LockCenter,
+					"not in first person",
+				);
+				// Sent back already: the test's own end sends nothing more
+				inner.ReleaseAll();
+				expectTrue(math.abs(settled() - sentBack) < 1e-2, "a second ReleaseAll changes nothing");
 			});
 
 			// ---- UI navigation

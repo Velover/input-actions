@@ -86,12 +86,15 @@ export function clickProblem(gui: GuiObject): string | undefined {
 
 /**
  * Real input for one test. Keys and mouse buttons held when the test ends are released then, and
- * the release is given two frames to land before the next test.
+ * the release is given two frames to land before the next test. The wheel notches the test sent are
+ * sent back, so the player's camera ends the test at the zoom it started with.
  */
 export class RealInput {
 	readonly Device: VirtualInput;
 	private readonly _keys = new Set<Enum.KeyCode>();
 	private readonly _buttons = new Map<Enum.UserInputType, Vector2>();
+	/** The wheel notches sent and not yet sent back, oldest first */
+	private readonly _notches = new Array<number>();
 
 	constructor(virtualInput: VirtualInput) {
 		this.Device = virtualInput;
@@ -139,9 +142,17 @@ export class RealInput {
 		frames(2);
 	}
 
-	/** Mouse wheel notches at a screen position: positive away from the user */
+	/**
+	 * Mouse wheel notches at a screen position: positive away from the user. They zoom the player's
+	 * camera too, and four in from where the tests start put it in first person, which locks the
+	 * cursor at the centre (clicks on a button then miss it): the test's notches are sent back when it
+	 * ends. A notch the other way right after one sends it back at once.
+	 */
 	Wheel(notches: number, position: Vector2 = emptyPoint()) {
 		this.Device.SendPointerAction(position, { Wheel: notches });
+		const last = this._notches.size() - 1;
+		if (last >= 0 && this._notches[last] === -notches) this._notches.pop();
+		else this._notches.push(notches);
 	}
 
 	/** Moves the mouse by `delta` pixels; registers only while the cursor is locked */
@@ -158,6 +169,12 @@ export class RealInput {
 		}
 		this._buttons.clear();
 		if (held) frames(2);
+		// Last first, two frames apart: the camera's zoom steps undo each other in that order
+		while (this._notches.size() > 0) {
+			const notches = this._notches.pop()!;
+			pcall(() => this.Device.SendPointerAction(emptyPoint(), { Wheel: -notches }));
+			frames(2);
+		}
 	}
 }
 

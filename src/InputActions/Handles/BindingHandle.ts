@@ -10,11 +10,13 @@ import {
 import {
 	ApplySpec,
 	ClearKeys,
+	EReleasedThreshold,
 	EncodeSavedValue,
 	GetBindingData,
 	IBindingValues,
 	IsSavableValue,
 	ReadBinding,
+	SpecReleasedThreshold,
 	WriteBindings,
 	WriteKey,
 } from "../BindingState";
@@ -100,7 +102,7 @@ export class BindingHandle {
 		if (this._runtime.IsDestroyed()) return;
 		const values = ReadBinding(this.Instance);
 		ApplySpec(values, spec);
-		this.Write(values);
+		this.Write(values, SpecReleasedThreshold(spec));
 	}
 
 	Reset() {
@@ -117,7 +119,7 @@ export class BindingHandle {
 		const values = ReadBinding(this.Instance);
 		if (slot === undefined) ClearKeys(values, true);
 		else WriteKey(values, slot, Enum.KeyCode.None);
-		this.Write(values);
+		this.Write(values, EReleasedThreshold.Keep);
 	}
 
 	Capture(
@@ -156,15 +158,17 @@ export class BindingHandle {
 	ApplyCapturedKey(slot: string, key: Enum.KeyCode) {
 		const values = ReadBinding(this.Instance);
 		WriteKey(values, slot, key);
-		this.Write(values);
+		this.Write(values, EReleasedThreshold.Keep);
 	}
 
 	/**
 	 * Gives the binding these values and reports it. Only what differs is written, and an action
 	 * held when its keys change is released (see `WriteBindings`)
+	 * @param releasedThreshold what is done with `ReleasedThreshold` (see `EReleasedThreshold`):
+	 * `Reset` gives the binding the defaults' reading
 	 */
-	private Write(values: IBindingValues) {
-		WriteBindings([[this.Instance, values]]);
+	private Write(values: IBindingValues, releasedThreshold = EReleasedThreshold.Read) {
+		WriteBindings([[this.Instance, values, releasedThreshold]]);
 		this._runtime.NotifyBindingChanged(this.Path);
 	}
 

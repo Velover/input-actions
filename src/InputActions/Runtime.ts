@@ -9,10 +9,21 @@ import {
 import { EveryFrame } from "../Internal/EveryFrame";
 import { WarnIfNotServerAuthority } from "./AuthorityMode";
 import { CheckBindingKeys } from "./BindingRules";
-import { ApplySpec, ReadBinding, WriteBinding, WriteBindings } from "./BindingState";
+import {
+	ApplySpec,
+	ReadBinding,
+	SpecReleasedThreshold,
+	WriteBinding,
+	WriteBindings,
+} from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
 import { ROOT_MEMBERS, SCRIPTABLE } from "./Builders";
-import { ActionHandle, IMovedBindings, MoveBindings, RefireHeldValues } from "./Handles/ActionHandle";
+import {
+	ActionHandle,
+	IMovedBindings,
+	MoveBindings,
+	RefireHeldValues,
+} from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
@@ -270,7 +281,8 @@ export class InputRuntime implements IRuntime {
 			if (entry === undefined) continue;
 			if (entry.Created) instance.Destroy();
 			else if (entry.TemplateEnabled !== undefined) {
-				if (instance.Parent !== undefined) (instance as InputContext).Enabled = entry.TemplateEnabled;
+				if (instance.Parent !== undefined)
+					(instance as InputContext).Enabled = entry.TemplateEnabled;
 			} else if (entry.Defaults !== undefined)
 				WriteBindings([[instance as InputBinding, entry.Defaults]]);
 		}
@@ -404,7 +416,8 @@ export class InputRuntime implements IRuntime {
 		const copy = Players.LocalPlayer.FindFirstChild(playerFolderName)?.FindFirstChild(name);
 		// Root handles waiting on a stand-in swap first, so the copy carries their state
 		const waiting = standIns.get(key);
-		if (waiting !== undefined && IsCopyReady(waiting, copy)) InputRuntime.LinkStandIn(waiting, copy);
+		if (waiting !== undefined && IsCopyReady(waiting, copy))
+			InputRuntime.LinkStandIn(waiting, copy);
 		if (copy !== undefined && copy.IsA("InputContext") && HasActions(copy, schema)) {
 			ClaimCopyEnabled(copy, template, templateEnabled, schema);
 			const handle = new ContextHandle(this, this.GetContextState(copy), name, true);
@@ -566,7 +579,10 @@ export class InputRuntime implements IRuntime {
 				for (const link of pending.StandIn.Links) {
 					for (const [actionName] of Entries(link.Schema.Actions)) {
 						const action = copy.FindFirstChild(actionName);
-						if ((action === undefined || !action.IsA("InputAction")) && !missing.includes(actionName))
+						if (
+							(action === undefined || !action.IsA("InputAction")) &&
+							!missing.includes(actionName)
+						)
 							missing.push(actionName);
 					}
 				}
@@ -756,7 +772,7 @@ export class InputRuntime implements IRuntime {
 			else {
 				const values = ReadBinding(binding);
 				ApplySpec(values, spec);
-				WriteBinding(binding, values);
+				WriteBinding(binding, values, SpecReleasedThreshold(spec));
 			}
 			binding.Parent = action;
 			this.TrackCreated(binding);

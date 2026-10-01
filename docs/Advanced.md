@@ -196,10 +196,10 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   direction or a modifier, through any of the calls above, an import or `ResetBindings`) while its
   action is held, the action is released, whatever holds it: a key, a button, a value fired from
   code. IAS does that on a local context, even when the binding that changed isn't the one holding
-  the action (it resets every binding of the action). On a Server Authority context IAS would keep
-  the action held, on the client and the server, so the package releases it there, on both sides
-  (see [Releasing on the server](#releasing-on-the-server)). A key still down counts again once it
-  is pressed again, and a value fired from code must be fired again.
+  the action (it resets every binding of the action). On the server's copy of a Server Authority
+  context IAS would keep the action held, on the client and the server, so the package releases it
+  there, on both sides (see [Releasing on the server](#releasing-on-the-server)). A key still down
+  counts again once it is pressed again, and a value fired from code must be fired again.
 - Only what changes is written. A `Set` or an import that leaves a binding's keys as they are (a
   threshold, a scale, the key it already has, the save already in effect) leaves a held action
   held.
@@ -400,6 +400,10 @@ What the package does with it:
   contexts and says the server will never receive their state.
 - When it is `undefined` they stay silent: the warning goes quiet rather than wrong. So no warning
   doesn't prove Server Authority is on; `true` does.
+- It decides whether the package releases actions under the player on the server too (see
+  [Releasing on the server](#releasing-on-the-server)). With `false` it doesn't: without Server
+  Authority the server's copy is an ordinary local context. With `undefined` it does, as under
+  Server Authority.
 - The `Timeout` warning is another matter: it only means the server's copy never arrived. It says
   nothing about the mode.
 
@@ -436,6 +440,14 @@ release before it would be undone by it; an import that changes several bindings
 releases it once. The values the package fired on that action are forgotten: IAS reset them too.
 Write keys through the binding handles: a key you write on the instance yourself leaves the action
 held.
+
+**In a place without Server Authority** (`IsServerAuthority()` is `false`), a context marked
+`ServerAuthority: true` still runs on the server's copy under the player, but that copy is an
+ordinary local context there: a rebind while a key holds its action releases it once, as on any
+local context (measured), and the server never receives its state. So the package fires none of the
+pairs above on it. After a rebind, IAS has released the action already, and a pair would press and
+release it once more. While the mode is unknown (`undefined`), the package fires them, as under
+Server Authority.
 
 ## UI navigation preset
 

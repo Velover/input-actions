@@ -52,6 +52,12 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     test depends on it;
   - a window that renders nothing (display off) has no GUI layout: `clickProblem(guiObject)` says
     so, and the test skips;
+  - `Wheel` notches zoom the player's camera too (measured under `default`: 12.5 studs, then 7.8,
+    4.7, 2.5, and first person at the fourth notch in). First person locks the cursor at the
+    centre, and every later click then misses its button, with errors that look unrelated.
+    `RealInput` sends a test's notches back, last first, when the test ends (a notch the other way
+    right after one cancels it at once). Don't send more than three notches in a row the same way
+    within a test, and send wheel input through `Wheel`, not through `Device`;
   - Legacy player scripts (`default`) sink `Left`, `Right`, `I`, `O` (camera) and toggle shift lock
     on `LeftShift` through CAS: real-input tests use other keys.
 - **Skipping:** a test that can't run in this state calls `skip(reason)` from
