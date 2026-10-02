@@ -654,10 +654,13 @@ export class HunterR1RealTests implements OnStart {
 				task.wait(0.2);
 				eventually(() => !jump.IsPressed(), "released after a tap of J");
 				frames(3);
+				// PRPRR here on 2026-10-02 (IAS sent the copy's Released twice): the handle now passes
+				// each edge on once. FocusNote tells a focus-loss reset in the middle apart
 				const sequence = events.join("");
-				expectTrue(sequence.find("PP", 1, true)[0] === undefined, sequence);
-				expectTrue(sequence.find("RR", 1, true)[0] === undefined, sequence);
-				expectEqual(sequence.sub(-1), "R", sequence);
+				const what = `${sequence}${real.FocusNote()}`;
+				expectTrue(sequence.find("PP", 1, true)[0] === undefined, what);
+				expectTrue(sequence.find("RR", 1, true)[0] === undefined, what);
+				expectEqual(sequence.sub(-1), "R", what);
 			});
 		});
 	}

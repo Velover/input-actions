@@ -13,6 +13,7 @@ import {
 } from "@flamework-experimental/testing";
 import { RawInputHandler } from "@rbxts/input-actions";
 import { Players, StarterPlayer } from "@rbxts/services";
+import { usesIasPlayerScripts } from "shared/fixtures/projects";
 import { frames, nearlyEqual } from "./helpers";
 
 /**
@@ -57,10 +58,9 @@ function scriptableBinding(action: InputAction, reset: unknown) {
 	return binding;
 }
 
-/** The IAS player scripts run under these projects; `default` has the legacy ones */
+/** The IAS player scripts run under this project; `default` and `immediate` have the legacy ones */
 function usesIas() {
-	const project = getProject();
-	return project === "ias" || project === "authority" || project === "touch";
+	return usesIasPlayerScripts();
 }
 
 /** RawInputHandler over the IAS PlayerModule, with the legacy fallback (design spec §10) */
@@ -78,7 +78,8 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("the move vector is CharacterContext.MoveAction as Vector3(x, 0, -y)", () => {
-				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
+				if (!usesIas())
+					return skip("the IAS player scripts only (ias, ias-immediate, authority, touch)");
 				RawInputHandler.Initialize();
 				const move = scriptableBinding(
 					playerModuleAction("CharacterContext", "MoveAction"),
@@ -99,7 +100,8 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("rotation and zoom read the camera actions, gated by MouseInputSetEnabled", () => {
-				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
+				if (!usesIas())
+					return skip("the IAS player scripts only (ias, ias-immediate, authority, touch)");
 				RawInputHandler.Initialize();
 				const rotation = scriptableBinding(
 					playerModuleAction("CameraContext", "CameraRotationAction"),
@@ -123,7 +125,8 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("ControlSetEnabled switches CharacterContext", () => {
-				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
+				if (!usesIas())
+					return skip("the IAS player scripts only (ias, ias-immediate, authority, touch)");
 				RawInputHandler.Initialize();
 				const context = playerModuleAction("CharacterContext", "MoveAction").Parent as InputContext;
 				defer(() => RawInputHandler.ControlSetEnabled(true));
@@ -171,7 +174,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("legacy player scripts: the controls module and the forked camera input", () => {
-				if (usesIas()) return skip("the legacy player scripts only (default)");
+				if (usesIas()) return skip("the legacy player scripts only (default, immediate)");
 				RawInputHandler.Initialize();
 				expectEqual(RawInputHandler.GetMoveVector(true, true), Vector3.zero);
 				RawInputHandler.ControlSetEnabled(false);

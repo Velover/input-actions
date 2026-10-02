@@ -485,7 +485,8 @@ or right there. `RawInputHandler`'s legacy fork does the same. The IAS player sc
 
 These were measured in Studio (with `SignalBehavior = Deferred`; real keyboard, mouse and touch
 input through `VirtualInput` and the device simulator, and a gamepad, on 2026-10-01) and hold for any
-IAS code, with or without this package:
+IAS code, with or without this package. The package's tests run under both `Deferred` and
+`Immediate`:
 
 - **Several bindings on one action are not combined: the last one to change wins.** Holding A and
   B, then releasing A, releases the action, with real keys as with `Fire`. The same goes for
@@ -526,10 +527,13 @@ IAS code, with or without this package:
   value. A stick moving on both axes can fire `StateChanged` twice in one frame, with an
   intermediate value first.
 - `GetState()` updates synchronously after a `Fire`; the events (`Pressed`, `StateChanged`) are
-  deferred under `SignalBehavior = Deferred`. Under Server Authority, contexts under the player are
-  simulated: the fired value shows in `GetState()` on the next simulation step. The handles' own
-  signals forward the IAS ones, so under Deferred a listener connected right after a `Fire` can
-  still receive that `Fire`'s event.
+  deferred under `SignalBehavior = Deferred`, and run inside the `Fire` call under `Immediate`.
+  Under Server Authority (which requires Deferred), contexts under the player are simulated: the
+  fired value shows in `GetState()` on the next simulation step. The handles' own signals forward
+  the IAS ones, so under Deferred a listener connected right after a `Fire` can still receive that
+  `Fire`'s event, and under Immediate a handle's `Pressed` has run by the time `Fire` returns. A
+  handle's `Pressed` and `Released` always alternate: on a Server Authority copy IAS has sent
+  `Released` twice in a row, and the handle passes such a repeat on once.
 - A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
   silently ignored.
 - Under Server Authority, disabling a context or action on the client doesn't release the server's

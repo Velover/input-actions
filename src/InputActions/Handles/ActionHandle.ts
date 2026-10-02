@@ -156,6 +156,13 @@ export class ActionHandle {
 	/** What the listeners were last told (or the state when the handle was made) */
 	private _shownState: unknown;
 	private _shownPressed: boolean;
+	/**
+	 * The last of `Pressed` and `Released` the listeners were sent. IAS can send the same one twice in
+	 * a row (a Server Authority copy, after the stand-in swap, sent `Released` twice: 2026-10-02), and
+	 * the handle passes it on once, so the two always alternate. Unset until the first one, so a handle
+	 * made while its action is held still passes on that press's `Pressed` if it is on its way.
+	 */
+	private _lastEdge?: "Pressed" | "Released";
 	private _forwards = new Array<RBXScriptConnection>();
 	private _scriptBinding?: InputBinding;
 	/** The bindings this handle's `AttachButton` made that are still there */
@@ -218,18 +225,20 @@ export class ActionHandle {
 			const track = this._track;
 			this._forwards.push(
 				action.Pressed.Connect(() => {
-					if (this.Instance !== action) return;
+					if (this.Instance !== action || this._lastEdge === "Pressed") return;
 					// Counted here, from the IAS signal: a forward would land one deferral later
 					if (track !== undefined) track.PressedCount++;
 					this._shownPressed = true;
+					this._lastEdge = "Pressed";
 					pressed.Fire();
 				}),
 			);
 			this._forwards.push(
 				action.Released.Connect(() => {
-					if (this.Instance !== action) return;
+					if (this.Instance !== action || this._lastEdge === "Released") return;
 					if (track !== undefined) track.ReleasedCount++;
 					this._shownPressed = false;
+					this._lastEdge = "Released";
 					released.Fire();
 				}),
 			);
@@ -261,9 +270,11 @@ export class ActionHandle {
 		const track = this._track;
 		if (pressed) {
 			if (track !== undefined) track.PressedCount++;
+			this._lastEdge = "Pressed";
 			this._pressed?.Fire();
 		} else {
 			if (track !== undefined) track.ReleasedCount++;
+			this._lastEdge = "Released";
 			this._released?.Fire();
 		}
 	}

@@ -12,6 +12,7 @@ import {
 } from "@flamework-experimental/testing";
 import { InputActions, InputCatcher } from "@rbxts/input-actions";
 import { expectedServerAuthority, isModeWarning, names } from "shared/fixtures/authority";
+import { usesLegacyPlayerScripts } from "shared/fixtures/projects";
 import { countSignal, createTestInput, frame, frames, newFolder, recordWarnings } from "./helpers";
 import { clickProblem, emptyPoint, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -182,7 +183,7 @@ export class HunterR2RealTests implements OnStart {
 				real.Press(K.Down);
 				eventually(() => navigate.GetState() === new Vector2(0, -1), "Down");
 				real.Release(K.Down);
-				if (getProject() === "default")
+				if (usesLegacyPlayerScripts())
 					expectEqual(left, Vector2.zero, "Left, sunk by the legacy camera");
 				else expectEqual(left, new Vector2(-1, 0), "Left");
 			});

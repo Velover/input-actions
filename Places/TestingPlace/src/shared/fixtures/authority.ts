@@ -1,4 +1,5 @@
 import { getProject } from "@flamework-experimental/testing";
+import { isKnownProject } from "./projects";
 
 /**
  * What `InputActions.IsServerAuthority()` should answer under the project this place was made under:
@@ -7,7 +8,7 @@ import { getProject } from "@flamework-experimental/testing";
 export function expectedServerAuthority(): boolean | undefined {
 	const project = getProject();
 	if (project === "authority") return true;
-	if (project === "default" || project === "ias" || project === "touch") return false;
+	if (isKnownProject()) return false;
 	return undefined;
 }
 

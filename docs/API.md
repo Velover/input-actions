@@ -215,7 +215,7 @@ Bool actions add:
 
 | Member | |
 | --- | --- |
-| `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals |
+| `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals; they always alternate (a repeat of the last one, which IAS can send on a Server Authority copy, is dropped) |
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
 | `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none |

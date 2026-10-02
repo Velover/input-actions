@@ -7,21 +7,32 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 
 - `bun run test:all` builds the package from `../../` and copies it into
   `node_modules/@rbxts/input-actions` (`scripts/link-package.mjs`, also `bun run link`), then runs
-  every test section in Studio under four Rojo projects:
+  every test section in Studio under six Rojo projects:
   - `default` (`default.project.json`): legacy player scripts;
   - `ias` (`tests/ias.project.json`): `Workspace.PlayerScriptsUseInputActionSystem = Enabled`;
+  - `immediate` (`tests/immediate.project.json`): legacy player scripts, with
+    `Workspace.SignalBehavior = Immediate`;
+  - `ias-immediate` (`tests/ias-immediate.project.json`): the IAS player scripts, with Immediate
+    signals;
   - `authority` (`tests/authority.project.json`): Server Authority on (with the IAS player scripts,
     next-generation replication, fixed simulation, streaming, deferred signals);
   - `touch` (`tests/touch.project.json`): the IAS player scripts, with Studio simulating a phone
     (see [The touch pass](#the-touch-pass)).
-- `bun run test`, `test:ias`, `test:authority` and `test:touch` run one project. `getProject()` from
-  `@flamework-experimental/testing` returns `default`, `ias`, `authority` or `touch` inside the
-  place.
+- Signals are Deferred everywhere else: `tests/place.rbxlx` sets it, and Server Authority requires
+  it, so there is no Immediate `authority`. The `signal-behavior` section checks that each place
+  runs the mode its project sets (no script can read the property: a BindableEvent's handler runs
+  inside `Fire` only under Immediate).
+- `bun run test`, `test:ias`, `test:authority` and `test:touch` run one project, and
+  `test:immediate` runs the two Immediate ones. `getProject()` from `@flamework-experimental/testing`
+  returns the project's name inside the place. What each project sets is in
+  `src/shared/fixtures/projects.ts` (`usesIasPlayerScripts()`, `usesLegacyPlayerScripts()`,
+  `expectedSignalBehavior()`): test that rather than project names.
 - The package is not in `package.json`: the link script puts it in `node_modules`, and every test
   run refreshes it. Import it as `@rbxts/input-actions`.
 - The design the package implements: `../../docs/Design/IAS-Rework.md`.
 - The sections: `schema`, `rules`, `sanitize`, `presets`, `authority-mode`
-  (`IsServerAuthority`) (shared); `create`, `actions`, `track-previous`, `contexts`,
+  (`IsServerAuthority`), `signal-behavior` (the project's signal mode; IAS's and the handles' events
+  under it, on the client) (shared); `create`, `actions`, `track-previous`, `contexts`,
   `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
   `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
   server when the client resets an action; authority only), `real-input` (real keys and mouse
@@ -29,7 +40,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
   `server-authority` (server). The `validator-r*` and `hunter-r*` sections are reviewers'
   adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
-  (`schemas.ts`; `authority.ts`, the mode each project expects and the warnings' wording; and
+  (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
+  expects and the warnings' wording; and
   `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those
   rounds' sections). Project-specific tests skip under the other projects (`getProject()`, then
   `return skip("the authority project only")`), so the summary counts them as skipped.

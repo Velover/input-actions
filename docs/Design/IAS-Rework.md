@@ -257,7 +257,11 @@ Action handle (all types):
 - `Bindings`: typed record of binding handles, one per schema slot.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
 
-Bool actions add `Pressed`, `Released` (IAS signals), `IsPressed()`, `Tap()` (fires `true`, then
+Bool actions add `Pressed`, `Released` (IAS signals, passed on so that the two always alternate:
+an IAS signal repeating the last one passed on is dropped, as a Server Authority copy once sent
+`Released` twice in a row after the stand-in swap, 2026-10-02; until the first one, anything is
+passed on, so a handle made while its action is held still hears that press's `Pressed` if it is
+on its way), `IsPressed()`, `Tap()` (fires `true`, then
 `false` on the next frame; on a Server Authority copy, once the press shows in the state, at most
 0.5 s later: that copy's state moves on simulation steps, and a release in the same step as the
 press would reach the server as no press at all), and:
@@ -474,7 +478,8 @@ client; the server only reads action state, which IAS replicates on its own.
     on the next input; `Pressed`/`Released` listeners see that. The stand-in's events still on
     their way are dropped, so at the swap each handle tells its listeners the copy's state
     (`Released`, `StateChanged` to rest) before the copy's own events: a value fired again reads
-    as a release and a new press, never two `Pressed` in a row. After the swap, `Reset` still
+    as a release and a new press, never two `Pressed` in a row (nor two `Released`: the copy's own
+    events repeating what the swap told them are dropped, §6). After the swap, `Reset` still
     returns to the same defaults. When another root handle is on the same copy already (it swapped
     first, or found the copy there), its bindings of the same name are adopted rather than doubled
     (attached buttons are renamed). What the stand-in's binding changed from its defaults (rebinds,
@@ -625,8 +630,10 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
 ## 12. Tests (in `Places/TestingPlace`)
 
 - `bun run test:all` (from `Places/TestingPlace`) builds the package into the place
-  (`scripts/link-package.mjs`), then runs every section in Studio under three projects:
-  `default` (legacy player scripts), `ias` (IAS player scripts) and `authority` (Server Authority).
+  (`scripts/link-package.mjs`), then runs every section in Studio under six projects:
+  `default` (legacy player scripts), `ias` (IAS player scripts), `immediate` and `ias-immediate`
+  (the same two with `SignalBehavior = Immediate`), `authority` (Server Authority) and `touch` (a
+  simulated phone). The others run Deferred signals; Server Authority requires them.
   `getProject()` from `@flamework-experimental/testing` tells a test which one it runs under.
 - **Real keyboard and mouse input:** `UserInputService:CreateVirtualInput()` (client and server,
   in Studio; the typings return `RBXObject`, so cast to `VirtualInput`) returns a `VirtualInput`
@@ -717,6 +724,8 @@ places, `SignalBehavior = Deferred`:
 | `workspace.Terrain:CanSetNetworkOwnership()` from game scripts | Server Authority, both realms: `false, Can not call Network Ownership API when workspace.AuthorityMode = Enums.AuthorityMode.Server.`; otherwise client `false, Network Ownership API can only be called from the Server.`, server `false, Network Ownership API cannot be used on Terrain` |
 | `UserInputService:CreateVirtualInput()` from game scripts in Studio | a `VirtualInput` on the client and the server; IAS treats its input as hardware, also with the window in the background |
 | `VirtualInput:SendKey` with gamepad KeyCodes | reaches UIS as Keyboard input, never IAS gamepad bindings; `DPadUp`, `ButtonStart`, `Escape` throw (reserved by CoreGui) |
+| `SignalBehavior = Immediate` (set on Workspace by the project's patch; 2026-10-02) | a BindableEvent's handler, IAS's `Pressed` after a Scriptable binding's `Fire`, and a handle's `Pressed`/`Released` all run inside the `Fire` call; every test passes under both modes |
+| Server Authority: the stand-in swap with a real key held, then released, then tapped (2026-10-02, `hunter-r1-real`) | once, IAS sent the copy's `Released` twice in a row (handle events `PRPRR`); the same test passed in the full runs before and in 5 runs right after. The handle now passes a repeated edge on once (§6) |
 | `StudioDeviceSimulatorService:SetDeviceAsync("iphone_14")` (edit realm, plugin level) before play | `PreferredInput = Touch`; `VirtualInput` mouse events arrive as touch (`TouchStarted`, `TouchPosition`, `TouchDelta`, `UIButton` taps, `UIModifier`); restore with `"default"` |
 | Displays turned off during a play session | 0 render steps a second, Heartbeat 240 Hz; minimized: about 60 fps |
 | A real key held when a TextBox takes focus, `ResetOnFocusLoss: false` (2026-10-01) | the action stays pressed while the TextBox has focus; the key-up comes as `gameProcessed` and releases it. `TextBox:ReleaseFocus()` lands a frame or two later: a key pressed at once still goes to the TextBox |
