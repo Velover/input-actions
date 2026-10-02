@@ -346,13 +346,15 @@ Binding handle (non-Scriptable):
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
   Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
   binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
-  key, so a binding on it couldn't fire either), except a Cancel key, heard even then (not while the
-  player types: a TextBox has focus, or lost it within 0.1 s, since Return and Escape arrive once the
-  focus is gone) so the player can always back out (`ClassifyCaptureInput`; hunts HC-2, HC2-3,
-  0.6.1). Keys already down when a capture starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
+  key, so a binding on it couldn't fire either), except a Cancel key, heard even then. Typing is no part of
+  a capture: anything while a TextBox has focus, and within 0.1 s after it lets go, what ends the
+  typing, which arrives once the focus is gone: game-processed input (Return, Escape) and a click or
+  tap (a click away, which isn't game-processed). Other keys count again at once so the player can always back out (`ClassifyCaptureInput`; hunts HC-2, HC2-3,
+  HC3-1, 0.6.1). Keys already down when a capture starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
   buttons) count only once they have come up: a ContextActionService action runs before
   `InputBegan` fires, so the press of a CAS hotkey that starts a capture would otherwise reach it
-  (hunt HC2-2). The wheel, mouse movement,
+  (hunt HC2-2). A finger down reads as mouse button 1 and arrives as `TouchPosition`: mouse button 1
+  down at the start stands for both, and either coming up forgets both (hunt HC3-2). The wheel, mouse movement,
   touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
   keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
   to `Set`.

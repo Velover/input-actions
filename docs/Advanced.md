@@ -188,12 +188,13 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`gameProcessed`) is ignored: a click or tap on GUI, typing in a TextBox, and keys a
   ContextActionService binding sinks, such as an active `InputCatcher`'s or the legacy shift lock's
   on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
-  since a CAS sink blocks IAS. A `Cancel` key is heard even then, unless the player is typing (a
-  TextBox has focus, or lost it a moment ago: Return and Escape end the typing, and arrive once the
-  focus is gone), so the player can always back out. Block gameplay during a rebind with
-  `Request(false)`, not with an `InputCatcher`. The press that starts a capture is no part of it:
-  keys already down when it starts count only once they have come up and gone down again, so a
-  hotkey that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed
+  since a CAS sink blocks IAS. A `Cancel` key is heard even then, so the player can always back out.
+  Typing is no part of a capture, `Cancel` keys included: nothing counts while a TextBox has focus,
+  nor what ends the typing (Return, Escape, a click or tap away), which arrives just after the focus
+  is gone. Other keys count again at once. Block gameplay during a rebind with `Request(false)`, not with an
+  `InputCatcher`. The press that starts a capture, a click or tap included, is no part of it: keys
+  already down when it starts count only once they have come up and gone down again, so a hotkey
+  that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed
   and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
 - **`Capture` takes only input that begins:** it listens to `UserInputService.InputBegan`, which a

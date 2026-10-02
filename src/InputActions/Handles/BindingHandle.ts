@@ -59,8 +59,8 @@ export function DecideCapture(
 }
 
 /**
- * How long after a TextBox loses focus a game-processed key still counts as typing: Return and
- * Escape end the typing, and their InputBegan comes once the focus is gone (hunt HC2-3)
+ * How long after a TextBox loses focus input still counts as typing: what ends the typing (Return,
+ * Escape, a click away) comes once the focus is gone (hunts HC2-3, HC3-1)
  */
 const TYPING_GRACE = 0.1;
 let focusWatch: RBXScriptConnection | undefined;
@@ -73,17 +73,28 @@ function WatchTextBoxFocus() {
 	});
 }
 
-/** Whether game-processed input now is typing: a TextBox has focus, or lost it a moment ago */
-function IsTyping(): boolean {
-	return (
-		UserInputService.GetFocusedTextBox() !== undefined ||
-		os.clock() - focusReleasedAt < TYPING_GRACE
-	);
+/** The keys of mouse buttons and touch: a click or tap */
+const POINTER_BUTTON_KEYS = new ReadonlySet<Enum.KeyCode>([
+	Enum.KeyCode.MouseLeftButton,
+	Enum.KeyCode.MouseRightButton,
+	Enum.KeyCode.MouseMiddleButton,
+	Enum.KeyCode.TouchPosition,
+]);
+
+/**
+ * Whether an input that began is typing, or what ends it: anything while a TextBox has focus; in the
+ * moment after it lets go, what the game processed (Return, Escape) and a click or tap (a click
+ * away). Other keys count again at once, so a key pressed right after a submit isn't lost
+ */
+function IsTyping(key: Enum.KeyCode, gameProcessed: boolean): boolean {
+	if (UserInputService.GetFocusedTextBox() !== undefined) return true;
+	if (os.clock() - focusReleasedAt >= TYPING_GRACE) return false;
+	return gameProcessed || POINTER_BUTTON_KEYS.has(key);
 }
 
 /** What a capture makes of a key that began */
 export const enum ECaptureInput {
-	/** Typing in a TextBox: no part of the capture */
+	/** Typing in a TextBox, and what ends it: no part of the capture */
 	Ignore,
 	/** A Cancel key: ends the capture */
 	Cancel,
@@ -97,16 +108,17 @@ export const enum ECaptureInput {
 }
 
 /**
- * What a capture makes of a key that began: typing is no part of it; a Cancel key ends it, also when
- * the game took it (an InputCatcher, any CAS sink), so the player can always back out; any other key
- * the game took is the game's
+ * What a capture makes of a key that began: typing, and the key or click that ends it (which the
+ * game may not have processed: a click away from the TextBox), is no part of it; a Cancel key ends
+ * it, also when the game took it (an InputCatcher, any CAS sink), so the player can always back out;
+ * any other key the game took is the game's
  */
 export function ClassifyCaptureInput(
 	key: Enum.KeyCode,
 	gameProcessed: boolean,
 	cancelKeys: readonly Enum.KeyCode[],
 ): ECaptureInput {
-	if (gameProcessed && IsTyping()) return ECaptureInput.Ignore;
+	if (IsTyping(key, gameProcessed)) return ECaptureInput.Ignore;
 	if (cancelKeys.includes(key)) return ECaptureInput.Cancel;
 	return gameProcessed ? ECaptureInput.Taken : ECaptureInput.Count;
 }
@@ -115,7 +127,8 @@ export function ClassifyCaptureInput(
  * The keys down as a capture starts: keyboard keys (VirtualInput's gamepad KeyCodes among them),
  * mouse buttons and gamepad buttons. Their InputBegan may still be on its way (a ContextActionService
  * action that starts a capture runs before InputBegan fires; deferred signals), and must not count:
- * the press that started a capture is no part of it (hunt HC2-2)
+ * the press that started a capture is no part of it (hunt HC2-2). A finger down reads as mouse button
+ * 1 and arrives as `TouchPosition`, so mouse button 1 stands for both (hunt HC3-2)
  */
 function KeysDownNow(): Set<Enum.KeyCode> {
 	const keys = new Set<Enum.KeyCode>();
@@ -124,12 +137,30 @@ function KeysDownNow(): Set<Enum.KeyCode> {
 		if (inputType !== Enum.UserInputType.Touch && UserInputService.IsMouseButtonPressed(inputType))
 			keys.add(key);
 	}
+	if (keys.has(Enum.KeyCode.MouseLeftButton)) keys.add(Enum.KeyCode.TouchPosition);
 	for (const gamepad of UserInputService.GetConnectedGamepads()) {
 		for (const input of UserInputService.GetGamepadState(gamepad)) {
 			if (input.UserInputState === Enum.UserInputState.Begin) keys.add(input.KeyCode);
 		}
 	}
 	return keys;
+}
+
+/** The two keys one pointer stands for: a mouse's button 1, or a finger, which reads as it */
+const POINTER_KEYS: readonly Enum.KeyCode[] = [
+	Enum.KeyCode.MouseLeftButton,
+	Enum.KeyCode.TouchPosition,
+];
+
+/**
+ * Forgets a key among those down when a capture started, once it has come up (a pointer's two keys
+ * together). True when it was one of them: its release is no part of the capture either
+ */
+function ReleaseDownAtStart(down: Set<Enum.KeyCode>, key: Enum.KeyCode): boolean {
+	if (!POINTER_KEYS.includes(key)) return down.delete(key);
+	let was = false;
+	for (const pointer of POINTER_KEYS) if (down.delete(pointer)) was = true;
+	return was;
 }
 
 /** The action types `CaptureChord` works on: their `KeyCode` takes keys that can be pressed */
@@ -259,7 +290,7 @@ export class BindingHandle {
 			}),
 			UserInputService.InputEnded.Connect((input) => {
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key !== undefined) downAtStart.delete(key);
+				if (key !== undefined) ReleaseDownAtStart(downAtStart, key);
 			}),
 		);
 		for (const connection of connections) this._runtime.TrackConnection(connection);
@@ -340,7 +371,7 @@ export class BindingHandle {
 			UserInputService.InputEnded.Connect((input) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined || downAtStart.delete(key)) return;
+				if (key === undefined || ReleaseDownAtStart(downAtStart, key)) return;
 				const index = held.indexOf(key);
 				if (index === -1) return;
 				if (armed) {
