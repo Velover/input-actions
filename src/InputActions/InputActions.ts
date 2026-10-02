@@ -89,7 +89,7 @@ export namespace InputActions {
 	> = T.IChordBindingHandle<A>;
 	export type ScriptableBindingHandle<A extends Enum.InputActionType> =
 		T.IScriptableBindingHandle<A>;
-	/** A context handle; Server Authority contexts add `IsLinkedToServer` and `LinkedToServer` */
+	/** A context handle; Server Authority contexts add `IsLinkedToServer`, `LinkedToServer` and `WhenLinkedToServer` */
 	export type ContextHandle<C extends T.IContextSchema> = T.ContextHandle<C>;
 	/** The handle `Create` returns */
 	export type Handle<S extends Record<string, T.IContextSchema>> = T.InputHandle<S>;

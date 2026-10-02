@@ -147,8 +147,11 @@ label.Parent = hintFrame;
 const detach = Input.Gameplay.Actions.Jump.AttachLabel(label);
 ```
 
-- The label follows the action onto the server's copy of a Server Authority context at the swap;
-  setting `label.InputAction = action.Instance` yourself would leave it on the destroyed stand-in.
+- The label follows the action onto the server's copy of a Server Authority context at the swap,
+  while it still shows the stand-in's action: one pointed elsewhere meanwhile stays there. Setting
+  `label.InputAction = action.Instance` yourself would leave it on the destroyed stand-in.
+- A label is attached to one action at a time: the last `AttachLabel`, from any action or root
+  handle, takes it over, and the earlier attachment's function and `Destroy` then leave it alone.
 - The returned function, the label's destruction and the root handle's `Destroy` let go of it. Letting
   go clears `label.InputAction`, unless something else pointed it elsewhere meanwhile. Attaching
   the same label twice keeps one attachment; a label destroyed already is left alone.

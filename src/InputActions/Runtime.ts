@@ -684,7 +684,9 @@ export class InputRuntime implements IRuntime {
 		source.Destroy();
 		for (const link of links) link.Runtime.DropUse(source);
 		for (const [, moved] of moves) RefireHeldValues(moved);
-		for (const link of links) link.Handle.MarkLinked();
+		// every handle is marked before any listener runs: Immediate signals run them inside Fire
+		const marked = links.filter((link) => link.Handle.MarkLinked());
+		for (const link of marked) link.Handle.NotifyLinked();
 	}
 
 	private CloneBinding(binding: InputBinding, action: InputAction): InputBinding {

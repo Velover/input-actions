@@ -204,11 +204,20 @@ export class ContextHandle {
 		state.TrueRequests += this._trueRequests;
 	}
 
-	/** The handle now wraps the server's copy: `LinkedToServer` fires, once */
-	MarkLinked() {
-		if (this._linked) return;
+	/**
+	 * The handle now wraps the server's copy; true the first time. `NotifyLinked` tells the listeners
+	 * once every handle of the swap is marked: under Immediate signals they run inside `Fire`, and
+	 * must see the other handles linked too (hunt HL-3)
+	 */
+	MarkLinked(): boolean {
+		if (this._linked) return false;
 		this._linked = true;
-		this._linkedToServer.Fire();
+		return true;
+	}
+
+	/** Fires `LinkedToServer` (and the `WhenLinkedToServer` calls) for a handle `MarkLinked` marked */
+	NotifyLinked() {
+		if (!this._destroyed) this._linkedToServer.Fire();
 	}
 
 	/**

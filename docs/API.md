@@ -212,7 +212,7 @@ All action types:
 | `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
-| `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere). See [Keybind labels](Advanced.md#keybind-labels) |
+| `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. A label is on one action at a time: the last `AttachLabel` takes it over. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere). See [Keybind labels](Advanced.md#keybind-labels) |
 | `Bindings` | the binding handles, by slot name |
 
 Bool actions add:

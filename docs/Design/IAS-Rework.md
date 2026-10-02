@@ -258,7 +258,10 @@ Action handle (all types):
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
 - `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
   `label.InputAction` to the action the handle wraps, and again at each `Attach` (the Server
-  Authority swap), so the label follows the stand-in onto the server's copy. The returned function,
+  Authority swap) while the label still points at the instance the handle leaves, so it follows the
+  stand-in onto the server's copy but not when pointed elsewhere meanwhile (hunt HL-2). A label is
+  attached to one action at a time (`LABEL_OWNERS`): the last `AttachLabel`, from any handle, takes
+  it over, and the earlier attachment lets go without touching it (hunt HL-1). The returned function,
   the label's `Destroying` and `Destroy` let go of it, clearing `InputAction` only while it still
   points at the handle's action. Attaching a label twice keeps one attachment; a destroyed label
   (`Parent` locked, as for `AttachButton`) is left alone; anything but an InputActionLabel throws.
@@ -531,7 +534,9 @@ client; the server only reads action state, which IAS replicates on its own.
     was there from the start and `IsLinkedToServer()` is already `true`), and (0.6.1)
     `WhenLinkedToServer(callback: (context: InputContext) => void): () => void`: calls back with the
     server's copy at once, in the caller's thread, when linked already, else once with
-    `LinkedToServer`; the returned function and `Destroy` cancel a call still to come.
+    `LinkedToServer`; the returned function and `Destroy` cancel a call still to come. At a swap,
+    every root handle on the stand-in is marked linked before any of them fires, so listeners see
+    the others linked under Immediate signals too (hunt HL-3).
   - After `Timeout` seconds (default 10) without the server's copy, `warn` once, naming the
     contexts, the expected path, and the likely causes: `ProvideToPlayers` was not called on the
     server, or it uses a different `PlayerFolderName`. Keep the stand-in, and still swap if the

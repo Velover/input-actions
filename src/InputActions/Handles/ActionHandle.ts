@@ -40,6 +40,12 @@ function IsDestroyed(instance: Instance): boolean {
 	return tostring(message).find(locked, 1, true)[0] !== undefined;
 }
 
+/**
+ * The handle each label is attached to: a label is on one action at a time, and the last
+ * `AttachLabel`, from whichever handle, takes it over (hunt HL-1, HL-2)
+ */
+const LABEL_OWNERS = new Map<InputActionLabel, ActionHandle>();
+
 /** What `MoveBindings` did to one action of a stand-in */
 export interface IMovedBindings {
 	/** The server's action the bindings moved under */
@@ -211,9 +217,13 @@ export class ActionHandle {
 	Attach(action: InputAction) {
 		for (const connection of this._forwards) connection.Disconnect();
 		this._forwards.clear();
+		const previous = this.Instance;
 		this.Instance = action;
-		// the labels follow the handle onto the instance it wraps now (the Server Authority swap)
-		for (const [label] of this._labels) label.InputAction = action;
+		// the labels follow the handle onto the instance it wraps now (the Server Authority swap),
+		// those still on the one it left: a label pointed elsewhere meanwhile stays there (hunt HL-2)
+		for (const [label] of this._labels) {
+			if (label.InputAction === previous) label.InputAction = action;
+		}
 		const stateChanged = this._stateChanged;
 		// An event still on its way from an instance the handle left is not passed on
 		this._forwards.push(
@@ -358,6 +368,11 @@ export class ActionHandle {
 		const detach = () => this.DetachLabel(label);
 		// A label destroyed already fires no Destroying that would let go of it
 		if (this._runtime.IsDestroyed() || IsDestroyed(label)) return () => {};
+		// the last attachment wins: another handle's (another root handle's, or another action's)
+		// lets go of it without touching what it shows
+		const owner = LABEL_OWNERS.get(label);
+		if (owner !== undefined && owner !== this) owner.ReleaseLabel(label);
+		LABEL_OWNERS.set(label, this);
 		label.InputAction = this.Instance;
 		if (this._labels.has(label)) return detach;
 		const destroying = label.Destroying.Connect(detach);
@@ -366,14 +381,24 @@ export class ActionHandle {
 		return detach;
 	}
 
-	/** Lets go of a label attached by `AttachLabel`; it shows nothing more for this action */
+	/**
+	 * Lets go of a label attached by `AttachLabel`: it shows nothing more for this action. Nothing
+	 * when another attachment took it over since (hunt HL-1)
+	 */
 	private DetachLabel(label: InputActionLabel) {
+		if (!this._labels.has(label)) return;
+		this.ReleaseLabel(label);
+		if (label.InputAction === this.Instance) label.InputAction = undefined;
+	}
+
+	/** Forgets a label without touching what it shows: another attachment takes it over, or it goes */
+	ReleaseLabel(label: InputActionLabel) {
 		const destroying = this._labels.get(label);
 		if (destroying === undefined) return;
 		this._labels.delete(label);
 		destroying.Disconnect();
 		this._runtime.UntrackConnection(destroying);
-		if (label.InputAction === this.Instance) label.InputAction = undefined;
+		if (LABEL_OWNERS.get(label) === this) LABEL_OWNERS.delete(label);
 	}
 
 	AttachButton(button: GuiButton): () => void {
