@@ -38,7 +38,7 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   server when the client resets an action; authority only), `real-input` (real keys and mouse
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
-  `server-authority` (server). The `validator-r*` and `hunter-r*` sections are reviewers'
+  `server-authority` (server). The `validator-r*`, `hunter-r*` and `hunter-chord` sections are reviewers'
   adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
   (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
   expects and the warnings' wording; and

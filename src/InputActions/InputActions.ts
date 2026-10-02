@@ -80,6 +80,13 @@ export namespace InputActions {
 	export type ActionHandle<D> = T.ActionHandle<D>;
 	/** A binding handle with keys; on Bool and Direction1D actions it adds `CaptureChord` */
 	export type BindingHandle<A extends Enum.InputActionType> = T.BindingHandleOf<A>;
+	/**
+	 * A binding handle with `CaptureChord`, for helpers generic over the action type (a
+	 * `BindingHandle<A>` of a generic `A` doesn't resolve to it)
+	 */
+	export type ChordBindingHandle<
+		A extends Enum.InputActionType.Bool | Enum.InputActionType.Direction1D,
+	> = T.IChordBindingHandle<A>;
 	export type ScriptableBindingHandle<A extends Enum.InputActionType> =
 		T.IScriptableBindingHandle<A>;
 	/** A context handle; Server Authority contexts add `IsLinkedToServer` and `LinkedToServer` */

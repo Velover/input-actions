@@ -58,6 +58,21 @@ export function DecideCapture(
 	return IsKeyAllowed(actionType, slot, key) ? ECaptureDecision.Accept : ECaptureDecision.Ignore;
 }
 
+/**
+ * Whether a capture hears a key that began. Input the game took (a GUI click, typing, a key a
+ * ContextActionService binding sinks, such as an InputCatcher's) is left to the game: an IAS binding
+ * couldn't use such a key either. A Cancel key is heard all the same, so the player can always back
+ * out, except while a TextBox has focus, where it is typing.
+ */
+export function CaptureHears(
+	key: Enum.KeyCode,
+	gameProcessed: boolean,
+	cancelKeys: readonly Enum.KeyCode[],
+): boolean {
+	if (!gameProcessed) return true;
+	return cancelKeys.includes(key) && UserInputService.GetFocusedTextBox() === undefined;
+}
+
 /** The action types `CaptureChord` works on: their `KeyCode` takes keys that can be pressed */
 const CHORD_TYPES = new ReadonlySet<ActionTypeName>(["Bool", "Direction1D"]);
 
@@ -165,9 +180,9 @@ export class BindingHandle {
 			connection = undefined;
 		};
 		connection = UserInputService.InputBegan.Connect((input, gameProcessed) => {
-			if (gameProcessed || connection === undefined) return;
+			if (connection === undefined) return;
 			const key = KeyFromInput(input.KeyCode, input.UserInputType);
-			if (key === undefined) return;
+			if (key === undefined || !CaptureHears(key, gameProcessed, cancelKeys)) return;
 			const decision = DecideCapture(this.ActionType, slot, key, cancelKeys);
 			if (decision === ECaptureDecision.Ignore) return;
 			stop();
@@ -235,9 +250,9 @@ export class BindingHandle {
 		};
 		connections.push(
 			UserInputService.InputBegan.Connect((input, gameProcessed) => {
-				if (gameProcessed || !live) return;
+				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined) return;
+				if (key === undefined || !CaptureHears(key, gameProcessed, cancelKeys)) return;
 				if (cancelKeys.includes(key)) return settle(undefined);
 				if (!held.includes(key)) held.push(key);
 			}),

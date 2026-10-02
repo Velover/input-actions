@@ -344,7 +344,10 @@ Binding handle (non-Scriptable):
 - `Capture(slot, callback, options?): () => void`: waits for the next key that is legal for that
   slot of this binding (`"KeyCode"`, `"Up"`, ..., `"PrimaryModifier"`), applies it, then calls
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
-  Uses `UserInputService.InputBegan`; ignores `gameProcessed` input. The wheel, mouse movement,
+  Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
+  binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
+  key, so a binding on it couldn't fire either), except a Cancel key, heard even then (not while a
+  TextBox has focus) so the player can always back out (`CaptureHears`; hunt HC-2, 0.6.1). The wheel, mouse movement,
   touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
   keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
   to `Set`.
@@ -367,7 +370,7 @@ Scriptable binding handle: `Instance`, `Name`, `Fire(value: V)`.
 
 Root handle: one property per context, plus `ExportBindings()`, `ImportBindings(json)`,
 `ResetBindings()`, `BindingsChanged: RBXScriptSignal<(path: string) => void>` (fires on
-`Set`/`Reset`/`Clear`/`Capture`/import, with the path `Context/Action/Slot`), `Destroy()`.
+`Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`/import, with the path `Context/Action/Slot`), `Destroy()`.
 Context handles also have `ExportBindings()`, `ImportBindings(json)`, `ResetBindings()` for their
 own actions.
 

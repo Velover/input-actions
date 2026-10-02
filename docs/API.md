@@ -148,6 +148,7 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.Action<A>` | any action handle of type `A` |
 | `InputActions.ActionHandle<D>` | the handle of an action definition |
 | `InputActions.BindingHandle<A>`, `ScriptableBindingHandle<A>` | binding handles (`BindingHandle` of a Bool or Direction1D action adds `CaptureChord`) |
+| `InputActions.ChordBindingHandle<A>` | a binding handle with `CaptureChord`, for helpers generic over `A extends Bool | Direction1D` (a `BindingHandle<A>` of a generic `A` doesn't resolve to it) |
 | `InputActions.ContextHandle<C>` | a context handle |
 | `InputActions.Handle<S>` | what `Create` returns |
 | `InputActions.ServerHandle<S>`, `ServerAction<A>` | what `ForPlayer` returns |
@@ -168,7 +169,7 @@ What `Create` returns: one property per context, by name, plus:
 
 | Member | |
 | --- | --- |
-| `BindingsChanged: RBXScriptSignal<(path: string) => void>` | a binding changed through `Set`/`Reset`/`Clear`/`Capture`, an import or a reset; `path` is `Context/Action/Slot` |
+| `BindingsChanged: RBXScriptSignal<(path: string) => void>` | a binding changed through `Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`, an import or a reset; `path` is `Context/Action/Slot` |
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |

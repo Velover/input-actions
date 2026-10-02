@@ -185,8 +185,13 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`. Mouse buttons and touch
   count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`/`TouchPosition`. Keys in `Cancel`
   stop it without a change; the returned function stops it too. Input the game already processed
-  (`gameProcessed`) is ignored; a key another IAS binding uses, even in a sinking context, is not
-  game-processed and is captured (measured with real keys). The captured key also does whatever it
+  (`gameProcessed`) is ignored: a click or tap on GUI, typing in a TextBox, and keys a
+  ContextActionService binding sinks, such as an active `InputCatcher`'s or the legacy shift lock's
+  on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
+  since a CAS sink blocks IAS. A `Cancel` key is heard even then, unless a TextBox has focus, so
+  the player can always back out. Block gameplay during a rebind with `Request(false)`, not with an
+  `InputCatcher`. A key another IAS binding uses, even in a sinking context, is not game-processed
+  and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
 - **`Capture` takes only input that begins:** it listens to `UserInputService.InputBegan`, which a
   key, a gamepad button, a mouse button or a tap raises. The mouse wheel, mouse movement, touch
@@ -236,7 +241,12 @@ keys.CaptureChord(
 - `callback` gets `undefined` when the capture ends with nothing applied: a `Cancel` key, or the
   timeout. Calling the returned function stops the capture without calling `callback`.
 - As with `Capture`, the keys also do whatever they are bound to while they are pressed: disable
-  the gameplay contexts while the rebinding UI is open (`Request(false)`).
+  the gameplay contexts while the rebinding UI is open (`Request(false)`). Input the game already
+  processed is ignored as for `Capture` (see above): with an `InputCatcher` grabbing input, no key
+  is captured, but a `Cancel` key still ends it.
+- For a helper generic over the action type, type the handle `InputActions.ChordBindingHandle<A>`
+  (`A extends Bool | Direction1D`): a `BindingHandle<A>` of a generic `A` doesn't have
+  `CaptureChord`.
 - **Rebinding a held action releases it.** When a binding's keys change (`KeyCode`, a composite
   direction or a modifier, through any of the calls above, an import or `ResetBindings`) while its
   action is held, the action is released, whatever holds it: a key, a button, a value fired from
