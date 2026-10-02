@@ -346,11 +346,13 @@ Binding handle (non-Scriptable):
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
   Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
   binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
-  key, so a binding on it couldn't fire either), except a Cancel key, heard even then. Typing is no part of
-  a capture: anything while a TextBox has focus, and within 0.1 s after it lets go, what ends the
-  typing, which arrives once the focus is gone: game-processed input (Return, Escape) and a click or
-  tap (a click away, which isn't game-processed). Other keys count again at once so the player can always back out (`ClassifyCaptureInput`; hunts HC-2, HC2-3,
-  HC3-1, 0.6.1). Keys already down when a capture starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
+  key, so a binding on it couldn't fire either), except a Cancel key, heard even then so the player
+  can always back out. Typing is no part of a capture: anything while a TextBox has focus, and within
+  0.1 s after it lets go (however: a script's `ReleaseFocus` too, since the capture can't tell; hunt
+  HC4-1) game-processed input (Return, Escape) and clicks or taps (a click away, which isn't
+  game-processed), what ends the typing, which arrives once the focus is gone. Other keys count again
+  at once (`ClassifyCaptureInput`; hunts HC-2, HC2-3, HC3-1, 0.6.1). Keys already down when a capture
+  starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
   buttons) count only once they have come up: a ContextActionService action runs before
   `InputBegan` fires, so the press of a CAS hotkey that starts a capture would otherwise reach it
   (hunt HC2-2). A finger down reads as mouse button 1 and arrives as `TouchPosition`: mouse button 1
@@ -753,6 +755,7 @@ places, `SignalBehavior = Deferred`:
 | `VirtualInput:SendKey` with gamepad KeyCodes | reaches UIS as Keyboard input, never IAS gamepad bindings; `DPadUp`, `ButtonStart`, `Escape` throw (reserved by CoreGui) |
 | `SignalBehavior = Immediate` (set on Workspace by the project's patch; 2026-10-02) | a BindableEvent's handler, IAS's `Pressed` after a Scriptable binding's `Fire`, and a handle's `Pressed`/`Released` all run inside the `Fire` call; every test passes under both modes |
 | Server Authority: the stand-in swap with a real key held, then released, then tapped (2026-10-02, `hunter-r1-real`) | once, IAS sent the copy's `Released` twice in a row (handle events `PRPRR`); the same test passed in the full runs before and in 5 runs right after. The handle now passes a repeated edge on once (§6) |
+| Typing in the TextChatService chat bar (a CoreGui TextBox), as `GetFocusedTextBox` and `TextBoxFocusReleased` see it (hunts HC3, HC4, 2026-10-02) | not measured: the test place runs LegacyChatService and Slash focuses no TextBox there. If the chat bar isn't seen, a `Cancel` key typed into chat would cancel a capture |
 | `StudioDeviceSimulatorService:SetDeviceAsync("iphone_14")` (edit realm, plugin level) before play | `PreferredInput = Touch`; `VirtualInput` mouse events arrive as touch (`TouchStarted`, `TouchPosition`, `TouchDelta`, `UIButton` taps, `UIModifier`); restore with `"default"` |
 | Displays turned off during a play session | 0 render steps a second, Heartbeat 240 Hz; minimized: about 60 fps |
 | A real key held when a TextBox takes focus, `ResetOnFocusLoss: false` (2026-10-01) | the action stays pressed while the TextBox has focus; the key-up comes as `gameProcessed` and releases it. `TextBox:ReleaseFocus()` lands a frame or two later: a key pressed at once still goes to the TextBox |

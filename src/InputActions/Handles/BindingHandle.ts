@@ -1,4 +1,4 @@
-import { UserInputService } from "@rbxts/services";
+import { RunService, UserInputService } from "@rbxts/services";
 import {
 	ActionTypeName,
 	CheckBindingSpec,
@@ -163,6 +163,35 @@ function ReleaseDownAtStart(down: Set<Enum.KeyCode>, key: Enum.KeyCode): boolean
 	return was;
 }
 
+/**
+ * The keys down as a capture starts, which it leaves alone until they come up. A pointer key among
+ * them stands only for a press whose InputBegan arrives before the next Heartbeat (the press that
+ * started the capture, still on its way): mouse button 1, which also stands for a finger, still
+ * reads pressed a frame after a finger lifts (measured on the simulated phone, 2026-10-02), so a
+ * pointer press after that is a new click or tap
+ */
+class DownAtStart {
+	private readonly _keys = KeysDownNow();
+	private _startFrame = true;
+
+	constructor() {
+		RunService.Heartbeat.Once(() => (this._startFrame = false));
+	}
+
+	/** Whether an InputBegan of `key` is a press that was down already when the capture started */
+	Began(key: Enum.KeyCode): boolean {
+		if (!this._keys.has(key)) return false;
+		if (this._startFrame || !POINTER_KEYS.includes(key)) return true;
+		ReleaseDownAtStart(this._keys, key);
+		return false;
+	}
+
+	/** Forgets `key` once it is up; true when it was down already when the capture started */
+	Ended(key: Enum.KeyCode): boolean {
+		return ReleaseDownAtStart(this._keys, key);
+	}
+}
+
 /** The action types `CaptureChord` works on: their `KeyCode` takes keys that can be pressed */
 const CHORD_TYPES = new ReadonlySet<ActionTypeName>(["Bool", "Direction1D"]);
 
@@ -264,7 +293,7 @@ export class BindingHandle {
 		WatchTextBoxFocus();
 		const cancelKeys = options?.Cancel ?? [];
 		// keys down already: their InputBegan, even one still on its way, is no part of the capture
-		const downAtStart = KeysDownNow();
+		const downAtStart = new DownAtStart();
 		let live = true;
 		const connections = new Array<RBXScriptConnection>();
 		const stop = () => {
@@ -279,7 +308,7 @@ export class BindingHandle {
 			UserInputService.InputBegan.Connect((input, gameProcessed) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined || downAtStart.has(key)) return;
+				if (key === undefined || downAtStart.Began(key)) return;
 				const kind = ClassifyCaptureInput(key, gameProcessed, cancelKeys);
 				if (kind === ECaptureInput.Cancel) return stop();
 				if (kind !== ECaptureInput.Count) return;
@@ -290,7 +319,7 @@ export class BindingHandle {
 			}),
 			UserInputService.InputEnded.Connect((input) => {
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key !== undefined) ReleaseDownAtStart(downAtStart, key);
+				if (key !== undefined) downAtStart.Ended(key);
 			}),
 		);
 		for (const connection of connections) this._runtime.TrackConnection(connection);
@@ -330,7 +359,7 @@ export class BindingHandle {
 		WatchTextBoxFocus();
 		const cancelKeys = options?.Cancel ?? [];
 		// keys down already: their InputBegan, even one still on its way, is no part of a chord
-		const downAtStart = KeysDownNow();
+		const downAtStart = new DownAtStart();
 		const held = new Array<Enum.KeyCode>();
 		// the keys among `held` the game took: a chord with one can't be bound as pressed (hunt HC2-1)
 		const taken = new Set<Enum.KeyCode>();
@@ -361,7 +390,7 @@ export class BindingHandle {
 			UserInputService.InputBegan.Connect((input, gameProcessed) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined || downAtStart.has(key)) return;
+				if (key === undefined || downAtStart.Began(key)) return;
 				const kind = ClassifyCaptureInput(key, gameProcessed, cancelKeys);
 				if (kind === ECaptureInput.Ignore) return;
 				if (kind === ECaptureInput.Cancel) return settle(undefined);
@@ -371,7 +400,7 @@ export class BindingHandle {
 			UserInputService.InputEnded.Connect((input) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined || ReleaseDownAtStart(downAtStart, key)) return;
+				if (key === undefined || downAtStart.Ended(key)) return;
 				const index = held.indexOf(key);
 				if (index === -1) return;
 				if (armed) {

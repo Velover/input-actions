@@ -190,8 +190,9 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
   since a CAS sink blocks IAS. A `Cancel` key is heard even then, so the player can always back out.
   Typing is no part of a capture, `Cancel` keys included: nothing counts while a TextBox has focus,
-  nor what ends the typing (Return, Escape, a click or tap away), which arrives just after the focus
-  is gone. Other keys count again at once. Block gameplay during a rebind with `Request(false)`, not with an
+  and for 0.1 s after it loses focus, however it loses it (a script's `ReleaseFocus` too), clicks,
+  taps and input the game processed don't count either, since what ends the typing (Return, Escape,
+  a click or tap away) arrives just after the focus is gone. Other keys count again at once. Block gameplay during a rebind with `Request(false)`, not with an
   `InputCatcher`. The press that starts a capture, a click or tap included, is no part of it: keys
   already down when it starts count only once they have come up and gone down again, so a hotkey
   that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed

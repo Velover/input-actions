@@ -230,6 +230,16 @@ export class ServerAuthorityClientTests implements OnStart {
 				const before = pressed.count;
 				Jump.Fire(true);
 				eventually(() => pressed.count > before, "Pressed after the swap");
+				if (getProject() === "authority") {
+					// checked here, before the Reset below changes Jump's keys, which releases it on the
+					// server too (design spec §6): asked after it, the poll only passed while the
+					// release had not reached the server yet (2 failures in 3 isolated runs, 2026-10-02)
+					eventually(
+						() => server("state", "late", "LateGameplay", "Jump") === true,
+						"the server to see the state driven after the swap",
+						10,
+					);
+				}
 				Move.Bindings.Virtual.Fire(Vector2.zero);
 				eventually(() => moves[moves.size() - 1] === Vector2.zero, "StateChanged after the swap");
 				let pressedFrames = 0;
@@ -246,9 +256,10 @@ export class ServerAuthorityClientTests implements OnStart {
 				expectEqual(links.count, 1);
 
 				if (getProject() === "authority") {
+					// the Reset changed the keys of a held Jump: released on the server too
 					eventually(
-						() => server("state", "late", "LateGameplay", "Jump") === true,
-						"the server to see the state driven after the swap",
+						() => server("state", "late", "LateGameplay", "Jump") === false,
+						"the Reset of a held Jump's keys releases it on the server",
 						10,
 					);
 				}
