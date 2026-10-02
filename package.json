@@ -30,7 +30,8 @@
   "files": [
     "out",
     "!**/*.tsbuildinfo",
-    "default.project.json"
+    "default.project.json",
+    "docs"
   ],
   "publishConfig": {
     "access": "public"
