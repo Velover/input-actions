@@ -595,7 +595,8 @@ Its type must be as precise as a hand-written schema (`Input.Ui.Actions.Navigate
 - **`RawInputHandler`:** keep the public API (`Initialize`, `GetMoveVector(relativeCamera?,
   normalized?, followFullRotation?)`, `GetRotation()`, `GetZoomDelta()`, `ControlSetEnabled`,
   `MouseInputSetEnabled`). Rework it for the IAS PlayerModule, using `External/PlayerModule/` (the
-  default PlayerModule with IAS enabled) as the reference:
+  default PlayerModule with IAS enabled; a local copy, git-ignored: copy it out of a Studio place
+  with the IAS player scripts) as the reference:
   - Find the PlayerModule's contexts: `LocalPlayer.InputContexts` (Server Authority), else
     `StarterPlayer.PlayerModule.InputContexts` (IAS player scripts) **(probed locations)**. That
     choice is the ControlModule's, and holds for `CharacterContext` only. The CameraModule reads

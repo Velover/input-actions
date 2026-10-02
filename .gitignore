@@ -3,3 +3,5 @@
 /include
 *.tsbuildinfo
 *.tgz
+# Local reference copies (Roblox's PlayerModule), not part of the package
+/External
