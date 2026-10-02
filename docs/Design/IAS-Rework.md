@@ -346,8 +346,13 @@ Binding handle (non-Scriptable):
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
   Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
   binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
-  key, so a binding on it couldn't fire either), except a Cancel key, heard even then (not while a
-  TextBox has focus) so the player can always back out (`CaptureHears`; hunt HC-2, 0.6.1). The wheel, mouse movement,
+  key, so a binding on it couldn't fire either), except a Cancel key, heard even then (not while the
+  player types: a TextBox has focus, or lost it within 0.1 s, since Return and Escape arrive once the
+  focus is gone) so the player can always back out (`ClassifyCaptureInput`; hunts HC-2, HC2-3,
+  0.6.1). Keys already down when a capture starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
+  buttons) count only once they have come up: a ContextActionService action runs before
+  `InputBegan` fires, so the press of a CAS hotkey that starts a capture would otherwise reach it
+  (hunt HC2-2). The wheel, mouse movement,
   touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
   keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
   to `Set`.
@@ -360,7 +365,9 @@ Binding handle (non-Scriptable):
   held action, one `BindingsChanged`), then `callback(chord)`. A chord the binding can't hold (more
   than three keys, a modifier that isn't a Button key, a `KeyCode` the type can't take) is ignored,
   and the capture re-arms only once every key of it is up, so the last leftover released alone
-  can't settle a chord. A key down before the capture began is no part of a chord.
+  can't settle a chord. A key down before the capture began is no part of a chord. A key the game
+  took (game-processed, not typing) while it is held in a chord makes the chord one the binding
+  can't hold, so a chord with a sunk key is refused rather than recorded without it (hunt HC2-1).
   `options.Timeout` (seconds from the start, positive and finite, else it throws): when it runs out,
   the keys held then settle the chord the same way; with none held, or none the binding can hold,
   the capture ends with nothing applied. `callback(undefined)` when it ends with nothing applied (a

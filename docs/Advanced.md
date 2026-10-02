@@ -188,9 +188,12 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`gameProcessed`) is ignored: a click or tap on GUI, typing in a TextBox, and keys a
   ContextActionService binding sinks, such as an active `InputCatcher`'s or the legacy shift lock's
   on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
-  since a CAS sink blocks IAS. A `Cancel` key is heard even then, unless a TextBox has focus, so
-  the player can always back out. Block gameplay during a rebind with `Request(false)`, not with an
-  `InputCatcher`. A key another IAS binding uses, even in a sinking context, is not game-processed
+  since a CAS sink blocks IAS. A `Cancel` key is heard even then, unless the player is typing (a
+  TextBox has focus, or lost it a moment ago: Return and Escape end the typing, and arrive once the
+  focus is gone), so the player can always back out. Block gameplay during a rebind with
+  `Request(false)`, not with an `InputCatcher`. The press that starts a capture is no part of it:
+  keys already down when it starts count only once they have come up and gone down again, so a
+  hotkey that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed
   and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
 - **`Capture` takes only input that begins:** it listens to `UserInputService.InputBegan`, which a
@@ -235,6 +238,9 @@ keys.CaptureChord(
   by one doesn't record the last of them alone.
 - A key already down when the capture began isn't part of a chord: holding W to walk, then pressing
   H, records H.
+- A key the game takes while it is held in a chord (one a ContextActionService action sinks, such as
+  the legacy camera's `Left`, or a click on GUI) makes the chord one the binding can't hold: Ctrl+Left
+  is ignored, not recorded as `LeftControl` alone.
 - `Timeout` (seconds, from the start): when it runs out, the keys held at that moment settle the
   chord, as if one had come up, so a player who keeps holding doesn't keep the capture waiting.
   With no keys held, or a chord the binding can't hold, the capture ends with nothing applied.

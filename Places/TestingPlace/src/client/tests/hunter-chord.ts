@@ -591,7 +591,7 @@ export class HunterChordTests implements OnStart {
 			// HC-2 (hunter): a CAS sink (InputCatcher, which its docs offer for "a modal dialog") makes every
 			// key's InputBegan gameProcessed, so CaptureChord (and Capture) heard nothing, Cancel keys
 			// included: without a Timeout the capture never ended, and the docs didn't say so.
-			// Fixed in part: a Cancel key is now heard even when game-processed (CaptureHears), and the
+			// Fixed in part: a Cancel key is now heard even when game-processed (ClassifyCaptureInput), and the
 			// docs say that keys a CAS binding sinks aren't captured.
 			// DISPUTED HC-2 (in part), worker: the chord itself stays uncaptured under the catcher. A
 			// game-processed key is one the game took: a CAS Sink blocks IAS for it (docs/Advanced.md,

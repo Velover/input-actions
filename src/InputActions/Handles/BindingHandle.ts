@@ -59,18 +59,77 @@ export function DecideCapture(
 }
 
 /**
- * Whether a capture hears a key that began. Input the game took (a GUI click, typing, a key a
- * ContextActionService binding sinks, such as an InputCatcher's) is left to the game: an IAS binding
- * couldn't use such a key either. A Cancel key is heard all the same, so the player can always back
- * out, except while a TextBox has focus, where it is typing.
+ * How long after a TextBox loses focus a game-processed key still counts as typing: Return and
+ * Escape end the typing, and their InputBegan comes once the focus is gone (hunt HC2-3)
  */
-export function CaptureHears(
+const TYPING_GRACE = 0.1;
+let focusWatch: RBXScriptConnection | undefined;
+let focusReleasedAt = -math.huge;
+
+/** Follows TextBox focus releases for `IsTyping`, from the first capture on */
+function WatchTextBoxFocus() {
+	focusWatch ??= UserInputService.TextBoxFocusReleased.Connect(() => {
+		focusReleasedAt = os.clock();
+	});
+}
+
+/** Whether game-processed input now is typing: a TextBox has focus, or lost it a moment ago */
+function IsTyping(): boolean {
+	return (
+		UserInputService.GetFocusedTextBox() !== undefined ||
+		os.clock() - focusReleasedAt < TYPING_GRACE
+	);
+}
+
+/** What a capture makes of a key that began */
+export const enum ECaptureInput {
+	/** Typing in a TextBox: no part of the capture */
+	Ignore,
+	/** A Cancel key: ends the capture */
+	Cancel,
+	/**
+	 * A key the game took (a GUI click, a key a ContextActionService binding sinks, such as an
+	 * InputCatcher's): a CAS sink blocks IAS for it, so a binding couldn't use it, nor a chord with it
+	 */
+	Taken,
+	/** A key the capture counts */
+	Count,
+}
+
+/**
+ * What a capture makes of a key that began: typing is no part of it; a Cancel key ends it, also when
+ * the game took it (an InputCatcher, any CAS sink), so the player can always back out; any other key
+ * the game took is the game's
+ */
+export function ClassifyCaptureInput(
 	key: Enum.KeyCode,
 	gameProcessed: boolean,
 	cancelKeys: readonly Enum.KeyCode[],
-): boolean {
-	if (!gameProcessed) return true;
-	return cancelKeys.includes(key) && UserInputService.GetFocusedTextBox() === undefined;
+): ECaptureInput {
+	if (gameProcessed && IsTyping()) return ECaptureInput.Ignore;
+	if (cancelKeys.includes(key)) return ECaptureInput.Cancel;
+	return gameProcessed ? ECaptureInput.Taken : ECaptureInput.Count;
+}
+
+/**
+ * The keys down as a capture starts: keyboard keys (VirtualInput's gamepad KeyCodes among them),
+ * mouse buttons and gamepad buttons. Their InputBegan may still be on its way (a ContextActionService
+ * action that starts a capture runs before InputBegan fires; deferred signals), and must not count:
+ * the press that started a capture is no part of it (hunt HC2-2)
+ */
+function KeysDownNow(): Set<Enum.KeyCode> {
+	const keys = new Set<Enum.KeyCode>();
+	for (const input of UserInputService.GetKeysPressed()) keys.add(input.KeyCode);
+	for (const [inputType, key] of MOUSE_BUTTON_KEYS) {
+		if (inputType !== Enum.UserInputType.Touch && UserInputService.IsMouseButtonPressed(inputType))
+			keys.add(key);
+	}
+	for (const gamepad of UserInputService.GetConnectedGamepads()) {
+		for (const input of UserInputService.GetGamepadState(gamepad)) {
+			if (input.UserInputState === Enum.UserInputState.Begin) keys.add(input.KeyCode);
+		}
+	}
+	return keys;
 }
 
 /** The action types `CaptureChord` works on: their `KeyCode` takes keys that can be pressed */
@@ -171,26 +230,39 @@ export class BindingHandle {
 			error(`InputActions: ${this.Path}: ${slot} is not a slot of a ${this.ActionType} binding`, 2);
 		}
 		if (this._runtime.IsDestroyed()) return () => {};
+		WatchTextBoxFocus();
 		const cancelKeys = options?.Cancel ?? [];
-		let connection: RBXScriptConnection | undefined;
+		// keys down already: their InputBegan, even one still on its way, is no part of the capture
+		const downAtStart = KeysDownNow();
+		let live = true;
+		const connections = new Array<RBXScriptConnection>();
 		const stop = () => {
-			if (connection === undefined) return;
-			connection.Disconnect();
-			this._runtime.UntrackConnection(connection);
-			connection = undefined;
+			if (!live) return;
+			live = false;
+			for (const connection of connections) {
+				connection.Disconnect();
+				this._runtime.UntrackConnection(connection);
+			}
 		};
-		connection = UserInputService.InputBegan.Connect((input, gameProcessed) => {
-			if (connection === undefined) return;
-			const key = KeyFromInput(input.KeyCode, input.UserInputType);
-			if (key === undefined || !CaptureHears(key, gameProcessed, cancelKeys)) return;
-			const decision = DecideCapture(this.ActionType, slot, key, cancelKeys);
-			if (decision === ECaptureDecision.Ignore) return;
-			stop();
-			if (decision === ECaptureDecision.Cancel) return;
-			this.ApplyCapturedKey(slot, key);
-			callback(key);
-		});
-		this._runtime.TrackConnection(connection);
+		connections.push(
+			UserInputService.InputBegan.Connect((input, gameProcessed) => {
+				if (!live) return;
+				const key = KeyFromInput(input.KeyCode, input.UserInputType);
+				if (key === undefined || downAtStart.has(key)) return;
+				const kind = ClassifyCaptureInput(key, gameProcessed, cancelKeys);
+				if (kind === ECaptureInput.Cancel) return stop();
+				if (kind !== ECaptureInput.Count) return;
+				if (DecideCapture(this.ActionType, slot, key, []) !== ECaptureDecision.Accept) return;
+				stop();
+				this.ApplyCapturedKey(slot, key);
+				callback(key);
+			}),
+			UserInputService.InputEnded.Connect((input) => {
+				const key = KeyFromInput(input.KeyCode, input.UserInputType);
+				if (key !== undefined) downAtStart.delete(key);
+			}),
+		);
+		for (const connection of connections) this._runtime.TrackConnection(connection);
 		return stop;
 	}
 
@@ -224,8 +296,14 @@ export class BindingHandle {
 			);
 		}
 		if (this._runtime.IsDestroyed()) return () => {};
+		WatchTextBoxFocus();
 		const cancelKeys = options?.Cancel ?? [];
+		// keys down already: their InputBegan, even one still on its way, is no part of a chord
+		const downAtStart = KeysDownNow();
 		const held = new Array<Enum.KeyCode>();
+		// the keys among `held` the game took: a chord with one can't be bound as pressed (hunt HC2-1)
+		const taken = new Set<Enum.KeyCode>();
+		const heldChord = () => (taken.isEmpty() ? ChordFromKeys(this.ActionType, held) : undefined);
 		// false after a refused chord, until every key of it is up
 		let armed = true;
 		let live = true;
@@ -252,22 +330,26 @@ export class BindingHandle {
 			UserInputService.InputBegan.Connect((input, gameProcessed) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined || !CaptureHears(key, gameProcessed, cancelKeys)) return;
-				if (cancelKeys.includes(key)) return settle(undefined);
+				if (key === undefined || downAtStart.has(key)) return;
+				const kind = ClassifyCaptureInput(key, gameProcessed, cancelKeys);
+				if (kind === ECaptureInput.Ignore) return;
+				if (kind === ECaptureInput.Cancel) return settle(undefined);
+				if (kind === ECaptureInput.Taken) taken.add(key);
 				if (!held.includes(key)) held.push(key);
 			}),
 			UserInputService.InputEnded.Connect((input) => {
 				if (!live) return;
 				const key = KeyFromInput(input.KeyCode, input.UserInputType);
-				if (key === undefined) return;
+				if (key === undefined || downAtStart.delete(key)) return;
 				const index = held.indexOf(key);
 				if (index === -1) return;
 				if (armed) {
-					const chord = ChordFromKeys(this.ActionType, held);
+					const chord = heldChord();
 					if (chord !== undefined) return settle(chord);
 					armed = false;
 				}
 				held.remove(index);
+				taken.delete(key);
 				if (held.size() === 0) armed = true;
 			}),
 		);
@@ -275,7 +357,7 @@ export class BindingHandle {
 		if (timeout !== undefined) {
 			timer = task.delay(timeout, () => {
 				if (!live) return;
-				settle(armed ? ChordFromKeys(this.ActionType, held) : undefined);
+				settle(armed ? heldChord() : undefined);
 			});
 		}
 		return stop;
