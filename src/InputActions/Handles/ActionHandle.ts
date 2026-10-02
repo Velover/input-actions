@@ -46,6 +46,14 @@ function IsDestroyed(instance: Instance): boolean {
  */
 const LABEL_OWNERS = new Map<InputActionLabel, ActionHandle>();
 
+/** A label `AttachLabel` points at the handle's action */
+interface ILabelAttachment {
+	/** Lets go of the label when it is destroyed */
+	readonly Destroying: RBXScriptConnection;
+	/** The action the package last pointed it at; letting go clears the label only while it shows it */
+	Shows: InputAction;
+}
+
 /** What `MoveBindings` did to one action of a stand-in */
 export interface IMovedBindings {
 	/** The server's action the bindings moved under */
@@ -119,6 +127,12 @@ export function RefireHeldValues(moved: IMovedBindings) {
 	const target = moved.Target;
 	for (const [binding, held] of moved.Held) {
 		if (binding.Parent !== target) continue;
+		// A root handle a listener destroyed during the swap holds nothing any more (Immediate
+		// signals run listeners inside it): a value only such handles held stays at rest (hunt HL2-3)
+		for (const holder of [...held.Holders]) {
+			if (holder.IsDestroyed()) held.Holders.delete(holder);
+		}
+		if (held.Holders.size() === 0) continue;
 		pcall(() => binding.Fire(held.Value));
 		if (IsLive(target)) RestoreHeldValue(binding, held);
 	}
@@ -173,8 +187,8 @@ export class ActionHandle {
 	private _scriptBinding?: InputBinding;
 	/** The bindings this handle's `AttachButton` made that are still there */
 	private readonly _buttons = new Set<InputBinding>();
-	/** The labels `AttachLabel` points at this action, each with the connection that lets go of it */
-	private readonly _labels = new Map<InputActionLabel, RBXScriptConnection>();
+	/** The labels `AttachLabel` points at this action, until let go of or taken over */
+	private readonly _labels = new Map<InputActionLabel, ILabelAttachment>();
 	private _track?: ITrackState;
 
 	// A parameter named `Instance` would shadow the global in the field initializers
@@ -217,13 +231,7 @@ export class ActionHandle {
 	Attach(action: InputAction) {
 		for (const connection of this._forwards) connection.Disconnect();
 		this._forwards.clear();
-		const previous = this.Instance;
 		this.Instance = action;
-		// the labels follow the handle onto the instance it wraps now (the Server Authority swap),
-		// those still on the one it left: a label pointed elsewhere meanwhile stays there (hunt HL-2)
-		for (const [label] of this._labels) {
-			if (label.InputAction === previous) label.InputAction = action;
-		}
 		const stateChanged = this._stateChanged;
 		// An event still on its way from an instance the handle left is not passed on
 		this._forwards.push(
@@ -262,8 +270,8 @@ export class ActionHandle {
 	/**
 	 * Points the handle at the server's copy of its action once `MoveBindings` moved the bindings
 	 * there (Server Authority swap). The stand-in sends no more events, including those still on
-	 * their way: the listeners are told the copy's state now, so a press they heard from the
-	 * stand-in ends with a `Released` before the copy's own events.
+	 * their way. Runs no listener: `FinishLink` tells them, once every handle on the stand-in is on
+	 * the copy and linked (hunt HL2-2).
 	 */
 	LinkTo(target: InputAction, moved: ReadonlyMap<InputBinding, InputBinding>) {
 		for (const [, handle] of pairs(this.Bindings)) {
@@ -273,10 +281,28 @@ export class ActionHandle {
 			this._scriptBinding = moved.get(this._scriptBinding) ?? this._scriptBinding;
 		}
 		this.Attach(target);
-		const state = target.GetState();
+	}
+
+	/**
+	 * Ends the swap `LinkTo` began. The labels still on the stand-in's action follow onto the copy
+	 * (one pointed elsewhere meanwhile stays there: hunt HL-2), and the listeners are told the copy's
+	 * state, so a press they heard from the stand-in ends with a `Released` before the copy's own
+	 * events. Under Immediate signals both run listeners, which may destroy the root handle.
+	 */
+	FinishLink() {
+		for (const [label, attachment] of [...this._labels]) {
+			if (this._runtime.IsDestroyed()) return;
+			if (this._labels.get(label) !== attachment || label.InputAction !== attachment.Shows)
+				continue;
+			attachment.Shows = this.Instance;
+			label.InputAction = this.Instance;
+		}
+		if (this._runtime.IsDestroyed()) return;
+		const state = this.Instance.GetState();
 		if (state !== this._shownState) {
 			this._shownState = state;
 			this._stateChanged.Fire(state);
+			if (this._runtime.IsDestroyed()) return;
 		}
 		const pressed = state === true;
 		if (this.Type !== Enum.InputActionType.Bool || pressed === this._shownPressed) return;
@@ -359,13 +385,13 @@ export class ActionHandle {
 	 * Points an InputActionLabel at this action, which then shows its keybind; the label follows the
 	 * handle onto the server's copy at the Server Authority swap. The returned function, the label's
 	 * destruction and `Destroy` let go of it, and letting go clears its `InputAction` unless something
-	 * else pointed it elsewhere meanwhile. Attaching a label twice keeps one attachment.
+	 * else pointed it elsewhere meanwhile. Attaching a label twice keeps one attachment; the function
+	 * lets go of its own attachment only, so it does nothing once another one took the label over.
 	 */
 	AttachLabel(label: InputActionLabel): () => void {
 		if (!(typeIs(label, "Instance") && label.IsA("InputActionLabel"))) {
 			error(`InputActions: ${this.Name}: AttachLabel takes an InputActionLabel`, 2);
 		}
-		const detach = () => this.DetachLabel(label);
 		// A label destroyed already fires no Destroying that would let go of it
 		if (this._runtime.IsDestroyed() || IsDestroyed(label)) return () => {};
 		// the last attachment wins: another handle's (another root handle's, or another action's)
@@ -373,31 +399,41 @@ export class ActionHandle {
 		const owner = LABEL_OWNERS.get(label);
 		if (owner !== undefined && owner !== this) owner.ReleaseLabel(label);
 		LABEL_OWNERS.set(label, this);
+		let attachment = this._labels.get(label);
+		if (attachment === undefined) {
+			const destroying = label.Destroying.Connect(() => this.DetachLabel(label));
+			this._runtime.TrackConnection(destroying);
+			attachment = { Destroying: destroying, Shows: this.Instance };
+			this._labels.set(label, attachment);
+		}
+		attachment.Shows = this.Instance;
+		// Written once attached: under Immediate signals the label's listeners run inside the write,
+		// and one that takes the label over or destroys this root handle lets go of it (hunt HL2-1)
 		label.InputAction = this.Instance;
-		if (this._labels.has(label)) return detach;
-		const destroying = label.Destroying.Connect(detach);
-		this._runtime.TrackConnection(destroying);
-		this._labels.set(label, destroying);
-		return detach;
+		const attached = attachment;
+		return () => this.DetachLabel(label, attached);
 	}
 
 	/**
-	 * Lets go of a label attached by `AttachLabel`: it shows nothing more for this action. Nothing
-	 * when another attachment took it over since (hunt HL-1)
+	 * Lets go of a label attached by `AttachLabel`: it shows nothing more for this action. With
+	 * `attachment`, only that one: nothing once another attachment took the label over, even when
+	 * the label came back to this handle since (hunt HL-1)
 	 */
-	private DetachLabel(label: InputActionLabel) {
-		if (!this._labels.has(label)) return;
+	private DetachLabel(label: InputActionLabel, attachment?: ILabelAttachment) {
+		const current = this._labels.get(label);
+		if (current === undefined || (attachment !== undefined && attachment !== current)) return;
 		this.ReleaseLabel(label);
-		if (label.InputAction === this.Instance) label.InputAction = undefined;
+		const shown = label.InputAction;
+		if (shown === current.Shows || shown === this.Instance) label.InputAction = undefined;
 	}
 
 	/** Forgets a label without touching what it shows: another attachment takes it over, or it goes */
 	ReleaseLabel(label: InputActionLabel) {
-		const destroying = this._labels.get(label);
-		if (destroying === undefined) return;
+		const attachment = this._labels.get(label);
+		if (attachment === undefined) return;
 		this._labels.delete(label);
-		destroying.Disconnect();
-		this._runtime.UntrackConnection(destroying);
+		attachment.Destroying.Disconnect();
+		this._runtime.UntrackConnection(attachment.Destroying);
 		if (LABEL_OWNERS.get(label) === this) LABEL_OWNERS.delete(label);
 	}
 

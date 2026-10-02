@@ -203,7 +203,13 @@ adopted from existing instances.
   instances in place. Adopted bindings get their defaults back (rebinds are undone, so a later
   `Create` starts from the same defaults); adopted contexts keep their base state. After `Destroy`
   the handles change nothing: `Fire`, `Tap`, `AttachButton`, `SetEnabled`, requests,
-  `Set`/`Reset`/`Clear`/`Capture` and imports are ignored.
+  `Set`/`Reset`/`Clear`/`Capture` and imports are ignored. Under Deferred signals, a delivery
+  already queued when a handle's `BindableEvent` is destroyed still runs its listeners, whereas a
+  disconnected connection's queued call is skipped (measured, label hunts 1 and 2: HL2-4). The
+  package can't cancel deliveries to connections it doesn't hold without replacing its
+  `RBXScriptSignal`s with custom objects (a breaking change), so it documents that an event fired
+  before `Destroy` and not delivered yet still arrives; `WhenLinkedToServer` checks for `Destroy`
+  inside its own connection.
 - A binding `Destroy` removes while it holds its action (a key, a button, a template's binding the
   package gave an extra action) leaves the action stuck on **(probed)**, whatever its type. So once
   the bindings are gone, every action that stays (adopted, or the server's copy) and that no other
@@ -257,14 +263,19 @@ Action handle (all types):
 - `Bindings`: typed record of binding handles, one per schema slot.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
 - `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
-  `label.InputAction` to the action the handle wraps, and again at each `Attach` (the Server
-  Authority swap) while the label still points at the instance the handle leaves, so it follows the
-  stand-in onto the server's copy but not when pointed elsewhere meanwhile (hunt HL-2). A label is
-  attached to one action at a time (`LABEL_OWNERS`): the last `AttachLabel`, from any handle, takes
-  it over, and the earlier attachment lets go without touching it (hunt HL-1). The returned function,
-  the label's `Destroying` and `Destroy` let go of it, clearing `InputAction` only while it still
-  points at the handle's action. Attaching a label twice keeps one attachment; a destroyed label
-  (`Parent` locked, as for `AttachButton`) is left alone; anything but an InputActionLabel throws.
+  `label.InputAction` to the action the handle wraps, and again at the Server Authority swap while
+  the label still shows the instance the handle leaves, so it follows the stand-in onto the
+  server's copy but not when pointed elsewhere meanwhile (hunt HL-2). A label is attached to one
+  action at a time (`LABEL_OWNERS`): the last `AttachLabel`, from any handle, takes it over, and the
+  earlier attachment lets go without touching it (hunt HL-1). The returned function, the label's
+  `Destroying` and `Destroy` let go of it, clearing `InputAction` only while it still shows the
+  action the package last pointed it at (or the handle's). Attaching a label twice keeps one
+  attachment; each function lets go of the attachment it was returned with, so it does nothing
+  once the label was taken over, even after it comes back to the same handle. The label is
+  attached before `InputAction` is written: under Immediate signals the label's listeners run
+  inside the write, and one that takes it over or destroys the root handle must find it attached
+  (hunt HL2-1). A destroyed label (`Parent` locked, as for `AttachButton`) is left alone; anything
+  but an InputActionLabel throws.
   `InputActionLabel` is a Studio beta (2026-08-06); measured in Studio 2026-10-03: it shows the
   preferred binding (`ResolvedText`/`ResolvedImageContent`) and follows a rebind; on the simulated
   phone an action with no touch binding shows nothing.
@@ -537,6 +548,18 @@ client; the server only reads action state, which IAS replicates on its own.
     `LinkedToServer`; the returned function and `Destroy` cancel a call still to come. At a swap,
     every root handle on the stand-in is marked linked before any of them fires, so listeners see
     the others linked under Immediate signals too (hunt HL-3).
+  - **Listeners inside the swap (Immediate signals).** The swap runs in this order: release the
+    held Scriptable values on the stand-in (its listeners run, everything still on the stand-in);
+    move the bindings and point every handle at the copy, which runs no listener; mark every
+    handle linked; move the context's state (`EnabledChanged`, releases); move the labels and tell
+    each handle's listeners the copy's state; destroy the stand-in; fire the held values again;
+    `LinkedToServer`. So a listener that hears an event from the copy finds every handle on it and
+    `IsLinkedToServer()` true (hunt HL2-2). A root handle a listener destroys takes no further
+    part: one destroyed during the releases is dropped from the swap, so it takes no use of the
+    copy that nothing would give back (that left the last live root handle's `Destroy` treating the
+    action as shared, and a key held through its binding stayed held); one destroyed later gave
+    its uses back itself, its handles skip the rest, and a held value only destroyed root handles
+    held isn't fired again (hunt HL2-3).
   - After `Timeout` seconds (default 10) without the server's copy, `warn` once, naming the
     contexts, the expected path, and the likely causes: `ProvideToPlayers` was not called on the
     server, or it uses a different `PlayerFolderName`. Keep the stand-in, and still swap if the

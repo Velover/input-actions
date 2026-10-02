@@ -58,8 +58,9 @@ export class ContextState {
 	 */
 	MoveTo(copy: InputContext) {
 		this.Instance = copy;
-		copy.Enabled = this.Effective;
 		for (const handle of this.Handles) handle.Instance = copy;
+		// Last: under Immediate signals the write may run the actions' listeners (hunt HL2-2)
+		copy.Enabled = this.Effective;
 	}
 
 	/** Writes the effective state to the instance when it changed; returns whether it did */
@@ -205,9 +206,9 @@ export class ContextHandle {
 	}
 
 	/**
-	 * The handle now wraps the server's copy; true the first time. `NotifyLinked` tells the listeners
-	 * once every handle of the swap is marked: under Immediate signals they run inside `Fire`, and
-	 * must see the other handles linked too (hunt HL-3)
+	 * The handle now wraps the server's copy; true the first time. Marked before the swap runs any
+	 * listener, and `NotifyLinked` tells the listeners at its end: under Immediate signals they run
+	 * inside `Fire`, and must see every handle of the swap linked (hunt HL-3, HL2-2)
 	 */
 	MarkLinked(): boolean {
 		if (this._linked) return false;

@@ -64,7 +64,11 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
   After `Destroy` the handles change nothing: `Fire`, `AttachButton`, requests, rebinding and
-  imports are ignored.
+  imports are ignored. Under Deferred signals, an event a handle fired before `Destroy` that
+  Roblox had not delivered yet, such as the `LinkedToServer` of a swap in the same frame, still
+  reaches the listeners connected then: destroying a signal doesn't take back a delivery on its
+  way, while disconnecting a connection does. Disconnect your own connections first when such a
+  late call matters; a `WhenLinkedToServer` callback never runs after `Destroy`.
 - A binding `Destroy` removes while a key or a button holds its action would leave the action stuck
   on in IAS. So an action that stays after `Destroy` (an adopted one, or one of the server's copy)
   and is still not at rest once the package's bindings are gone is reset (`InputAction.Enabled`
@@ -152,6 +156,8 @@ const detach = Input.Gameplay.Actions.Jump.AttachLabel(label);
   `label.InputAction = action.Instance` yourself would leave it on the destroyed stand-in.
 - A label is attached to one action at a time: the last `AttachLabel`, from any action or root
   handle, takes it over, and the earlier attachment's function and `Destroy` then leave it alone.
+  Each function lets go of its own attachment only: once the label was taken over, it does
+  nothing, even after the label is attached to its action again.
 - The returned function, the label's destruction and the root handle's `Destroy` let go of it. Letting
   go clears `label.InputAction`, unless something else pointed it elsewhere meanwhile. Attaching
   the same label twice keeps one attachment; a label destroyed already is left alone.
@@ -379,7 +385,10 @@ Input.Gameplay.WhenLinkedToServer((context) => print(`on ${context.GetFullName()
 `LinkedToServer` fires only at the swap, never when the copy was there at `Create`.
 `WhenLinkedToServer(callback)` covers both: it calls `callback` with the server's copy at once (in
 the caller's thread) when the handle wraps it already, else once when the stand-in gives way. The
-returned function cancels a call still to come, and so does `Destroy`.
+returned function cancels a call still to come, and so does `Destroy`. Under Immediate signals the
+swap's events run inside it: the copy's state, the held values fired again, the labels moving and
+`LinkedToServer` come once every root handle on the stand-in wraps the copy and
+`IsLinkedToServer()` is `true`.
 
 A context marked `ServerAuthority: true` in a place without Server Authority still works on the
 client (the server's copy replicates either way), but the server never receives its state:

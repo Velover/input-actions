@@ -123,6 +123,40 @@ export class AttachLabelTests implements OnStart {
 				expectEqual(label.InputAction, actions.Crouch.Instance);
 			});
 
+			test("a function lets go of its own attachment only: after a takeover, it leaves the label's next attachment alone", () => {
+				const label = newLabel();
+				if (typeIs(label, "string")) return skip(label);
+				// another action takes it over, then the first takes it back
+				const actions = createTestInput().Gameplay.Actions;
+				const detachFirst = actions.Jump.AttachLabel(label);
+				actions.Crouch.AttachLabel(label);
+				const detachAgain = actions.Jump.AttachLabel(label);
+				detachFirst();
+				expectEqual(
+					label.InputAction,
+					actions.Jump.Instance,
+					"the first attachment ended at the takeover",
+				);
+				detachAgain();
+				expectEqual(label.InputAction, undefined);
+
+				// the same with two root handles on one action
+				const folder = newFolder();
+				const a = createTestInput(folder).Gameplay.Actions.Jump;
+				const b = createTestInput(folder).Gameplay.Actions.Jump;
+				const detachA = a.AttachLabel(label);
+				b.AttachLabel(label);
+				const detachA2 = a.AttachLabel(label);
+				detachA();
+				expectEqual(
+					label.InputAction,
+					a.Instance,
+					"A's first function, after B took it and A took it back",
+				);
+				detachA2();
+				expectEqual(label.InputAction, undefined, "A's second function");
+			});
+
 			test("Destroy lets go of the labels; a label destroyed first is let go of; a destroyed label gets nothing", () => {
 				const first = newLabel();
 				if (typeIs(first, "string")) return skip(first);

@@ -303,9 +303,12 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	IsEnabled(): boolean;
 	GetPreferredBinding(): InputBinding | undefined;
 	/**
-	 * Points an InputActionLabel at this action, which then shows its keybind; the label follows the
-	 * action onto the server's copy of a Server Authority context. The returned function, the label's
-	 * destruction or the root handle's `Destroy` let go of it, which clears its `InputAction`
+	 * Points an InputActionLabel at this action, which then shows its keybind; at the swap to the
+	 * server's copy of a Server Authority context the label follows, while it still shows the
+	 * stand-in's action. A label is on one action at a time: the last `AttachLabel`, from any handle,
+	 * takes it over. The returned function, the label's destruction or the root handle's `Destroy`
+	 * let go of it, which clears its `InputAction` unless it was pointed elsewhere meanwhile. Once
+	 * another `AttachLabel` took the label over, the function and `Destroy` leave it alone
 	 */
 	AttachLabel(label: InputActionLabel): () => void;
 }
@@ -378,7 +381,11 @@ export interface IContextHandle<C extends IContextSchema> extends IBindingsOwner
 export interface IInputRoot extends IBindingsOwner {
 	/** Fires with the path `Context/Action/Slot` of a binding changed by Set/Reset/Clear/Capture/import */
 	readonly BindingsChanged: RBXScriptSignal<(path: string) => void>;
-	/** Disconnects everything and destroys what the package created; adopted instances stay */
+	/**
+	 * Disconnects everything and destroys what the package created; adopted instances stay. Under
+	 * Deferred signals, an event a handle fired before it and Roblox had not delivered yet still
+	 * reaches the listeners connected then
+	 */
 	Destroy(): void;
 }
 

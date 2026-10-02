@@ -1,5 +1,6 @@
 import type { IBindingValues } from "./BindingState";
 import type { ContextState } from "./Handles/ContextHandle";
+import type { IRuntime } from "./Internal";
 
 // What every live root handle shares about one instance. `Create` twice on one folder adopts the
 // same instances (design spec §4), so ownership, defaults and the enabled state of a context can't
@@ -80,7 +81,7 @@ export interface IHeldValue {
 	 * last of them is destroyed. A handle firing the value the binding already holds joins them (IAS
 	 * ignores that Fire, but it holds the value as much as the first one does).
 	 */
-	Holders: Set<object>;
+	Holders: Set<IRuntime>;
 	/** When IAS took the value, in the order of every package Fire: the action shows the latest write */
 	Order: number;
 }
@@ -92,7 +93,12 @@ export interface IHeldValue {
 const heldValues = setmetatable(new Map<InputBinding, IHeldValue>(), { __mode: "k" });
 let fireCount = 0;
 
-export function SetHeldValue(binding: InputBinding, value: unknown, neutral: unknown, holder: object) {
+export function SetHeldValue(
+	binding: InputBinding,
+	value: unknown,
+	neutral: unknown,
+	holder: IRuntime,
+) {
 	if (value === neutral) {
 		heldValues.delete(binding);
 		return;

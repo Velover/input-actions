@@ -44,7 +44,15 @@ export class ValidatorR6ServerAuthorityTests implements OnStart {
 					Players.LocalPlayer.WaitForChild(folderName, 10)?.WaitForChild("R6Shared", 10),
 					"the server's copy",
 				);
-				const options = { Folder: newFolder(), PlayerFolderName: folderName, Timeout: 1000 };
+				// ResetOnFocusLoss off: the window losing focus mid-test would release the press it checks
+				// (a run while the PC was in use failed with server false and client false, what that
+				// reset gives; three reruns passed)
+				const options = {
+					Folder: newFolder(),
+					PlayerFolderName: folderName,
+					Timeout: 1000,
+					ResetOnFocusLoss: false,
+				};
 				const onCopy = InputActions.Create(R6_SMALL, options);
 				defer(() => onCopy.Destroy());
 				expectTrue(onCopy.R6Shared.IsLinkedToServer(), "the first handle is on the copy");

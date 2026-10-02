@@ -614,9 +614,12 @@ export class InputRuntime implements IRuntime {
 	/**
 	 * Swaps a stand-in for the server's copy, for every root handle on it at once. The bindings
 	 * move under the server's actions with everything they have (rebinds, attached buttons), the
-	 * handles point at the copy, the context's state (base state and every handle's requests) goes
-	 * with them, the stand-in is destroyed, then the values the Scriptable bindings held are fired
-	 * again. Defaults don't change, so `Reset` still returns to the same ones, except on a binding
+	 * handles point at the copy and are marked linked, the context's state (base state and every
+	 * handle's requests) goes with them, the labels follow and the listeners hear the copy's state,
+	 * the stand-in is destroyed, the values the Scriptable bindings held are fired again, and
+	 * `LinkedToServer` fires. Under Immediate signals listeners run inside the swap: none between
+	 * the moves and the marks, and a root handle one destroys takes no further part (hunt HL2-2,
+	 * HL2-3). Defaults don't change, so `Reset` still returns to the same ones, except on a binding
 	 * adopted from a root handle already on the copy: the stand-in's rebinds are written onto it,
 	 * and it keeps that handle's defaults, which every handle on it shares. A copy whose actions are
 	 * of another Type leaves the handles on the stand-in.
@@ -655,12 +658,19 @@ export class InputRuntime implements IRuntime {
 			ClaimCopy(target);
 			moves.set(action, MoveBindings(action, target, GetEntry(target) === undefined));
 		}
-		for (const link of links) {
+		// Under Immediate signals the releases above ran listeners. A root handle one of them
+		// destroyed takes no further part: its uses of the copy would outlive it (hunt HL2-3)
+		const live = links.filter((link) => !link.Runtime._destroyed);
+		if (live.isEmpty()) return;
+		// No listener runs from here until every handle is on the copy and marked linked
+		const linked = new Array<ActionHandle>();
+		for (const link of live) {
 			const runtime = link.Runtime;
 			for (const [, handle] of pairs(link.Handle.Actions)) {
 				const moved = moves.get(handle.Instance)!;
 				runtime.Use(moved.Target);
 				handle.LinkTo(moved.Target, moved.Moved);
+				linked.push(handle);
 			}
 			for (const [action, moved] of moves) {
 				for (const [binding, now] of moved.Moved) {
@@ -671,8 +681,12 @@ export class InputRuntime implements IRuntime {
 			}
 			runtime.AddUse(copy, false);
 		}
+		// Marked before any listener runs again: Immediate signals run them inside the writes and
+		// Fires below, and they must find every handle linked (hunt HL-3, HL2-2). A root handle they
+		// destroy has let go of its uses itself, and its handles skip what is left
+		const marked = live.filter((link) => link.Handle.MarkLinked());
 
-		const state = links[0].Handle.GetSharedState();
+		const state = live[0].Handle.GetSharedState();
 		const entry = GetEntry(copy)!;
 		if (entry.Context === undefined) {
 			entry.Context = state;
@@ -680,12 +694,11 @@ export class InputRuntime implements IRuntime {
 		} else {
 			entry.Context.Join([...state.Handles]);
 		}
+		for (const handle of linked) handle.FinishLink();
 		source.Enabled = false;
 		source.Destroy();
 		for (const link of links) link.Runtime.DropUse(source);
 		for (const [, moved] of moves) RefireHeldValues(moved);
-		// every handle is marked before any listener runs: Immediate signals run them inside Fire
-		const marked = links.filter((link) => link.Handle.MarkLinked());
 		for (const link of marked) link.Handle.NotifyLinked();
 	}
 
