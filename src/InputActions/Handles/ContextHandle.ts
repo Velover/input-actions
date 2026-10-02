@@ -64,8 +64,7 @@ export class ContextState {
 
 	/** Writes the effective state to the instance when it changed; returns whether it did */
 	private Write(): boolean {
-		const effective =
-			this.FalseRequests > 0 ? false : this.TrueRequests > 0 ? true : this.Base;
+		const effective = this.FalseRequests > 0 ? false : this.TrueRequests > 0 ? true : this.Base;
 		if (effective === this.Effective) return false;
 		this.Effective = effective;
 		// Released before disabling: a Fire on a disabled context is ignored
@@ -168,6 +167,23 @@ export class ContextHandle {
 
 	IsLinkedToServer() {
 		return this._linked;
+	}
+
+	/**
+	 * Calls `callback` with the server's copy once the handle wraps it: at once, in the caller's
+	 * thread, when it does already; else when the stand-in gives way (with `LinkedToServer`). The
+	 * returned function cancels a call still to come; `Destroy` does too.
+	 */
+	WhenLinkedToServer(callback: (context: InputContext) => void): () => void {
+		if (this._destroyed) return () => {};
+		if (this._linked) {
+			callback(this.Instance);
+			return () => {};
+		}
+		const connection = this._linkedToServer.Event.Once(() => {
+			if (!this._destroyed) callback(this.Instance);
+		});
+		return () => connection.Disconnect();
 	}
 
 	GetSharedState(): ContextState {

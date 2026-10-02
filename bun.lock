@@ -9,7 +9,7 @@
       },
       "devDependencies": {
         "@rbxts/compiler-types": "^3.0.0-types.0",
-        "@rbxts/types": "^1.0.955",
+        "@rbxts/types": "^1.0.956",
         "@typescript-eslint/eslint-plugin": "^7.18.0",
         "@typescript-eslint/parser": "^7.18.0",
         "eslint": "^9.17.0",
@@ -59,7 +59,7 @@
 
     "@rbxts/services": ["@rbxts/services@1.6.0", "", {}, "sha512-YH02E1/tGHeMXB0Mam8qPdAZa2fjQWdylEscSL4Zn0RIaQeByYImA2qUsXM3nBdhcyKHDwltzSznDKyCGfFEWA=="],
 
-    "@rbxts/types": ["@rbxts/types@1.0.955", "", {}, "sha512-T/T/XcvPka2LG/xgkVIBiYDQWgRHfxNI/6XomigT44zm5OcjRW/sFFJz+fxzDktWQSmtw7QA4LNFwNvF+dSMvg=="],
+    "@rbxts/types": ["@rbxts/types@1.0.956", "", {}, "sha512-knhWKDjIqbRn110cDbJkL5/oh2qRtPsDV+szfvGPnMfkxTDQtrTQ7jtgyamJbkKT97N5Ib3Z55AyBlSmt7q81Q=="],
 
     "@roblox-ts/luau-ast": ["@roblox-ts/luau-ast@2.0.0", "", {}, "sha512-cmMi093IdwBOLVxwuordhM8AmtbyTIyRpsTbB0D/JauidW4SXsQRQowSwWjHo4QP0DRJBXvOIlxtqEQi50uNzQ=="],
 

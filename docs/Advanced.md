@@ -133,6 +133,30 @@ export function useInputButton(action: InputActions.BoolAction) {
 
 `InputActions.BoolAction` accepts any Bool action handle, tracked or not.
 
+## Keybind labels
+
+Roblox's `InputActionLabel` (a `GuiObject`, a Studio beta announced on 2026-08-06) shows an action's
+keybind for the device in use: the preferred binding's `DisplayImage`, else the platform's key image
+(a chord as icons joined by `+`), else its `DisplayName`, else the key's name. It follows device
+switches and rebinds by itself. `AttachLabel` points one at an action, on every action type:
+
+```ts
+const label = new Instance("InputActionLabel");
+label.Size = UDim2.fromOffset(120, 40);
+label.Parent = hintFrame;
+const detach = Input.Gameplay.Actions.Jump.AttachLabel(label);
+```
+
+- The label follows the action onto the server's copy of a Server Authority context at the swap;
+  setting `label.InputAction = action.Instance` yourself would leave it on the destroyed stand-in.
+- The returned function, the label's destruction and the root handle's `Destroy` let go of it. Letting
+  go clears `label.InputAction`, unless something else pointed it elsewhere meanwhile. Attaching
+  the same label twice keeps one attachment; a label destroyed already is left alone.
+- The label shows nothing for a device the action has no binding for (Jump with keyboard and
+  gamepad bindings, on a phone). Give the bindings `DisplayName` or `DisplayImage` in the schema to
+  change what it shows.
+- A hook is one line, as for buttons: `useEffect(() => label && action.AttachLabel(label), [action, label])`.
+
 ## TrackPrevious
 
 ```ts
@@ -345,7 +369,14 @@ RunService.BindToSimulation(() => {
 // client: unchanged
 const Input = InputActions.Create(InputSchema);
 Input.Gameplay.LinkedToServer.Connect(() => print("now on the server's copy"));
+// or: called at once if the copy is there already, else when it arrives
+Input.Gameplay.WhenLinkedToServer((context) => print(`on ${context.GetFullName()}`));
 ```
+
+`LinkedToServer` fires only at the swap, never when the copy was there at `Create`.
+`WhenLinkedToServer(callback)` covers both: it calls `callback` with the server's copy at once (in
+the caller's thread) when the handle wraps it already, else once when the stand-in gives way. The
+returned function cancels a call still to come, and so does `Destroy`.
 
 A context marked `ServerAuthority: true` in a place without Server Authority still works on the
 client (the server's copy replicates either way), but the server never receives its state:

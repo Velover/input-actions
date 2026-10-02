@@ -28,7 +28,7 @@
 	"devDependencies": {
 		"@flamework-experimental/transformer": "2.0.0-alpha.7",
 		"@rbxts/compiler-types": "^3.0.0-types.0",
-		"@rbxts/types": "^1.0.955",
+		"@rbxts/types": "^1.0.956",
 		"prettier": "^3.8.1",
 		"roblox-ts": "3.0.0",
 		"typescript": "5.5.3"

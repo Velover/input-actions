@@ -14,7 +14,7 @@
       "devDependencies": {
         "@flamework-experimental/transformer": "2.0.0-alpha.7",
         "@rbxts/compiler-types": "^3.0.0-types.0",
-        "@rbxts/types": "^1.0.955",
+        "@rbxts/types": "^1.0.956",
         "prettier": "^3.8.1",
         "roblox-ts": "3.0.0",
         "typescript": "5.5.3",
@@ -44,7 +44,7 @@
 
     "@rbxts/t": ["@rbxts/t@3.2.1", "", {}, "sha512-/fnf2QSx+TI3HSJ6QW2ikvGQk0mlx/63UXo60pLAKGqbxXiAuTJh88bpKpHw6aCzfFLJAwrVIcgCUOokLMPcag=="],
 
-    "@rbxts/types": ["@rbxts/types@1.0.955", "", {}, "sha512-T/T/XcvPka2LG/xgkVIBiYDQWgRHfxNI/6XomigT44zm5OcjRW/sFFJz+fxzDktWQSmtw7QA4LNFwNvF+dSMvg=="],
+    "@rbxts/types": ["@rbxts/types@1.0.956", "", {}, "sha512-knhWKDjIqbRn110cDbJkL5/oh2qRtPsDV+szfvGPnMfkxTDQtrTQ7jtgyamJbkKT97N5Ib3Z55AyBlSmt7q81Q=="],
 
     "@roblox-ts/luau-ast": ["@roblox-ts/luau-ast@2.0.0", "", {}, "sha512-cmMi093IdwBOLVxwuordhM8AmtbyTIyRpsTbB0D/JauidW4SXsQRQowSwWjHo4QP0DRJBXvOIlxtqEQi50uNzQ=="],
 

@@ -167,6 +167,8 @@ export class ActionHandle {
 	private _scriptBinding?: InputBinding;
 	/** The bindings this handle's `AttachButton` made that are still there */
 	private readonly _buttons = new Set<InputBinding>();
+	/** The labels `AttachLabel` points at this action, each with the connection that lets go of it */
+	private readonly _labels = new Map<InputActionLabel, RBXScriptConnection>();
 	private _track?: ITrackState;
 
 	// A parameter named `Instance` would shadow the global in the field initializers
@@ -210,6 +212,8 @@ export class ActionHandle {
 		for (const connection of this._forwards) connection.Disconnect();
 		this._forwards.clear();
 		this.Instance = action;
+		// the labels follow the handle onto the instance it wraps now (the Server Authority swap)
+		for (const [label] of this._labels) label.InputAction = action;
 		const stateChanged = this._stateChanged;
 		// An event still on its way from an instance the handle left is not passed on
 		this._forwards.push(
@@ -281,6 +285,9 @@ export class ActionHandle {
 
 	/** Destroys the handle's own signals */
 	Destroy() {
+		const labels = new Array<InputActionLabel>();
+		for (const [label] of this._labels) labels.push(label);
+		for (const label of labels) this.DetachLabel(label);
 		for (const connection of this._forwards) connection.Disconnect();
 		this._forwards.clear();
 		this._stateChanged.Destroy();
@@ -336,6 +343,37 @@ export class ActionHandle {
 			}
 			this.Fire(false);
 		});
+	}
+
+	/**
+	 * Points an InputActionLabel at this action, which then shows its keybind; the label follows the
+	 * handle onto the server's copy at the Server Authority swap. The returned function, the label's
+	 * destruction and `Destroy` let go of it, and letting go clears its `InputAction` unless something
+	 * else pointed it elsewhere meanwhile. Attaching a label twice keeps one attachment.
+	 */
+	AttachLabel(label: InputActionLabel): () => void {
+		if (!(typeIs(label, "Instance") && label.IsA("InputActionLabel"))) {
+			error(`InputActions: ${this.Name}: AttachLabel takes an InputActionLabel`, 2);
+		}
+		const detach = () => this.DetachLabel(label);
+		// A label destroyed already fires no Destroying that would let go of it
+		if (this._runtime.IsDestroyed() || IsDestroyed(label)) return () => {};
+		label.InputAction = this.Instance;
+		if (this._labels.has(label)) return detach;
+		const destroying = label.Destroying.Connect(detach);
+		this._runtime.TrackConnection(destroying);
+		this._labels.set(label, destroying);
+		return detach;
+	}
+
+	/** Lets go of a label attached by `AttachLabel`; it shows nothing more for this action */
+	private DetachLabel(label: InputActionLabel) {
+		const destroying = this._labels.get(label);
+		if (destroying === undefined) return;
+		this._labels.delete(label);
+		destroying.Disconnect();
+		this._runtime.UntrackConnection(destroying);
+		if (label.InputAction === this.Instance) label.InputAction = undefined;
 	}
 
 	AttachButton(button: GuiButton): () => void {

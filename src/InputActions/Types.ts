@@ -302,6 +302,12 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	SetEnabled(enabled: boolean): void;
 	IsEnabled(): boolean;
 	GetPreferredBinding(): InputBinding | undefined;
+	/**
+	 * Points an InputActionLabel at this action, which then shows its keybind; the label follows the
+	 * action onto the server's copy of a Server Authority context. The returned function, the label's
+	 * destruction or the root handle's `Destroy` let go of it, which clears its `InputAction`
+	 */
+	AttachLabel(label: InputActionLabel): () => void;
 }
 export interface IBoolActionHandle<B> extends IActionHandle<Enum.InputActionType.Bool, B> {
 	readonly Pressed: RBXScriptSignal<() => void>;
@@ -382,6 +388,12 @@ export interface IServerAuthorityContextHandle {
 	IsLinkedToServer(): boolean;
 	/** Fires once, when the stand-in gives way to the server's copy; never when the copy was there at `Create` */
 	readonly LinkedToServer: RBXScriptSignal<() => void>;
+	/**
+	 * Calls `callback` with the server's copy once the handle wraps it: at once (in the caller's
+	 * thread) when it does already, else when the stand-in gives way, as `LinkedToServer` fires.
+	 * Returns a function that cancels a call still to come
+	 */
+	WhenLinkedToServer(callback: (context: InputContext) => void): () => void;
 }
 
 /** The handle of a context: Server Authority contexts add the link to the server's copy */

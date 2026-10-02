@@ -115,5 +115,13 @@ const save = Input.ExportBindings(); // store it (DataStore through a remote, et
 Input.ImportBindings(save); // on the next join
 ```
 
+## 6. Show keybinds in UI
+
+```ts
+const label = new Instance("InputActionLabel"); // Roblox shows the keybind for the device in use
+label.Parent = hints;
+Input.Gameplay.Actions.Jump.AttachLabel(label); // returns a function that lets go
+```
+
 Next: [Advanced](Advanced.md) for rebinding UIs, saves, on-screen buttons, TrackPrevious and Server
 Authority.

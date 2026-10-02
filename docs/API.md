@@ -194,6 +194,7 @@ Contexts marked `ServerAuthority: true` add:
 | --- | --- |
 | `IsLinkedToServer(): boolean` | whether the handle wraps the server's copy, or a local stand-in until it arrives |
 | `LinkedToServer: RBXScriptSignal<() => void>` | fires once, when the stand-in gives way to the server's copy; never when the copy was there at `Create` |
+| `WhenLinkedToServer(callback: (context: InputContext) => void): () => void` | calls `callback` with the server's copy at once (in the caller's thread) when the handle wraps it already, else once at the swap; the function (or `Destroy`) cancels a call still to come |
 
 The handles' signals (`StateChanged`, `Pressed`, `Released`, `EnabledChanged`, `BindingsChanged`)
 are the package's own: they forward from whichever instance a handle wraps, so they keep working
@@ -211,6 +212,7 @@ All action types:
 | `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
+| `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere). See [Keybind labels](Advanced.md#keybind-labels) |
 | `Bindings` | the binding handles, by slot name |
 
 Bool actions add:

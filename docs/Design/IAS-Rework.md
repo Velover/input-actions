@@ -256,6 +256,15 @@ Action handle (all types):
 - `SetEnabled`, `IsEnabled`.
 - `Bindings`: typed record of binding handles, one per schema slot.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
+- `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
+  `label.InputAction` to the action the handle wraps, and again at each `Attach` (the Server
+  Authority swap), so the label follows the stand-in onto the server's copy. The returned function,
+  the label's `Destroying` and `Destroy` let go of it, clearing `InputAction` only while it still
+  points at the handle's action. Attaching a label twice keeps one attachment; a destroyed label
+  (`Parent` locked, as for `AttachButton`) is left alone; anything but an InputActionLabel throws.
+  `InputActionLabel` is a Studio beta (2026-08-06); measured in Studio 2026-10-03: it shows the
+  preferred binding (`ResolvedText`/`ResolvedImageContent`) and follows a rebind; on the simulated
+  phone an action with no touch binding shows nothing.
 
 Bool actions add `Pressed`, `Released` (IAS signals, passed on so that the two always alternate:
 an IAS signal repeating the last one passed on is dropped, as a Server Authority copy once sent
@@ -519,7 +528,10 @@ client; the server only reads action state, which IAS replicates on its own.
     keeps working).
   - Context handles of Server Authority contexts add `IsLinkedToServer(): boolean` and
     `LinkedToServer: RBXScriptSignal<() => void>` (fires once, at the swap, or never when the copy
-    was there from the start and `IsLinkedToServer()` is already `true`).
+    was there from the start and `IsLinkedToServer()` is already `true`), and (0.6.1)
+    `WhenLinkedToServer(callback: (context: InputContext) => void): () => void`: calls back with the
+    server's copy at once, in the caller's thread, when linked already, else once with
+    `LinkedToServer`; the returned function and `Destroy` cancel a call still to come.
   - After `Timeout` seconds (default 10) without the server's copy, `warn` once, naming the
     contexts, the expected path, and the likely causes: `ProvideToPlayers` was not called on the
     server, or it uses a different `PlayerFolderName`. Keep the stand-in, and still swap if the
