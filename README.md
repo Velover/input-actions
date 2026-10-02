@@ -89,7 +89,7 @@ const release = Input.Ui.Request(true); // open the menu context until release()
 - [API reference](docs/API.md)
 - Kept utilities: [MouseController](docs/Components/MouseController.md),
   [InputCatcher](docs/Components/InputCatcher.md), [RawInputHandler](docs/Components/RawInputHandler.md)
-- [Examples](examples/)
+- [Examples](https://github.com/Velover/input-actions/tree/master/examples) (in the repository only, not in the npm package)
 
 ## License
 
