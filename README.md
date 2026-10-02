@@ -28,7 +28,8 @@ requests, on-screen buttons and Server Authority support.
 ## Installation
 
 ```bash
-npm install @rbxts/input-actions
+bun add @rbxts/input-actions
+# or: npm install @rbxts/input-actions
 ```
 
 Only `@rbxts/services` is a dependency.
