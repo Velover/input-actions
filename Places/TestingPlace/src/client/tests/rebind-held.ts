@@ -8,12 +8,12 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
 import { ReplicatedStorage } from "@rbxts/services";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, createTestInput, frame, frames, newFolder, recordSignal } from "./helpers";
 import { realInput } from "./virtual";
 
@@ -181,7 +181,7 @@ export class RebindHeldTests implements OnStart {
 			// never receives its state: after the change, the pair would press and release it once
 			// more (hunt round 3, H3-F2; hunter-r3-real holds a real key instead)
 			test("a provided copy in a place without Server Authority: a rebind releases a fired value once", () => {
-				if (getProject() === "authority") return;
+				if (getProject() === "authority") return skip("for a place without Server Authority");
 				const input = createSaInput();
 				eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy");
 				expectEqual(InputActions.IsServerAuthority(), false);
@@ -274,7 +274,7 @@ export class RebindHeldTests implements OnStart {
 			// ---- the server's copy (Server Authority), where IAS would keep the action held
 
 			test("server's copy: Set on another binding of a held action releases it on the client and the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -298,7 +298,7 @@ export class RebindHeldTests implements OnStart {
 			});
 
 			test("server's copy: a composite change that keeps the held key releases Move on both sides; the key counts again", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -321,7 +321,7 @@ export class RebindHeldTests implements OnStart {
 			});
 
 			test("server's copy: a modifier added to a held binding releases it on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -339,7 +339,7 @@ export class RebindHeldTests implements OnStart {
 			});
 
 			test("server's copy: an import that rebinds two bindings of a held action releases it once, on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -368,7 +368,7 @@ export class RebindHeldTests implements OnStart {
 			});
 
 			test("server's copy: a value fired from code is released by a rebind on both sides, and Fire(true) reaches the server again", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				jump.Fire(true);
@@ -387,7 +387,7 @@ export class RebindHeldTests implements OnStart {
 			// The rebind forgets the value the package fired: a request then releases what a key holds
 			// with the pair, instead of firing the value at rest on a binding IAS already reset
 			test("server's copy: after a rebind released a fired value, a request still releases a held key on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);

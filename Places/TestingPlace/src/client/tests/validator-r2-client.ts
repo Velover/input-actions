@@ -10,6 +10,7 @@ import {
 	expectNoThrow,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
@@ -279,7 +280,7 @@ export class ValidatorR2ClientTests implements OnStart {
 			// ---- RawInputHandler under Server Authority (design spec section 10)
 
 			test("under Server Authority GetRotation follows the camera action Roblox's CameraModule reads", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				// CameraModule/CameraInput.luau reads script.Parent.Parent.InputContexts, i.e. the
 				// PlayerModule's own contexts, in every mode (External/PlayerModule, line 15)
@@ -295,7 +296,10 @@ export class ValidatorR2ClientTests implements OnStart {
 				expectTrue(rotation.Enabled, "Roblox's camera rotation action is enabled");
 				const binding = scriptableBinding(rotation, Vector2.zero);
 				binding.Fire(new Vector2(10, 0));
-				eventually(() => rotation.GetState() === new Vector2(10, 0), "Roblox's camera action moved");
+				eventually(
+					() => rotation.GetState() === new Vector2(10, 0),
+					"Roblox's camera action moved",
+				);
 				eventually(
 					() => RawInputHandler.GetRotation().X > 0,
 					"RawInputHandler's rotation to follow the action the camera reads",
@@ -307,7 +311,7 @@ export class ValidatorR2ClientTests implements OnStart {
 			// the package doesn't (and must not) tune, so it could never pass. It now checks what it was
 			// after: RawInputHandler doesn't read the player's copy, whose bindings keep the defaults.
 			test("under Server Authority RawInputHandler ignores the player's untuned copy of the camera action", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				const playerAction = expectDefined(
 					Players.LocalPlayer.WaitForChild("InputContexts", 10)

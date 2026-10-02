@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
@@ -32,7 +33,8 @@ if (!INPUT_CONTEXTS_AT_LOAD) {
 }
 
 function describeArrival() {
-	if (INPUT_CONTEXTS_AT_LOAD) return "player.InputContexts was there when the client's scripts loaded";
+	if (INPUT_CONTEXTS_AT_LOAD)
+		return "player.InputContexts was there when the client's scripts loaded";
 	return (
 		"player.InputContexts was not there when the client's scripts loaded; it arrived " +
 		(inputContextsArrivedAfter !== undefined
@@ -42,7 +44,10 @@ function describeArrival() {
 }
 
 function server(...args: unknown[]): unknown {
-	const remote = expectDefined(ReplicatedStorage.WaitForChild(R4_REMOTE, 10), R4_REMOTE) as RemoteFunction;
+	const remote = expectDefined(
+		ReplicatedStorage.WaitForChild(R4_REMOTE, 10),
+		R4_REMOTE,
+	) as RemoteFunction;
 	return remote.InvokeServer(...args) as unknown;
 }
 
@@ -55,7 +60,10 @@ function createR4Input() {
 	});
 	defer(() => input.Destroy());
 	eventually(
-		() => input.R4Off.IsLinkedToServer() && input.R4On.IsLinkedToServer() && input.R4Ui.IsLinkedToServer(),
+		() =>
+			input.R4Off.IsLinkedToServer() &&
+			input.R4On.IsLinkedToServer() &&
+			input.R4Ui.IsLinkedToServer(),
 		"the handles on the server's copies",
 		10,
 	);
@@ -63,7 +71,12 @@ function createR4Input() {
 }
 
 /** Waits for the server to read `expected`; fails with what the server's copy looks like */
-function expectServerState(contextName: string, actionName: string, expected: unknown, what: string) {
+function expectServerState(
+	contextName: string,
+	actionName: string,
+	expected: unknown,
+	what: string,
+) {
 	const [ok] = pcall(() =>
 		eventually(() => server("state", contextName, actionName) === expected, what, 5),
 	);
@@ -86,7 +99,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			// takes the schema's Enabled; the client owns Enabled and enables them later)
 
 			test("an enabled action of the server's copy reaches the server (the control)", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const nod = createR4Input().R4On.Actions.Nod;
 				defer(() => nod.Fire(false));
 				nod.Fire(true);
@@ -96,7 +109,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			});
 
 			test("a Server Authority context declared Enabled: false reaches the server once the client enables it", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createR4Input();
 				const poke = input.R4Off.Actions.Poke;
 				defer(() => poke.Fire(false));
@@ -108,7 +121,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			});
 
 			test("a Server Authority context declared Enabled: false reaches the server through Request(true)", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createR4Input();
 				input.R4Off.SetEnabled(false);
 				const release = input.R4Off.Request(true);
@@ -121,7 +134,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			});
 
 			test("an action declared Enabled: false reaches the server once the client enables it", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const wave = createR4Input().R4On.Actions.Wave;
 				defer(() => wave.Fire(false));
 				wave.SetEnabled(true);
@@ -132,7 +145,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			});
 
 			test("UiNavigation({ ServerAuthority: true, Enabled: false }): an opened menu reaches the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createR4Input();
 				const release = input.R4Ui.Request(true);
 				defer(release);
@@ -146,7 +159,7 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 			// ---- RawInputHandler (spec section 10)
 
 			test("ControlSetEnabled(false) before the player's InputContexts arrives still turns the controls off", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				const copy = expectDefined(
 					Players.LocalPlayer.WaitForChild("InputContexts", 10),
@@ -165,7 +178,8 @@ export class ValidatorR4ServerAuthorityTests implements OnStart {
 				defer(() => {
 					copy.Name = "InputContexts";
 					RawInputHandler.ControlSetEnabled(true);
-					if (moduleContext !== undefined && moduleWas !== undefined) moduleContext.Enabled = moduleWas;
+					if (moduleContext !== undefined && moduleWas !== undefined)
+						moduleContext.Enabled = moduleWas;
 				});
 				frames(2);
 				RawInputHandler.ControlSetEnabled(false);

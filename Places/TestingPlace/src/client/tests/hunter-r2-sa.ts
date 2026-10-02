@@ -7,13 +7,13 @@ import {
 	expectEqual,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
 import { Players, ReplicatedStorage, UserInputService } from "@rbxts/services";
 import { HUNTER_LATE_SCHEMA, HUNTER_R2_REMOTE } from "shared/fixtures/hunter-r2-fixture";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, frames, newFolder } from "./helpers";
 import { clickProblem, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -138,7 +138,7 @@ export class HunterR2SaTests implements OnStart {
 			// (the last write wins), so a rebind fires its release pair on an action at rest. Measured:
 			// that pair shows nowhere, on the client or the server
 			test("server's copy: a rebind while Jump rests, after a key-up overrode a fired value, presses nothing on either side", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -168,7 +168,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: Capture while Jump rests takes the key as it goes down; nothing sticks, and the key then works", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -196,7 +196,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: a rebind while an attached button is held releases both sides; the mouse-up leaves both at rest", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -225,7 +225,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: rebound while a request holds the context off and the old key is down; afterwards both rest and the new key works", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -254,7 +254,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: rebound while the action is disabled and its key is down; afterwards both rest and the new key works", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -282,7 +282,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: Move held by two keys, a composite rebind that drops one; both sides rest after the keys come up", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -315,7 +315,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: the focus-loss reset with a real key held releases both sides while the TextBox has the key", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -357,7 +357,7 @@ export class HunterR2SaTests implements OnStart {
 			// The copy's state moves on simulation steps: a key that went down this frame doesn't show
 			// in GetState yet, so a rebind in that frame reads the action at rest
 			test("server's copy: a key goes down and another binding is rebound in the same frame; after the key comes up both rest", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -383,7 +383,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("server's copy: Capture takes the key that holds Jump through its other binding; after it comes up both rest", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -412,7 +412,7 @@ export class HunterR2SaTests implements OnStart {
 			// ---- the real server's copy arriving while real keys are held on the stand-in
 
 			test("swap: the server's copy arrives while a real key holds Jump on the stand-in; afterwards nothing sticks", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const { input, provide, serverState } = createLateInput();
@@ -442,7 +442,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("swap: a key rebound on the stand-in and held at the swap; afterwards nothing sticks and only the new key reaches the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const { input, provide, serverState } = createLateInput();
@@ -475,7 +475,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("swap: Move held by a composite key at the swap comes back to rest on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const { input, provide, serverState } = createLateInput();
@@ -500,7 +500,7 @@ export class HunterR2SaTests implements OnStart {
 			});
 
 			test("swap: TrackPrevious with a real key held at the swap: one IsJustPressed for the press, one IsJustReleased for the release", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const { input, serverState, folderName } = createLateInput();

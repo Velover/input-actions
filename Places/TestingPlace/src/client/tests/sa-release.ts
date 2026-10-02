@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
@@ -86,7 +87,7 @@ export class ServerAuthorityReleaseTests implements OnStart {
 	onStart() {
 		defineTests("sa-release", () => {
 			test("focus loss releases a key held on the server, and it doesn't come back", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				holdJumpOnServer(jump.Instance);
@@ -111,18 +112,21 @@ export class ServerAuthorityReleaseTests implements OnStart {
 			});
 
 			test("action SetEnabled(false) releases a key held on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				holdJumpOnServer(jump.Instance);
 				jump.SetEnabled(false);
 				defer(() => jump.SetEnabled(true));
 				eventually(() => serverJump() === false, "the release on the server", 5);
 				jump.SetEnabled(true);
-				expectTrue(staysReleased(() => jump.IsPressed()), "the client's Jump stays released");
+				expectTrue(
+					staysReleased(() => jump.IsPressed()),
+					"the client's Jump stays released",
+				);
 			});
 
 			test("a Fire right before Request(false) doesn't stay held on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				heldKey(jump.Instance); // only for its clean-up
@@ -132,11 +136,14 @@ export class ServerAuthorityReleaseTests implements OnStart {
 				frames(10);
 				eventually(() => serverJump() === false, "Jump at rest on the server", 5);
 				release();
-				expectTrue(staysReleased(() => jump.IsPressed()), "the client's Jump stays released");
+				expectTrue(
+					staysReleased(() => jump.IsPressed()),
+					"the client's Jump stays released",
+				);
 			});
 
 			test("a button binding removed while held releases the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				const gui = new Instance("ScreenGui");
 				gui.Parent = Players.LocalPlayer.WaitForChild("PlayerGui");
@@ -150,7 +157,7 @@ export class ServerAuthorityReleaseTests implements OnStart {
 			});
 
 			test("Destroy releases on the server what a key still holds", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				holdJumpOnServer(input.SaGameplay.Actions.Jump.Instance);
 				input.Destroy();
@@ -158,7 +165,7 @@ export class ServerAuthorityReleaseTests implements OnStart {
 			});
 
 			test("Destroy releases on the server a template action the package gave keys", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const emote = expectDefined(
 					input.SaGameplay.Instance.FindFirstChild("Emote"),
@@ -180,24 +187,31 @@ export class ServerAuthorityReleaseTests implements OnStart {
 				input.Destroy();
 				expectEqual(emote.FindFirstChild("EmoteKeyboardAndMouse"), undefined, "the binding goes");
 				eventually(() => serverEmote() === false, "the release on the server", 5);
-				expectTrue(staysReleased(() => emote.GetState() === true), "the client's Emote stays released");
+				expectTrue(
+					staysReleased(() => emote.GetState() === true),
+					"the client's Emote stays released",
+				);
 			});
 
 			test("every Tap reaches the server as one press", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				heldKey(jump.Instance); // only for its clean-up
 				eventually(() => serverJump() === false, "Jump at rest on the server", 5);
 				const before = serverPressed();
 				for (let index = 0; index < 3; index++) {
 					jump.Tap();
-					eventually(() => serverPressed() === before + index + 1, `the server's press ${index + 1}`, 5);
+					eventually(
+						() => serverPressed() === before + index + 1,
+						`the server's press ${index + 1}`,
+						5,
+					);
 					eventually(() => !jump.IsPressed() && serverJump() === false, "the release", 5);
 				}
 			});
 
 			test("two handles on the server's copy release it once", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const first = createSaInput();
 				const second = createSaInput();
 				expectEqual(first.SaGameplay.Instance, second.SaGameplay.Instance);
@@ -213,13 +227,17 @@ export class ServerAuthorityReleaseTests implements OnStart {
 			});
 
 			test("RawInputHandler.ControlSetEnabled(false) releases the character's move on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				const context = expectDefined(
-					Players.LocalPlayer.WaitForChild("InputContexts", 10)?.WaitForChild("CharacterContext", 10),
+					Players.LocalPlayer.WaitForChild("InputContexts", 10)?.WaitForChild(
+						"CharacterContext",
+						10,
+					),
 				) as InputContext;
 				const move = context.WaitForChild("MoveAction", 10) as InputAction;
-				const serverMove = () => server("playerModule", undefined, "CharacterContext", "MoveAction");
+				const serverMove = () =>
+					server("playerModule", undefined, "CharacterContext", "MoveAction");
 				const stick = new Instance("InputBinding");
 				stick.Name = "HeldStickStandIn";
 				stick.Type = Enum.InputBindingType.Scriptable;

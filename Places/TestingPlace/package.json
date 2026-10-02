@@ -13,19 +13,19 @@
 		"test:authority": "bun scripts/test.mjs --project tests/authority.project.json",
 		"test:ias": "bun scripts/test.mjs --project tests/ias.project.json",
 		"test:touch": "bun scripts/test.mjs --project tests/touch.project.json",
-		"test:all": "bun scripts/test.mjs --project default.project.json,tests/ias.project.json,tests/authority.project.json,tests/touch.project.json",
+		"test:all": "bun scripts/test.mjs --keep-awake --project default.project.json,tests/ias.project.json,tests/authority.project.json,tests/touch.project.json",
 		"link": "bun scripts/link-package.mjs",
 		"format": "prettier --write src"
 	},
 	"dependencies": {
-		"@flamework-experimental/components": "2.0.0-alpha.4",
-		"@flamework-experimental/core": "2.0.0-alpha.4",
-		"@flamework-experimental/networking": "2.0.0-alpha.4",
-		"@flamework-experimental/testing": "2.0.0-alpha.4",
+		"@flamework-experimental/components": "2.0.0-alpha.5",
+		"@flamework-experimental/core": "2.0.0-alpha.6",
+		"@flamework-experimental/networking": "2.0.0-alpha.6",
+		"@flamework-experimental/testing": "2.0.0-alpha.6",
 		"@rbxts/services": "^1.6.0"
 	},
 	"devDependencies": {
-		"@flamework-experimental/transformer": "2.0.0-alpha.5",
+		"@flamework-experimental/transformer": "2.0.0-alpha.7",
 		"@rbxts/compiler-types": "^3.0.0-types.0",
 		"@rbxts/types": "^1.0.955",
 		"prettier": "^3.8.1",

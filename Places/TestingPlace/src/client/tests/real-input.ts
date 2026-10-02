@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import {
@@ -18,7 +19,6 @@ import {
 	RawInputHandler,
 } from "@rbxts/input-actions";
 import { GuiService, RunService, UserInputService, Workspace } from "@rbxts/services";
-import { skip } from "shared/fixtures/skip";
 import {
 	countSignal,
 	createTestInput,
@@ -150,7 +150,7 @@ export class RealInputTests implements OnStart {
 			// it set the device back (or a device picked by hand) turns every click into a tap in every
 			// later window. Said once here, rather than by the mouse tests failing one by one
 			test("outside the touch project Studio simulates no device: a click is mouse input", () => {
-				if (isTouch()) return;
+				if (isTouch()) return skip("not on a simulated phone");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const kinds = new Array<Enum.UserInputType>();
@@ -629,7 +629,7 @@ export class RealInputTests implements OnStart {
 
 		defineTests("touch", () => {
 			test("Studio simulates a phone: a tap is touch input, and PreferredInput is Touch", () => {
-				if (!isTouch()) return;
+				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				expectTrue(UserInputService.TouchEnabled, "TouchEnabled");
@@ -643,7 +643,7 @@ export class RealInputTests implements OnStart {
 			});
 
 			test("PreferredBinding follows the device to the touch binding", () => {
-				if (!isTouch()) return;
+				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput().Gameplay.Actions.Jump;
@@ -670,7 +670,7 @@ export class RealInputTests implements OnStart {
 			});
 
 			test("AttachButton with a tap", () => {
-				if (!isTouch()) return;
+				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput().Gameplay.Actions.Jump;
@@ -689,7 +689,7 @@ export class RealInputTests implements OnStart {
 			});
 
 			test("TouchPosition bindings: a Bool held by a finger, limited to a UIModifier region", () => {
-				if (!isTouch()) return;
+				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const schema = InputActions.Schema({

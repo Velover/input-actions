@@ -6,6 +6,7 @@ import {
 	expectDefined,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
@@ -72,7 +73,7 @@ export class ValidatorR1ServerAuthorityTests implements OnStart {
 	onStart() {
 		defineTests("validator-r1-sa", () => {
 			test("a context Request(false) releases a user-held binding on the server too", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				const holder = userHolder(jump.Instance);
@@ -85,7 +86,7 @@ export class ValidatorR1ServerAuthorityTests implements OnStart {
 			});
 
 			test("action SetEnabled(false) releases a Fire-held action on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				unstickJump(jump);
@@ -96,7 +97,7 @@ export class ValidatorR1ServerAuthorityTests implements OnStart {
 			});
 
 			test("after SetEnabled(false/true), Fire(true) reaches the server again", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				unstickJump(jump);
@@ -113,7 +114,7 @@ export class ValidatorR1ServerAuthorityTests implements OnStart {
 			});
 
 			test("Tap reaches the server as a press", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				unstickJump(jump);
@@ -128,7 +129,7 @@ export class ValidatorR1ServerAuthorityTests implements OnStart {
 			});
 
 			test("the focus-loss reset releases the server's state, and input works after it", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const move = input.SaGameplay.Actions.Move;
 				move.Bindings.Virtual.Fire(new Vector2(0, 1));

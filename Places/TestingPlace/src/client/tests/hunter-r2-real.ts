@@ -7,11 +7,11 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, InputCatcher } from "@rbxts/input-actions";
 import { expectedServerAuthority, isModeWarning, names } from "shared/fixtures/authority";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, createTestInput, frame, frames, newFolder, recordWarnings } from "./helpers";
 import { clickProblem, emptyPoint, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -210,7 +210,7 @@ export class HunterR2RealTests implements OnStart {
 
 			// docs/Components/InputCatcher.md: "Blocks keyboard, mouse, gamepad and touch input to the game"
 			test("docs: an active InputCatcher blocks a tap from a TouchPosition binding (touch)", () => {
-				if (getProject() !== "touch") return;
+				if (getProject() !== "touch") return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const schema = InputActions.Schema({

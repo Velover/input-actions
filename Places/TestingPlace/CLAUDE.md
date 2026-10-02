@@ -29,10 +29,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
   `server-authority` (server). The `validator-r*` and `hunter-r*` sections are reviewers'
   adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
-  (`schemas.ts`; `authority.ts`, the mode each project expects and the warnings' wording;
-  `skip.ts`; and `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts`
-  for those rounds' sections). Project-specific tests return early under the other projects
-  (`getProject()`).
+  (`schemas.ts`; `authority.ts`, the mode each project expects and the warnings' wording; and
+  `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those
+  rounds' sections). Project-specific tests skip under the other projects (`getProject()`, then
+  `return skip("the authority project only")`), so the summary counts them as skipped.
 - **Real keyboard and mouse input:** `src/client/tests/virtual.ts` wraps
   `UserInputService:CreateVirtualInput()` (Studio only; the typings return `RBXObject`, so it is
   cast to `VirtualInput`), whose input IAS treats as hardware, also with the window in the
@@ -72,9 +72,14 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     a test holds. A test that holds keys and doesn't test that reset can create its input with
     `ResetOnFocusLoss: false`; `real.FocusNote()` adds to a failure message whether the window lost
     focus during the test.
-- **Skipping:** a test that can't run in this state calls `skip(reason)` from
-  `shared/fixtures/skip.ts` and returns. It counts as passed; the reason is a `[SKIP]` warning in
-  Studio's output, just before the test's `[FWTEST]` line, and not in the terminal.
+- **Skipping:** a test that can't run here (another project, no VirtualInput, a cursor that never
+  locked, a window that renders nothing) calls `skip(reason)` from `@flamework-experimental/testing`,
+  as `return skip(reason)` at the top level of its body. It ends the test, and each realm's summary
+  counts it as skipped and lists it with its reason; it fails nothing unless the run has
+  `--fail-on-skip`, which `test:all` can't use (every project skips the others' tests). A plain
+  `return` counts as a pass, so it is only for a test whose checks so far are the test, such as the
+  wheel half of `hunter-r1`'s UiNavigation test under `touch`. Keep `skip` out of `pcall`,
+  `expectThrows`, `eventually` and spawned threads.
 - Gamepad input, window focus and the Roblox menu can't be simulated from Luau: those paths are
   driven through Scriptable bindings (`Fire`) and the TextBox focus path.
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
@@ -89,11 +94,13 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   fire while Heartbeat keeps running at about 240 Hz; it renders again as soon as the display is
   back on. Measured on 2026-10-01 by turning the displays off during a play session: 0 render steps
   a second while off, about 150-180 while on. Long unattended runs hit this when the machine idles
-  with its screen off. Minimizing the window does not stop rendering: a play session minimized as
-  it opened kept rendering at about 60 fps (about 200 fps when visible). The render cadence never
-  follows Heartbeat. The package's per-frame work (`src/Internal/EveryFrame.ts`) copes either way,
-  and tests must too. The package's per-frame
-  work (`src/Internal/EveryFrame.ts`) runs once per frame, at the render step or else at
+  with its screen off, so `bun run test:all` passes `--keep-awake`, which `scripts/test.mjs` holds
+  from its start to its end (flamework-test alone holds it only while each of its calls lasts, and
+  the touch pass starts Studio between them); give any other unattended run the flag too.
+  Minimizing the window does not stop rendering: a play session minimized as it opened kept
+  rendering at about 60 fps (about 200 fps when visible). The render cadence never follows
+  Heartbeat. The package's per-frame work (`src/Internal/EveryFrame.ts`) runs once per frame, at
+  the render step or else at
   `PreAnimation`, so tests must hold either way; code that only binds to a render step may never
   run in a test. Such a window also has Heartbeat ticks with no `PreAnimation`, `PreSimulation` or
   `PostSimulation` (measured: 9 to 87 of 600 ticks, with nothing else running). The package's
@@ -126,12 +133,13 @@ other projects:
 4. `flamework-test studio exec --studio test.touch.rbxl --realm edit` calls
    `game:GetService("StudioDeviceSimulatorService"):SetDeviceAsync("iphone_14")`;
 5. `flamework-test studio run --studio test.touch.rbxl --realm both` runs the tests, and stops the
-   play session (`--sections`, `--realm`, `--timeout`, `--list` and `--json` are passed on; `--keep`
-   is not, see step 7);
+   play session (`--sections`, `--realm`, `--timeout`, `--list`, `--json`, `--fail-on-skip` and
+   `--keep-awake` are passed on; `--keep` is not, see step 7);
 6. **always**, also after a failure, a timeout or Ctrl+C, `SetDeviceAsync("default")` sets the
    device back, and the run says so (`Studio's device is back to default`). Only the Edit data model
    can set it (`Edit datamodel is not available in Play mode`), so a play session still running is
-   stopped first (`studio status`, then `studio stop`): Ctrl+C ends the CLI before it stops play;
+   stopped first (`studio status`, then `studio stop`): after Ctrl+C the CLI may still be stopping
+   it;
 7. the window is closed by ending the Studio process the run started. With `--keep` it stays open,
    in Edit: the play session can't be kept, since the device can't be set back during one (hunt
    round 4 found `--keep` left the phone simulated).
@@ -157,8 +165,9 @@ window, then delete the marker:
 Ctrl+C during the touch pass stops the CLI's current step; the script itself carries on to stop the
 play session, set the device back and close the window, then rebuilds `out/` and exits with 130.
 The window helpers come from flamework-test's own `cli/src/studio.ts` (finding Studio, telling a
-play session, and closing a window by the process that opened it); the Flamework packages are
-pinned exactly, so that module can't move under it.
+play session, and closing a window by the process that opened it). The Flamework packages are
+pinned exactly, so that module moves only on an upgrade: check the imports then (2.0.0-alpha.6 made
+`runCloseScript` async).
 
 ## Stack
 
@@ -166,8 +175,12 @@ pinned exactly, so that module can't move under it.
   version roblox-ts 3.0.0 bundles.
 - Rojo 7.7 (`aftman.toml`) builds the place from `default.project.json`.
 - **Flamework v2 alpha**, all five pinned exactly; upgrade them together, to one release:
-  - `@flamework-experimental/core`, `components`, `networking` and `testing` 2.0.0-alpha.4;
-  - `@flamework-experimental/transformer` 2.0.0-alpha.5, the tsconfig plugin.
+  - `@flamework-experimental/core`, `networking` and `testing` 2.0.0-alpha.6, `components`
+    2.0.0-alpha.5;
+  - `@flamework-experimental/transformer` 2.0.0-alpha.7, the tsconfig plugin.
+  - Since 2026-10-01 Studio runs its MCP server's Luau sandboxed, and a place built with testing
+    2.0.0-alpha.5 or earlier fails every Studio run with `cannot invoke 'FlameworkTests'`: keep
+    `testing` at alpha.6 or later.
   - `testing` is in every build, not only test builds: both entry points include its
     `TestingPlugin`, which stays inert without the `testing` scope. A mismatched version breaks
     the game too.
@@ -201,7 +214,8 @@ commands use npm; use bun here.
 
 - `bun install`.
 - `bun run build` runs `rbxtsc`. It is the check: it must exit 0 and print no `error TS` and no
-  Flamework warning. The `[Flamework]` prefix is coloured even in a log, so search for `Flamework`.
+  Flamework warning. Colour codes can split `error TS` and `[Flamework]` even in a log, so search
+  a log for `error` and `Flamework`.
 - `bun run watch` rebuilds on change. It keeps the `flamework.config.json` and `.env` it started
   with, so restart it after changing either.
 - `bun run serve` runs `rojo serve` to sync into Studio, and `bun run place` builds `place.rbxl`.
@@ -209,8 +223,14 @@ commands use npm; use bun here.
 - `bun run test` runs the tests in Studio; see [Tests](#tests).
 - `bun run format` runs Prettier on `src/`: tabs, a width of 100, trailing commas.
 - Add packages with `bun add <name>`, or `bun add -d <name>` for build tools. Add a
-  `@flamework-experimental/*` package with `bun add --exact`, at the version the others are on. It
-  needs no mapping: `default.project.json` maps the whole scope.
+  `@flamework-experimental/*` package with `bun add --exact`, at the version of the release the
+  others come from (the monorepo's
+  [CHANGELOG](https://github.com/Velover/ExperimentalFlameworkV2/blob/HEAD/CHANGELOG.md) heads
+  each release with the versions it changed, which differ per package; one it leaves out keeps its
+  earlier version). It needs no mapping: `default.project.json` maps the whole scope.
+- The template this place came from is
+  [FlameworkV2Template, branch `testing`](https://github.com/Velover/FlameworkV2Template/tree/testing);
+  last brought in at `a74ebbe` (testing 2.0.0-alpha.6). Its later commits show what to bring in next.
 
 ## Where things live
 
@@ -238,8 +258,10 @@ commands use npm; use bun here.
 
 - `bun run test` (`scripts/test.mjs`) builds with `FLAMEWORK_SCOPES=testing` and makes `test.rbxl`.
   `flamework-test` then lays that over `tests/place.rbxlx` and runs every section in Studio, on the
-  server and then on the client. It needs Studio's "MCP server" setting on, and `lune`. A failure
-  exits non-zero.
+  server and then on the client. It needs Studio's "MCP server" setting on, and `lune`. Each realm's
+  summary counts passed, failed and skipped tests, and lists each skip with its reason. A failure
+  exits non-zero; a skip does not, unless the run has `--fail-on-skip`. Give a run nobody watches
+  `--keep-awake` (`test:all` has it): while the display sleeps, RenderStepped stops.
 - Each realm's run may take 600 s (`--timeout 600s`, which `scripts/test.mjs` passes unless the
   command line gives its own). flamework-test's own 120 s is too short: the client's run under
   `authority` takes about 160 s, since its real-input tests wait on the server. A run past the limit
@@ -247,12 +269,16 @@ commands use npm; use bun here.
 - Tests live in `src/server/tests`, `src/client/tests` and `src/shared/tests` (both realms). Each
   test file is a `@Provider({ activeIn: ["testing"] })` that calls `defineTests` in `onStart`;
   `src/server/tests/players.ts` is a plain module of helpers beside them. The entry points register
-  those folders only under the `testing` scope. `.claude/rules/testing.md` has the details.
+  those folders only under the `testing` scope. When something known only at run time rules a test
+  out, it calls `skip(reason)`, which the summary lists; a plain `return` would count as a pass.
+  `.claude/rules/testing.md` has the details.
 - Whether the tests pass or fail, `bun run test` ends by rebuilding `out/` with `FLAMEWORK_SCOPES`
   set to nothing, so `rojo serve` and `bun run place` never ship the test host. Never put the scope
   in `.env` or `.env.local`: every other build reads them. A run stopped with Ctrl+C skips the
-  rebuild, and leaves its Studio window open if Studio had started: run `bun run build`, and the next
-  `bun run test` closes that window. Every run leaves `test.rbxl` and `test.patched.rbxl` behind; they are git-ignored.
+  rebuild, so `out/` keeps the test build: run `bun run build`. `flamework-test` still stops its
+  play session and closes its Studio window, in the seconds after the prompt comes back (the touch
+  pass: [The touch pass](#the-touch-pass)). Every run leaves `test.rbxl` and `test.patched.rbxl`
+  behind; they are git-ignored.
 
 ## Flamework v2 rules
 

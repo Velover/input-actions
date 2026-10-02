@@ -11,7 +11,7 @@
 //   6. the device is set back to "default", whatever happened before: a failure, a timeout or
 //      Ctrl+C. The setting belongs to Studio, not to the place, so a device left set would follow
 //      the user into their own windows. Only the Edit data model can set it, so a play session
-//      still running (Ctrl+C stops the CLI before it stops play) is stopped first;
+//      still running (after Ctrl+C the CLI may still be stopping it) is stopped first;
 //   7. the window is closed by ending the process this run started (unless --keep, which leaves it
 //      open, in Edit: the play session is not kept, since the device can't be set back during one).
 //
@@ -22,7 +22,8 @@
 //
 // The Studio window helpers come from flamework-test's own module (`cli/src/studio.ts`): finding
 // Studio, and closing a window by the process that opened it, without the save prompt asking
-// would raise. The Flamework packages are pinned exactly, so the module can't move under us.
+// would raise. The Flamework packages are pinned exactly, so the module only moves on an upgrade:
+// check these imports then (2.0.0-alpha.6 made runCloseScript async).
 
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -56,7 +57,7 @@ const DEVICE_MARKER = join(tmpdir(), "input-actions-testing-device.json");
  * keeps the window open for it instead.
  */
 const VALUE_FLAGS = new Set(["realm", "sections", "timeout", "original", "file", "project"]);
-const RUN_FLAGS = new Set(["realm", "sections", "timeout", "list", "json"]);
+const RUN_FLAGS = new Set(["realm", "sections", "timeout", "list", "json", "fail-on-skip", "keep-awake"]);
 
 /** The project's name, as flamework-test names it: the file name without `.project.json` */
 export function projectName(path) {
@@ -125,10 +126,10 @@ async function removeLock(place, pid) {
 }
 
 /** Closes the windows a target matches (the CLI's own close); false when one stays open */
-function closeWindows(target, label) {
+async function closeWindows(target, label) {
 	let windows;
 	try {
-		windows = runCloseScript(target);
+		windows = await runCloseScript(target);
 	} catch (error) {
 		console.error(`could not close ${label}: ${error.message}`);
 		return false;
@@ -245,7 +246,7 @@ export async function restoreLeftDevice(built) {
 	}
 	const place = resolve(`${built.replace(/\.rbxlx?$/i, "")}.device-restore.rbxl`);
 	const file = basename(place);
-	if (!closeWindows({ file: place }, `the window left from an earlier run of ${file}`)) return false;
+	if (!(await closeWindows({ file: place }, `the window left from an earlier run of ${file}`))) return false;
 	copyFileSync(built, place);
 	let pid;
 	let ok = false;
@@ -261,7 +262,7 @@ export async function restoreLeftDevice(built) {
 			else restoreByHand(`STUDIO MAY STILL SIMULATE ${left}: setting it back failed (${restored.output}).`);
 		}
 	} finally {
-		if (pid !== undefined && closeWindows({ pid, file: place }, file)) await removeLock(place, pid);
+		if (pid !== undefined && (await closeWindows({ pid, file: place }, file))) await removeLock(place, pid);
 		rmSync(place, { force: true });
 	}
 	return ok;
@@ -283,7 +284,7 @@ export async function runOnDevice(projectPath, built, original, args) {
 	const keep = args.includes("--keep");
 
 	// A window left on this file by an earlier run would test stale code, and share the name
-	if (!closeWindows({ file: place }, `the window left from an earlier run of ${file}`)) return 1;
+	if (!(await closeWindows({ file: place }, `the window left from an earlier run of ${file}`))) return 1;
 
 	const exe = findStudioExe();
 	if (exe === undefined) {
@@ -337,7 +338,7 @@ export async function runOnDevice(projectPath, built, original, args) {
 			}
 		}
 		if (keep) console.log("Studio left open, in Edit (--keep; the device can only be set back there)");
-		else if (pid !== undefined && closeWindows({ pid, file: place }, file)) await removeLock(place, pid);
+		else if (pid !== undefined && (await closeWindows({ pid, file: place }, file))) await removeLock(place, pid);
 		process.off("SIGINT", onInterrupt);
 	}
 	return interrupted ? 130 : code;

@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
@@ -89,7 +90,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			// ---- several root handles on the server's copy
 
 			test("destroying the handle whose Fire holds a shared action releases the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const keeper = createSaInput();
 				const holder = InputActions.Create(SA_SCHEMA, { Folder: server("templates") as Folder });
 				let destroyed = false;
@@ -115,7 +116,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			// ---- actions of the server's copy that the schema doesn't mention (the template's Emote)
 
 			test("Request(false) releases on the server a template action the package gave keys", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const emote = expectDefined(
 					input.SaGameplay.Instance.FindFirstChild("Emote"),
@@ -133,9 +134,11 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("focus loss releases on the server a template action the package gave keys", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
-				const emote = expectDefined(input.SaGameplay.Instance.FindFirstChild("Emote")) as InputAction;
+				const emote = expectDefined(
+					input.SaGameplay.Instance.FindFirstChild("Emote"),
+				) as InputAction;
 				const read = () => serverState("Inputs", "SaGameplay", "Emote");
 				heldKey(emote, true, false, read);
 				const gui = new Instance("ScreenGui");
@@ -154,7 +157,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			// ---- R1-F1/F2 again, on other paths and action types
 
 			test("context SetEnabled(false) releases a key-held action on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				heldKey(jump.Instance, true, false, serverJump);
@@ -162,11 +165,14 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 				defer(() => input.SaGameplay.SetEnabled(true));
 				eventually(() => serverJump() === false, "the release on the server", 5);
 				input.SaGameplay.SetEnabled(true);
-				expectTrue(staysAt(() => jump.IsPressed(), false), "the client's Jump stays released");
+				expectTrue(
+					staysAt(() => jump.IsPressed(), false),
+					"the client's Jump stays released",
+				);
 			});
 
 			test("focus loss releases a key-held Direction1D on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const throttle = input.SaVehicle.Actions.Throttle;
 				const read = () => serverState("Inputs", "SaVehicle", "Throttle");
@@ -183,11 +189,14 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 				box.CaptureFocus();
 				eventually(() => read() === 0, "the release on the server", 5);
 				eventually(() => input.SaVehicle.IsEnabled(), "the context back on");
-				expectTrue(staysAt(() => throttle.GetState(), 0), "the client's Throttle stays at rest");
+				expectTrue(
+					staysAt(() => throttle.GetState(), 0),
+					"the client's Throttle stays at rest",
+				);
 			});
 
 			test("a key-held Direction2D is released on the server by action SetEnabled(false)", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const move = createSaInput().SaGameplay.Actions.Move;
 				const read = () => serverState("Inputs", "SaGameplay", "Move");
 				heldKey(move.Instance, new Vector2(0, 1), Vector2.zero, read);
@@ -197,7 +206,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("a virtual stick and a key both holding Move: one Request(false) releases the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const move = input.SaGameplay.Actions.Move;
 				const read = () => serverState("Inputs", "SaGameplay", "Move");
@@ -215,7 +224,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("quick Taps in one frame end released on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				eventually(() => serverJump() === false, "Jump at rest on the server", 5);
 				const before = serverPressed("Inputs", "SaGameplay", "Jump");
@@ -231,7 +240,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("Destroy while a Request(false) holds the copy off leaves nothing held", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				expectTrue(server("provide", "sa") === true);
 				const input = InputActions.Create(SA_SCHEMA, { Folder: server("templates") as Folder });
 				let destroyed = false;
@@ -255,7 +264,7 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("a context's EnabledChanged hears one pair per focus loss under Server Authority", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const changes = recordSignal(input.SaGameplay.EnabledChanged);
 				const gui = new Instance("ScreenGui");
@@ -275,10 +284,13 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 			});
 
 			test("ControlSetEnabled(false) releases the character's jump on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				const context = expectDefined(
-					Players.LocalPlayer.WaitForChild("InputContexts", 10)?.WaitForChild("CharacterContext", 10),
+					Players.LocalPlayer.WaitForChild("InputContexts", 10)?.WaitForChild(
+						"CharacterContext",
+						10,
+					),
 				) as InputContext;
 				const jumpAction = expectDefined(context.WaitForChild("JumpAction", 10)) as InputAction;
 				const read = () => server("playerModule", undefined, "CharacterContext", "JumpAction");
@@ -288,7 +300,10 @@ export class ValidatorR2ServerAuthorityTests implements OnStart {
 				RawInputHandler.ControlSetEnabled(false);
 				eventually(() => read() === false, "the release on the server", 5);
 				RawInputHandler.ControlSetEnabled(true);
-				expectTrue(staysAt(() => jumpAction.GetState(), false), "the client's jump stays released");
+				expectTrue(
+					staysAt(() => jumpAction.GetState(), false),
+					"the client's jump stays released",
+				);
 			});
 		});
 	}

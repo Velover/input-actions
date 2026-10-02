@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
@@ -19,7 +20,6 @@ import {
 	UserInputService,
 } from "@rbxts/services";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, createTestInput, frames } from "./helpers";
 import { clickProblem, emptyPoint, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -74,7 +74,7 @@ export class HunterR3RealTests implements OnStart {
 		defineTests("hunter-r3-real", () => {
 			// docs/Advanced.md, Rebinding: "Mouse buttons and touch count as MouseLeftButton/.../TouchPosition"
 			test("touch: Capture takes a tap on the world as TouchPosition; a finger down then presses the action", () => {
-				if (!isTouch()) return;
+				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput().Gameplay.Actions.Jump;
@@ -152,7 +152,7 @@ export class HunterR3RealTests implements OnStart {
 			// server, fired after the change, presses and releases it once more (probed table: "On a
 			// local context the same pair after the change adds a second Pressed/Released")
 			test("a provided copy in a place without Server Authority: a rebind while a real key holds Jump releases it once, and presses nothing", () => {
-				if (getProject() === "authority") return;
+				if (getProject() === "authority") return skip("for a place without Server Authority");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				expectTrue(server("provide", "sa") === true);

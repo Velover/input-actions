@@ -6,12 +6,12 @@ import {
 	expectNoThrow,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
 import { RunService, Workspace } from "@rbxts/services";
 import { expectedServerAuthority, names } from "shared/fixtures/authority";
-import { skip } from "shared/fixtures/skip";
 
 /** InputActions.IsServerAuthority on both realms, under every project (design spec §8) */
 @Provider({ activeIn: ["testing"] })

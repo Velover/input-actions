@@ -7,12 +7,12 @@ import {
 	expectEqual,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
 import { Players, ReplicatedStorage } from "@rbxts/services";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, frame, frames, newFolder } from "./helpers";
 import { clickProblem, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -87,7 +87,7 @@ export class HunterR1SaTests implements OnStart {
 			// ---- what works
 
 			test("a real key held on the copy reaches the server; a context request releases it there for good", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -112,7 +112,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("AttachButton on the copy: the binding removed, or the button destroyed, under the finger releases it on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -143,7 +143,7 @@ export class HunterR1SaTests implements OnStart {
 			// copy is played on the client here: providing SA_LATE_SCHEMA would spoil the stand-in test
 			// of the server-authority section, which needs that copy to arrive after its own Create
 			test("TrackPrevious on a context under the player: a real press is IsJustPressed for one frame, its release IsJustReleased for one", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const folder = new Instance("Folder");
@@ -189,7 +189,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("RawInputHandler.ControlSetEnabled(false) with a real W held stops the character on the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				RawInputHandler.Initialize();
@@ -207,7 +207,7 @@ export class HunterR1SaTests implements OnStart {
 			// ---- rebinding a held key: the copy keeps the action held, on the client and the server
 
 			test("Set on a binding whose key is held: after the key comes up the action is released, on the client and the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -224,7 +224,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("Set on a composite whose key is held: Move comes back to rest after the key comes up, on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -241,7 +241,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("Set that only tunes a held binding (PressedThreshold, the same key): released on both sides once the key comes up", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -258,7 +258,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("ImportBindings while the old key is held: released on both sides once it comes up", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -279,7 +279,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("ResetBindings while the rebound key is held: released on both sides once it comes up", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -298,7 +298,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("Capture while the old key is held: once both keys are up, the server agrees with the client", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -318,7 +318,7 @@ export class HunterR1SaTests implements OnStart {
 			});
 
 			test("after a rebind left it held, pressing the new key lets go on the server too", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);

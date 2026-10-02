@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
@@ -477,7 +478,7 @@ export class ServerAuthorityClientTests implements OnStart {
 			});
 
 			test("the server reads the state the client drives", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				const state = (actionName: string) => server("state", "sa", "SaGameplay", actionName);
@@ -502,7 +503,7 @@ export class ServerAuthorityClientTests implements OnStart {
 			});
 
 			test("a held binding removed under Server Authority releases the action", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const input = createSaInput();
 				const jump = input.SaGameplay.Actions.Jump;
 				const gui = new Instance("ScreenGui");

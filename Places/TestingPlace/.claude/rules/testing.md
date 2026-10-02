@@ -21,7 +21,9 @@ For anything not covered here, read
      `.env.local` or in your shell can't come back. It exits with the first failing step's code
      (127 for a tool it can't find), or else the rebuild's.
 - It needs Studio with "MCP server" on in its Assistant settings, and `lune` (`aftman.toml`). It
-  exits non-zero when a test fails.
+  exits non-zero when a test fails. Each realm's summary reads `N passed, M failed, K skipped` and
+  lists every skipped test with its reason; a skip fails nothing unless the run has
+  `--fail-on-skip`.
 - Never put `FLAMEWORK_SCOPES=testing` in `.env` or `.env.local`. Every other build reads them
   (`bun run build`, `watch`, a release), and would ship the test host.
 - Extra arguments go to `flamework-test`:
@@ -31,6 +33,11 @@ For anything not covered here, read
     has fails the run: `MISS matched nothing in any realm: coins`.
   - `--realm server` or `--realm client` runs one realm. There, an entry that realm lacks fails
     the run.
+  - `--fail-on-skip` makes any skip fail the run, and its section head `FAIL`: for a run that
+    must run everything.
+  - `--keep-awake` keeps the display on from the start of the run to its end (Windows). While the
+    display sleeps, RenderStepped stops and a client test that waits on `onRender` fails; a
+    minimized Studio still renders.
   - The other flags (`--list`, `--keep`, `--timeout`) are in
     `node_modules/@flamework-experimental/testing/README.md`.
 - A command it can't find (`rojo`, `flamework-test`) is reported as `<name> not found on PATH`,
@@ -39,21 +46,18 @@ For anything not covered here, read
 - The run opens its own Studio window. When it is done, it ends that window's process at once and
   removes the window's lock file. The only other window it closes is one that shows this very
   `test.patched.rbxl`, left from an earlier run: it asks first, and ends it after ten seconds.
-- Every run leaves `test.rbxl` and `test.patched.rbxl`, git-ignored with the other root places.
-  The patch's own files go to the system temp folder and are removed when the patch ends. `build/`
-  is only written by
-  `flamework-test`'s cloud commands, which this template doesn't use.
-- A run stopped with Ctrl+C skips the rebuild. It leaves:
-  - the testing build in `out/`;
-  - its Studio window once Studio has started, in a play session if one had begun, with Studio's
-    `test.patched.rbxl.lock` beside the place;
-  - in the system temp folder, a `flamework-test-XXXXXX` folder if it stopped during the patch, and a
-    claim file under `flamework-test` if it stopped while waiting for the window. Both are harmless;
-    the next run takes the claim over.
-
-  Run `bun run build` before `rojo serve` or `bun run place`, which would otherwise ship the test
-  host. The next `bun run test` closes the stale window itself (it asks, then ends it after ten
-  seconds) and removes its lock.
+- Every run leaves `test.rbxl` and `test.patched.rbxl`, git-ignored with the other root places. The
+  patch's own files go to the system temp folder and are removed when the patch ends. `build/` is
+  only written by `flamework-test`'s cloud commands, which this template doesn't use.
+- A run stopped with Ctrl+C skips the rebuild: `bun run` ends the script at once. `out/` keeps
+  the testing build, so run `bun run build` before `rojo serve` or `bun run place`, which would
+  otherwise ship the test host.
+- `flamework-test` still cleans up what it started: it stops its play session, closes its Studio
+  window and removes its lock, releases its window-name claim, removes the patch's temp folder and
+  stops the MCP proxy. The prompt comes back at once, and its
+  `interrupted by Ctrl+C: cleaned up: ...` line follows a few seconds later. A second Ctrl+C before
+  that line stops the cleanup at once and names what may be left; the next `bun run test` closes a
+  window left showing `test.patched.rbxl` (it asks, then ends it after ten seconds).
 
 ## Writing one
 
@@ -87,6 +91,11 @@ export class ShopTests implements OnStart {
   - `eventually(predicate, what)` polls every frame, for 5 seconds by default, for what the engine
     delivers later: deferred signals, replication, per-frame work.
   - A test times out after 30 seconds (`testing.timeout`).
+- **Skipping:** `skip(reason)`, from the test's body or a `beforeEach`, ends the test as skipped,
+  for what rules it out only at run time (the realm, a display that is asleep). A plain `return`
+  would count as a pass. `test.skip(name, body)` parks a test without running it. Cleanup still
+  runs after a skip. Keep `skip` out of `pcall`, `expectThrows` and threads that outlive the
+  test: guide 12, "Skipping a test".
 
 ## Players, networking, components
 

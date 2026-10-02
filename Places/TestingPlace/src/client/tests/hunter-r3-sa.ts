@@ -7,13 +7,13 @@ import {
 	expectEqual,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions, RawInputHandler } from "@rbxts/input-actions";
 import { ReplicatedStorage } from "@rbxts/services";
 import { HUNTER_LATE_SCHEMA, HUNTER_R2_REMOTE } from "shared/fixtures/hunter-r2-fixture";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { frames, newFolder } from "./helpers";
 import { clickProblem, RealInput, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -56,7 +56,11 @@ function createSaInput() {
  */
 function pressUntilServerSees(real: RealInput, key: Enum.KeyCode, jump: InputActions.BoolAction) {
 	real.Press(key);
-	eventually(() => jump.IsPressed(), `${key.Name} presses Jump on the client${real.FocusNote()}`, 5);
+	eventually(
+		() => jump.IsPressed(),
+		`${key.Name} presses Jump on the client${real.FocusNote()}`,
+		5,
+	);
 	eventually(
 		() => serverJump() === true,
 		`the server sees ${key.Name} (client ${jump.IsPressed()})${real.FocusNote()}`,
@@ -139,7 +143,7 @@ export class HunterR3SaTests implements OnStart {
 	onStart() {
 		defineTests("hunter-r3-sa", () => {
 			test("server's copy: a key that comes up while a request holds the context off leaves both sides at rest", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -162,7 +166,7 @@ export class HunterR3SaTests implements OnStart {
 			});
 
 			test("server's copy: a key that comes up while the action is disabled leaves both sides at rest", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -184,7 +188,7 @@ export class HunterR3SaTests implements OnStart {
 			});
 
 			test("RawInputHandler: W comes up while the controls are off; turned on again, the character stays still on both sides", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				RawInputHandler.Initialize();
@@ -211,7 +215,7 @@ export class HunterR3SaTests implements OnStart {
 			});
 
 			test("swap: the server's copy arrives while an attached button is held on the stand-in; afterwards nothing sticks", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const { input, provide, serverState } = createLateInput();

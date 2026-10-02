@@ -2,11 +2,14 @@
 // scope whatever happened, so out/ never keeps a build that hosts the tests (guide 12, "Setting
 // up"). Start it with `bun run test`, which puts node_modules/.bin on the PATH; run on its own,
 // `bun scripts/test.mjs` finds no rbxtsc, or a global one instead of the project's. Extra
-// arguments go to flamework-test, as in `bun run test --sections levels`. A project that needs
-// Studio's device simulator (`--project tests/touch.project.json`) runs through
-// scripts/device-test.mjs instead, after the others; and a device an earlier run left set is set
-// back before any project runs.
+// arguments go to flamework-test, as in `bun run test --sections levels`. Ctrl+C is the
+// exception to "whatever happened": this script ends at once, before the rebuild, and
+// flamework-test cleans up its own window and session (in the touch pass the script first sets
+// the device back: scripts/device-test.mjs). A project that needs Studio's device
+// simulator (`--project tests/touch.project.json`) runs through scripts/device-test.mjs instead,
+// after the others; and a device an earlier run left set is set back before any project runs.
 
+import { dlopen, FFIType } from "bun:ffi";
 import { DEVICE_PROJECTS, projectName, restoreLeftDevice, runOnDevice } from "./device-test.mjs";
 
 /**
@@ -37,6 +40,32 @@ function splitProjects(args) {
 	return { projects, rest };
 }
 
+/**
+ * `--keep-awake` (or `--keep-awake=true`), held from here to the end of the script: flamework-test
+ * holds it only while each of its own calls lasts, and the display could go to sleep between them
+ * (the touch pass starts Studio itself). It is the request flamework-test makes, Windows'
+ * SetThreadExecutionState for this process, so Windows lets it go when the script exits, however
+ * it exits. The flag still goes on to flamework-test.
+ */
+function keepDisplayAwake(args) {
+	const flag = args.findLast((arg) => arg === "--keep-awake" || arg.startsWith("--keep-awake="));
+	if (flag === undefined || /^--keep-awake=(false|0)$/i.test(flag)) return;
+	if (process.platform !== "win32") return;
+	try {
+		const kernel32 = dlopen("kernel32.dll", {
+			SetThreadExecutionState: { args: [FFIType.u32], returns: FFIType.u32 },
+		});
+		// ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED; 0 means Windows refused
+		if (kernel32.symbols.SetThreadExecutionState(0x80000003) !== 0) {
+			console.log("keeping the display on until every project has run (--keep-awake)");
+			return;
+		}
+	} catch {
+		// Reported below, as a refusal is
+	}
+	console.error("warning: could not keep the display on for the whole run; each flamework-test call still asks");
+}
+
 /** Runs a command in the terminal. Returns its exit code, or undefined when it can't be started. */
 function run(command, env = process.env) {
 	try {
@@ -49,6 +78,8 @@ function run(command, env = process.env) {
 		return undefined;
 	}
 }
+
+keepDisplayAwake(process.argv.slice(2));
 
 // The package under test, built from the repository root and copied into node_modules. Nothing
 // else has run yet, so a failure here leaves out/ as it was.

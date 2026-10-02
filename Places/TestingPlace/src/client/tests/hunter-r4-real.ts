@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
@@ -21,7 +22,6 @@ import {
 } from "@rbxts/services";
 import { expectedServerAuthority } from "shared/fixtures/authority";
 import { SA_REMOTE, SA_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { createTestInput, frames, nearlyEqual, newFolder, recordSignal } from "./helpers";
 import { clickProblem, guiInset, realInput, screenCenter, testButton, testGui } from "./virtual";
 
@@ -392,7 +392,10 @@ export class HunterR4RealTests implements OnStart {
 					`stored 0.45 reads ${smallPad.Instance.ReleasedThreshold} under 0.3`,
 				);
 				// the stand-in's handle tunes only PressedThreshold
-				full.HunterR4Swap.Actions.Fire.Bindings.Pad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.4 });
+				full.HunterR4Swap.Actions.Fire.Bindings.Pad.Set({
+					KeyCode: K.ButtonR2,
+					PressedThreshold: 0.4,
+				});
 				const extra = new Instance("InputAction");
 				extra.Name = "Extra";
 				extra.Parent = context;
@@ -480,7 +483,10 @@ export class HunterR4RealTests implements OnStart {
 				real.Press(key);
 				frames(6);
 				real.ReleaseAll();
-				expectTrue(fired, `Capture took ${captured[0].Name}: the binding ${made} never presses QuickSave`);
+				expectTrue(
+					fired,
+					`Capture took ${captured[0].Name}: the binding ${made} never presses QuickSave`,
+				);
 			});
 
 			// ---- the VirtualInput helpers: inset handling

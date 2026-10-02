@@ -56,18 +56,23 @@ bun run test
 ```
 
 This builds the game with the `testing` scope and lays the build over `tests/place.rbxlx`. It then
-runs the tests in Studio, on the server and on the client, and prints each realm's results. Last,
-whatever the result, it rebuilds `out/` without the `testing` scope: the tests are still compiled
-in, but nothing loads them.
+runs the tests in Studio, on the server and on the client, and prints each realm's passed, failed
+and skipped tests. Last, whatever the result, it rebuilds `out/` without the `testing` scope: the
+tests are still compiled in, but nothing loads them.
 
 - **Needs:** Studio with "MCP server" turned on in its Assistant settings, and
   [Lune](https://lune-org.github.io/docs) (in `aftman.toml`).
 - **One section:** `bun run test --sections levels` runs one section, in each realm that has it.
-- **Other builds:** only a test build loads the tests, so keep the `testing` scope out of `.env`
-  and `.env.local`, which every build reads. A run stopped with Ctrl+C leaves the test build in
-  `out/`, and its Studio window open if Studio had started: run `bun run build` before `rojo serve`. The next
-  `bun run test` closes that window. Every run leaves `test.rbxl` and `test.patched.rbxl` behind;
-  they are git-ignored.
+- **Skips:** a test calls `skip(reason)` when something known only at run time rules it out, and
+  `test.skip(name, body)` parks one. Each skip is listed with its reason, and fails the run only
+  under `bun run test --fail-on-skip`.
+- **Unattended runs:** `bun run test --keep-awake` keeps the display on while it runs. A sleeping
+  display stops RenderStepped, which fails client tests that wait for a frame.
+- **Other builds:** only a test build loads the tests, so keep the `testing` scope out of `.env` and
+  `.env.local`, which every build reads. A run stopped with Ctrl+C leaves the test build in `out/`:
+  run `bun run build` before `rojo serve`. Its Studio window and play session are still closed, a
+  few seconds after the prompt comes back. Every run leaves `test.rbxl` and `test.patched.rbxl`
+  behind; they are git-ignored.
 - **The test place:** `tests/place.rbxlx` has what a new Baseplate place has: deferred signals, a
   baseplate and a spawn.
 

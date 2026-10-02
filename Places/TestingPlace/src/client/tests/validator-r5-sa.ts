@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
@@ -64,7 +65,7 @@ export class ValidatorR5ServerAuthorityTests implements OnStart {
 	onStart() {
 		defineTests("validator-r5-sa", () => {
 			test("a template context and action the designer disabled reach the server once the client enables them", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const folderName = "ValidatorR5A";
 				expectTrue(server("provide", folderName) === true);
 				expectDefined(
@@ -98,7 +99,7 @@ export class ValidatorR5ServerAuthorityTests implements OnStart {
 			});
 
 			test("the same through the stand-in: enabled on it, the server receives after the swap", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const folderName = "ValidatorR5B";
 				const input = create(folderName);
 				const menu = input.R5Menu;
@@ -133,7 +134,7 @@ export class ValidatorR5ServerAuthorityTests implements OnStart {
 			});
 
 			test("Destroy, then Create again on the copy: the client's Enabled stays and still reaches the server", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const folderName = "ValidatorR5A";
 				expectTrue(server("provide", folderName) === true);
 				expectDefined(

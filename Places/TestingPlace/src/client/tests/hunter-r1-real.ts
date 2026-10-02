@@ -7,6 +7,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import {
@@ -18,7 +19,6 @@ import {
 } from "@rbxts/input-actions";
 import { Players, UserInputService } from "@rbxts/services";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
-import { skip } from "shared/fixtures/skip";
 import { countSignal, createTestInput, frame, frames, newFolder, recordSignal } from "./helpers";
 import { clickProblem, emptyPoint, realInput, screenCenter, testButton, testGui } from "./virtual";
 

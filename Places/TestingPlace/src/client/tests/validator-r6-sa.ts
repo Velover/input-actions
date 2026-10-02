@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
@@ -36,7 +37,7 @@ export class ValidatorR6ServerAuthorityTests implements OnStart {
 	onStart() {
 		defineTests("validator-r6-sa", () => {
 			test("a press the copy's handle holds stays on the server when a stand-in handle that pressed it too is destroyed after the swap", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				const folderName = "ValidatorR6A";
 				expectTrue(server("provide", folderName, "small") === true);
 				expectDefined(

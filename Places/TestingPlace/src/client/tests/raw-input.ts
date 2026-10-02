@@ -8,6 +8,7 @@ import {
 	expectFalse,
 	expectTrue,
 	getProject,
+	skip,
 	test,
 } from "@flamework-experimental/testing";
 import { RawInputHandler } from "@rbxts/input-actions";
@@ -77,7 +78,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("the move vector is CharacterContext.MoveAction as Vector3(x, 0, -y)", () => {
-				if (!usesIas()) return;
+				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
 				RawInputHandler.Initialize();
 				const move = scriptableBinding(
 					playerModuleAction("CharacterContext", "MoveAction"),
@@ -98,7 +99,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("rotation and zoom read the camera actions, gated by MouseInputSetEnabled", () => {
-				if (!usesIas()) return;
+				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
 				RawInputHandler.Initialize();
 				const rotation = scriptableBinding(
 					playerModuleAction("CameraContext", "CameraRotationAction"),
@@ -122,7 +123,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("ControlSetEnabled switches CharacterContext", () => {
-				if (!usesIas()) return;
+				if (!usesIas()) return skip("the IAS player scripts only (ias, authority, touch)");
 				RawInputHandler.Initialize();
 				const context = playerModuleAction("CharacterContext", "MoveAction").Parent as InputContext;
 				defer(() => RawInputHandler.ControlSetEnabled(true));
@@ -133,7 +134,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("Server Authority: a CharacterContext found later takes the controls' state; the one left gets its own back", () => {
-				if (getProject() !== "authority") return;
+				if (getProject() !== "authority") return skip("the authority project only");
 				RawInputHandler.Initialize();
 				const copy = playerModuleContexts("CharacterContext");
 				const characterContext = expectDefined(
@@ -170,7 +171,7 @@ export class RawInputTests implements OnStart {
 			});
 
 			test("legacy player scripts: the controls module and the forked camera input", () => {
-				if (usesIas()) return;
+				if (usesIas()) return skip("the legacy player scripts only (default)");
 				RawInputHandler.Initialize();
 				expectEqual(RawInputHandler.GetMoveVector(true, true), Vector3.zero);
 				RawInputHandler.ControlSetEnabled(false);
