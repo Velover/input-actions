@@ -54,7 +54,10 @@ export function StartServer() {
 // LocalPlayer.Inputs, the context runs on a local stand-in, then the handles swap to the copy.
 export function StartClient() {
 	const Input = InputActions.Create(InputSchema, { Timeout: 15 }); // warns after 15 s without the copy
-	Input.Character.LinkedToServer.Connect(() => print("the server now receives Character's state"));
+	// called at once if the copy is there already, else when it arrives (LinkedToServer fires only then)
+	Input.Character.WhenLinkedToServer((copy) =>
+		print(`the server now receives ${copy.Name}'s state`),
+	);
 	Input.Character.Actions.Dash.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.E); // keybinds stay local
 	Input.Menu.Actions.Open.Pressed.Connect(() => print("menu"));
 }
