@@ -4,19 +4,24 @@ A typed wrapper over Roblox's [Input Action System](https://create.roblox.com/do
 (IAS) for roblox-ts. You describe your contexts, actions and bindings once as a schema; the package
 gets or creates the `InputContext` / `InputAction` / `InputBinding` instances and hands back typed
 handles. Its extras: rebinding with a JSON save format, per-frame "just pressed" tracking, context
-requests, on-screen buttons and Server Authority support.
+requests, on-screen buttons, keybind labels and Server Authority support.
 
 - **Typed from the schema.** `Move.GetState()` is a `Vector2`, `Jump.Pressed` exists only on Bool
   actions, and a binding IAS can't use (a mouse delta on a Bool action, Escape, a thumbstick as a
   composite direction) is a compile error.
 - **Works with the Input Action Manager.** Contexts the Manager made in `ReplicatedStorage.Inputs`
   are adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
-- **Rebinding:** `Set`, `Reset`, `Clear`, `Capture`, and `ExportBindings` / `ImportBindings` that
-  save only what the player changed. `SanitizeBindings` cleans a save on the server.
+- **Rebinding:** `Set`, `Reset`, `Clear`, `Capture` (one key), `CaptureChord` (keys held together,
+  such as Ctrl+Shift+J, with an optional timeout), and `ExportBindings` / `ImportBindings` that save
+  only what the player changed. `SanitizeBindings` cleans a save on the server.
+- **UI:** `AttachButton` turns a GuiButton into an on-screen button for a Bool action, and
+  `AttachLabel` points Roblox's `InputActionLabel` at any action to show its keybind for the device
+  in use. Both return a function that undoes them; nothing React-specific is in the package.
 - **Contexts:** a base state plus `Request(true | false)` holds; focus loss (TextBox, window, menu)
   releases held keys.
 - **Server Authority:** opt in per context with `ServerAuthority: true`. The server provides those
-  contexts to each player and reads the state; the keybinds stay on the client.
+  contexts to each player and reads the state; the keybinds stay on the client. Until the server's
+  copy arrives the client runs on a local stand-in; `WhenLinkedToServer` calls back once it has.
   `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority.
   Scripts can't read `Workspace.AuthorityMode`, so it reads the error message
   `workspace.Terrain:CanSetNetworkOwnership()` gives, which names the mode. It answers `undefined`
