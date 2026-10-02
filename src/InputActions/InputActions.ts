@@ -78,7 +78,8 @@ export namespace InputActions {
 	>;
 	/** The handle of an action definition */
 	export type ActionHandle<D> = T.ActionHandle<D>;
-	export type BindingHandle<A extends Enum.InputActionType> = T.IBindingHandle<A>;
+	/** A binding handle with keys; on Bool and Direction1D actions it adds `CaptureChord` */
+	export type BindingHandle<A extends Enum.InputActionType> = T.BindingHandleOf<A>;
 	export type ScriptableBindingHandle<A extends Enum.InputActionType> =
 		T.IScriptableBindingHandle<A>;
 	/** A context handle; Server Authority contexts add `IsLinkedToServer` and `LinkedToServer` */
@@ -108,6 +109,9 @@ export namespace InputActions {
 	export type BindingData<A extends Enum.InputActionType> = T.BindingData<A>;
 	export type CaptureSlot<A extends Enum.InputActionType> = T.CaptureSlot<A>;
 	export type CaptureOptions = T.ICaptureOptions;
+	/** What `CaptureChord` passes its callback */
+	export type Chord = T.IChord;
+	export type ChordCaptureOptions = T.IChordCaptureOptions;
 	export type ImportResult = T.IImportResult;
 	export type SkippedBinding = T.ISkippedBinding;
 

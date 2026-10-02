@@ -108,6 +108,8 @@ context releases its held actions (on the server too, for Server Authority conte
 const jumpKey = Input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
 jumpKey.Set(Enum.KeyCode.F);
 const cancel = jumpKey.Capture("KeyCode", (key) => print(`bound to ${key.Name}`));
+// or keys held together, such as Ctrl+Shift+J: up to two modifiers and a key
+jumpKey.CaptureChord((chord) => print(chord?.KeyCode), { Timeout: 5 });
 
 const save = Input.ExportBindings(); // store it (DataStore through a remote, etc.)
 Input.ImportBindings(save); // on the next join

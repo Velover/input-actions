@@ -195,8 +195,48 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   `Direction2D` `KeyCode` slot, which takes only thumbsticks and those deltas, captures nothing.
   Offer those as choices in your settings UI and apply them with `Set`
   (`Set(Enum.KeyCode.MouseWheel)`).
-- `BindingsChanged` fires on `Set`, `Reset`, `Clear` and `Capture`, and for every binding an import
-  or `ResetBindings` changed.
+- `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord`, and for every
+  binding an import or `ResetBindings` changed.
+
+### Capturing a chord
+
+`Capture` takes one key: a player who holds Ctrl and presses S gets plain `LeftControl`.
+`CaptureChord` takes keys held together, on the bindings of Bool and Direction1D actions (the action
+types whose `KeyCode` takes keys that can be pressed; the others don't have it):
+
+```ts
+const keys = Input.Gameplay.Actions.QuickSave.Bindings.KeyboardAndMouse;
+showPrompt("Hold the keys, then let go");
+keys.CaptureChord(
+	(chord) => {
+		hidePrompt();
+		if (chord === undefined) return; // cancelled, or the timeout with nothing to record
+		print(chord.KeyCode, chord.PrimaryModifier, chord.SecondaryModifier);
+	},
+	{ Cancel: [Enum.KeyCode.Backspace], Timeout: 5 },
+);
+```
+
+- It follows the keys that go down, in order, and settles when the first of them comes up: the last
+  key down becomes `KeyCode`, and the keys held before it `PrimaryModifier` and `SecondaryModifier`,
+  in the order they went down. That is also the order IAS wants them pressed in. Ctrl, then G, then
+  H gives H with Ctrl and G; which key comes up first doesn't matter. One key alone gives that key,
+  and clears the binding's modifiers.
+- It is written in one write: a held action is released once, and `BindingsChanged` fires once.
+  Composite directions give way to the `KeyCode`, as with `Set`. `callback` gets what was applied.
+- A chord the binding can't hold is ignored: more than three keys, a modifier that isn't a Button key
+  (a mouse button, a tap, a trigger), or a last key the action type can't use. The capture then
+  waits for every key of it to come up before the next chord counts, so letting go of the keys one
+  by one doesn't record the last of them alone.
+- A key already down when the capture began isn't part of a chord: holding W to walk, then pressing
+  H, records H.
+- `Timeout` (seconds, from the start): when it runs out, the keys held at that moment settle the
+  chord, as if one had come up, so a player who keeps holding doesn't keep the capture waiting.
+  With no keys held, or a chord the binding can't hold, the capture ends with nothing applied.
+- `callback` gets `undefined` when the capture ends with nothing applied: a `Cancel` key, or the
+  timeout. Calling the returned function stops the capture without calling `callback`.
+- As with `Capture`, the keys also do whatever they are bound to while they are pressed: disable
+  the gameplay contexts while the rebinding UI is open (`Request(false)`).
 - **Rebinding a held action releases it.** When a binding's keys change (`KeyCode`, a composite
   direction or a modifier, through any of the calls above, an import or `ResetBindings`) while its
   action is held, the action is released, whatever holds it: a key, a button, a value fired from

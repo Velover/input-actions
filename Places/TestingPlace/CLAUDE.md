@@ -33,7 +33,7 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The sections: `schema`, `rules`, `sanitize`, `presets`, `authority-mode`
   (`IsServerAuthority`), `signal-behavior` (the project's signal mode; IAS's and the handles' events
   under it, on the client) (shared); `create`, `actions`, `track-previous`, `contexts`,
-  `attach-button`, `rebinding`, `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
+  `attach-button`, `rebinding`, `capture-chord` (`CaptureChord` with real keys), `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
   `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
   server when the client resets an action; authority only), `real-input` (real keys and mouse
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local

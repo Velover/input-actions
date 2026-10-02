@@ -147,7 +147,7 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.BoolAction` | any Bool action handle, for helpers in your project |
 | `InputActions.Action<A>` | any action handle of type `A` |
 | `InputActions.ActionHandle<D>` | the handle of an action definition |
-| `InputActions.BindingHandle<A>`, `ScriptableBindingHandle<A>` | binding handles |
+| `InputActions.BindingHandle<A>`, `ScriptableBindingHandle<A>` | binding handles (`BindingHandle` of a Bool or Direction1D action adds `CaptureChord`) |
 | `InputActions.ContextHandle<C>` | a context handle |
 | `InputActions.Handle<S>` | what `Create` returns |
 | `InputActions.ServerHandle<S>`, `ServerAction<A>` | what `ForPlayer` returns |
@@ -155,6 +155,7 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.ActionValue<A>` | `boolean`, `number`, `Vector2`, `Vector3` or `Vector2` |
 | `InputActions.BindingShape<A>`, `BindingData<A>` | what `Set` takes and `Get` returns |
 | `InputActions.CaptureSlot<A>`, `CaptureOptions` | `Capture`'s arguments |
+| `InputActions.Chord`, `ChordCaptureOptions` | what `CaptureChord` passes its callback, and its options |
 | `InputActions.ImportResult`, `SkippedBinding` | what `ImportBindings` returns |
 | `InputActions.CreateOptions`, `ProvideOptions`, `ForPlayerOptions` | options |
 | `InputActions.ButtonKey`, `MouseButtonKey`, `AxisKey`, `StickKey`, `Delta1DKey`, `Delta2DKey`, `PositionKey`, `BoolKey`, `Direction1DKey`, `Direction2DKey`, `CompositeKey`, `ModifierKey` | the [key groups](#key-groups) |
@@ -235,6 +236,7 @@ A slot with keys:
 | `Reset()` | back to the binding right after `Create` |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
 | `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot` that begins (`UserInputService.InputBegan`: keys, buttons, mouse buttons, taps; never the wheel, mouse movement or a drag), applies it, calls `callback(key)`; `options.Cancel` keys stop it |
+| `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the
 action, whatever holds it, on the server too under Server Authority; a change that leaves the keys

@@ -237,6 +237,47 @@ export interface IBindingHandle<T extends Enum.InputActionType> {
 		options?: ICaptureOptions,
 	): () => void;
 }
+/** What `CaptureChord` applied: the key, and the modifiers held before it, in the order they went down */
+export interface IChord {
+	readonly KeyCode: Enum.KeyCode;
+	readonly PrimaryModifier?: Enum.KeyCode;
+	readonly SecondaryModifier?: Enum.KeyCode;
+}
+
+/** The action types whose `KeyCode` takes keys that can be pressed, so that a chord can end on one */
+export type ChordActionName = "Bool" | "Direction1D";
+
+export interface IChordCaptureOptions extends ICaptureOptions {
+	/**
+	 * Seconds from the start of the capture. When they run out, the keys held then settle the chord,
+	 * as if one had come up; with none held, or none the binding can hold, the capture ends with
+	 * nothing applied. Without it the capture waits for a release
+	 */
+	Timeout?: number;
+}
+
+/** A binding of a Bool or Direction1D action, which can capture a chord as well as one key */
+export interface IChordBindingHandle<T extends Enum.InputActionType> extends IBindingHandle<T> {
+	/**
+	 * Waits for keys held together (up to three), and settles when the first of them comes up: the
+	 * last key down becomes `KeyCode`, the ones held before it `PrimaryModifier` and
+	 * `SecondaryModifier`, in the order they went down (one key alone clears the modifiers). Applies
+	 * it, then calls `callback` with it. A chord the binding can't hold is ignored, and the capture
+	 * waits for every key of it to come up before the next one counts. `callback` gets `undefined`
+	 * when the capture ends with nothing applied: a `Cancel` key, or a `Timeout` with no chord held.
+	 * Returns a function that stops the capture (then `callback` isn't called)
+	 */
+	CaptureChord(
+		callback: (chord: IChord | undefined) => void,
+		options?: IChordCaptureOptions,
+	): () => void;
+}
+
+/** The handle of a binding with keys: one that can capture chords on Bool and Direction1D actions */
+export type BindingHandleOf<T extends Enum.InputActionType> = T["Name"] extends ChordActionName
+	? IChordBindingHandle<T>
+	: IBindingHandle<T>;
+
 export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
 	readonly Instance: InputBinding;
 	readonly Name: string;
@@ -245,7 +286,7 @@ export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
 export type BindingHandles<T extends Enum.InputActionType, B> = {
 	readonly [K in keyof B]: B[K] extends IScriptable
 		? IScriptableBindingHandle<T>
-		: IBindingHandle<T>;
+		: BindingHandleOf<T>;
 };
 
 export interface IActionHandle<T extends Enum.InputActionType, B> {

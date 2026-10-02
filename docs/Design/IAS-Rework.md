@@ -348,6 +348,20 @@ Binding handle (non-Scriptable):
   touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
   keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
   to `Set`.
+- `CaptureChord(callback, options?): () => void` (0.6.1), on Bool and Direction1D bindings only (the
+  types whose `KeyCode` takes keys that begin; typed through `BindingHandleOf<T>`, and it throws on
+  the others at runtime). It follows the keys that begin while it waits (`InputBegan`, not
+  `gameProcessed`), in order, and settles on the first `InputEnded` among them: the last key down is
+  `KeyCode`, the ones before it `PrimaryModifier` then `SecondaryModifier`, which is the order IAS
+  needs them pressed in. One key alone clears the modifiers. Applied in one write (one release of a
+  held action, one `BindingsChanged`), then `callback(chord)`. A chord the binding can't hold (more
+  than three keys, a modifier that isn't a Button key, a `KeyCode` the type can't take) is ignored,
+  and the capture re-arms only once every key of it is up, so the last leftover released alone
+  can't settle a chord. A key down before the capture began is no part of a chord.
+  `options.Timeout` (seconds from the start, positive and finite, else it throws): when it runs out,
+  the keys held then settle the chord the same way; with none held, or none the binding can hold,
+  the capture ends with nothing applied. `callback(undefined)` when it ends with nothing applied (a
+  `Cancel` key, the timeout); the returned function stops it without calling `callback`.
 
 Scriptable binding handle: `Instance`, `Name`, `Fire(value: V)`.
 

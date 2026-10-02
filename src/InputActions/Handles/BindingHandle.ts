@@ -23,7 +23,7 @@ import {
 import { IRuntime, IsLive } from "../Internal";
 import { EKeyGroup, GetKeyGroup } from "../KeyGroups";
 import { ClearHeldValue, GetEntry, SetHeldValue } from "../Registry";
-import type { ICaptureOptions } from "../Types";
+import type { ICaptureOptions, IChord, IChordCaptureOptions } from "../Types";
 
 const MOUSE_BUTTON_KEYS = new Map<Enum.UserInputType, Enum.KeyCode>([
 	[Enum.UserInputType.MouseButton1, Enum.KeyCode.MouseLeftButton],
@@ -56,6 +56,31 @@ export function DecideCapture(
 ): ECaptureDecision {
 	if (cancelKeys.includes(key)) return ECaptureDecision.Cancel;
 	return IsKeyAllowed(actionType, slot, key) ? ECaptureDecision.Accept : ECaptureDecision.Ignore;
+}
+
+/** The action types `CaptureChord` works on: their `KeyCode` takes keys that can be pressed */
+const CHORD_TYPES = new ReadonlySet<ActionTypeName>(["Bool", "Direction1D"]);
+
+/**
+ * The chord keys held together make, in the order they went down: the last is the `KeyCode`, the
+ * ones before it the modifiers. Undefined when a binding of this action type can't hold it: more
+ * than three keys, a `KeyCode` the type can't use, or a modifier that isn't a Button key
+ */
+export function ChordFromKeys(
+	actionType: ActionTypeName,
+	keys: readonly Enum.KeyCode[],
+): IChord | undefined {
+	const count = keys.size();
+	if (count === 0 || count > 3) return undefined;
+	const key = keys[count - 1];
+	if (!IsKeyAllowed(actionType, "KeyCode", key)) return undefined;
+	const primary = count >= 2 ? keys[0] : undefined;
+	const secondary = count === 3 ? keys[1] : undefined;
+	if (primary !== undefined && !IsKeyAllowed(actionType, "PrimaryModifier", primary))
+		return undefined;
+	if (secondary !== undefined && !IsKeyAllowed(actionType, "SecondaryModifier", secondary))
+		return undefined;
+	return { KeyCode: key, PrimaryModifier: primary, SecondaryModifier: secondary };
 }
 
 /** A binding that holds keys: rebindable, saved by ExportBindings */
@@ -152,6 +177,102 @@ export class BindingHandle {
 		});
 		this._runtime.TrackConnection(connection);
 		return stop;
+	}
+
+	/**
+	 * Waits for a chord (see `IChordBindingHandle.CaptureChord`). It follows the keys that go down
+	 * while it waits, in order; a key already down when it started is not among them, and its release
+	 * settles nothing. The first of them to come up settles the chord: applied when the binding can
+	 * hold it, else ignored, and then the next chord counts once every key of this one is up (so the
+	 * release of the last leftover key of a refused chord can't settle a chord of its own). With a
+	 * `Timeout`, the keys held when it runs out settle the chord the same way; when they make none the
+	 * binding can hold, or none are held, the capture ends with nothing applied.
+	 */
+	CaptureChord(
+		callback: (chord: IChord | undefined) => void,
+		options?: IChordCaptureOptions,
+	): () => void {
+		if (!CHORD_TYPES.has(this.ActionType)) {
+			error(
+				`InputActions: ${this.Path}: CaptureChord needs a Bool or Direction1D binding, not ${this.ActionType}`,
+				2,
+			);
+		}
+		const timeout = options?.Timeout;
+		if (
+			timeout !== undefined &&
+			!(typeIs(timeout, "number") && timeout > 0 && timeout < math.huge)
+		) {
+			error(
+				`InputActions: ${this.Path}: CaptureChord's Timeout must be a positive number of seconds`,
+				2,
+			);
+		}
+		if (this._runtime.IsDestroyed()) return () => {};
+		const cancelKeys = options?.Cancel ?? [];
+		const held = new Array<Enum.KeyCode>();
+		// false after a refused chord, until every key of it is up
+		let armed = true;
+		let live = true;
+		const connections = new Array<RBXScriptConnection>();
+		let timer: thread | undefined;
+		const stop = () => {
+			if (!live) return;
+			live = false;
+			for (const connection of connections) {
+				connection.Disconnect();
+				this._runtime.UntrackConnection(connection);
+			}
+			if (timer !== undefined && timer !== coroutine.running()) task.cancel(timer);
+		};
+		// Ends the capture: applies the chord the held keys make, when there is one and it may be
+		// applied, and tells the callback either way
+		const settle = (chord: IChord | undefined) => {
+			stop();
+			if (this._runtime.IsDestroyed()) return;
+			if (chord !== undefined) this.ApplyChord(chord);
+			callback(chord);
+		};
+		connections.push(
+			UserInputService.InputBegan.Connect((input, gameProcessed) => {
+				if (gameProcessed || !live) return;
+				const key = KeyFromInput(input.KeyCode, input.UserInputType);
+				if (key === undefined) return;
+				if (cancelKeys.includes(key)) return settle(undefined);
+				if (!held.includes(key)) held.push(key);
+			}),
+			UserInputService.InputEnded.Connect((input) => {
+				if (!live) return;
+				const key = KeyFromInput(input.KeyCode, input.UserInputType);
+				if (key === undefined) return;
+				const index = held.indexOf(key);
+				if (index === -1) return;
+				if (armed) {
+					const chord = ChordFromKeys(this.ActionType, held);
+					if (chord !== undefined) return settle(chord);
+					armed = false;
+				}
+				held.remove(index);
+				if (held.size() === 0) armed = true;
+			}),
+		);
+		for (const connection of connections) this._runtime.TrackConnection(connection);
+		if (timeout !== undefined) {
+			timer = task.delay(timeout, () => {
+				if (!live) return;
+				settle(armed ? ChordFromKeys(this.ActionType, held) : undefined);
+			});
+		}
+		return stop;
+	}
+
+	/** Writes a captured chord, the modifiers it lacks as `None`, in one write (CaptureChord's last step) */
+	ApplyChord(chord: IChord) {
+		const values = ReadBinding(this.Instance);
+		WriteKey(values, "KeyCode", chord.KeyCode);
+		values.PrimaryModifier = chord.PrimaryModifier ?? Enum.KeyCode.None;
+		values.SecondaryModifier = chord.SecondaryModifier ?? Enum.KeyCode.None;
+		this.Write(values, EReleasedThreshold.Keep);
 	}
 
 	/** Writes a captured key into a slot and reports the change (Capture's last step) */
