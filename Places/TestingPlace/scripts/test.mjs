@@ -26,16 +26,35 @@ import { startVirtualPad } from "./virtual-pad.mjs";
  * reached it on 2026-10-03 (99,908 characters under `touch`, about 670 tests).
  */
 const SECTION_GROUPS = 2;
-/** The folders whose files define the test sections */
-const TEST_FOLDERS = ["src/client/tests", "src/server/tests", "src/shared/tests"];
+/**
+ * The folders whose files define the test sections, per `--realm`: the shared ones run on both. A
+ * run of one realm names only that realm's sections, since flamework-test fails a realm on a
+ * `--sections` entry it doesn't have when it runs that realm alone (`MISS matched nothing`)
+ */
+const TEST_FOLDERS = {
+	both: ["src/client/tests", "src/server/tests", "src/shared/tests"],
+	server: ["src/server/tests", "src/shared/tests"],
+	client: ["src/client/tests", "src/shared/tests"],
+};
+
+/** The `--realm` among the arguments (`--realm x` or `--realm=x`; the last one), else `both` */
+function realmOf(args) {
+	let realm = "both";
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === "--realm") realm = args[++index] ?? realm;
+		else if (arg.startsWith("--realm=")) realm = arg.slice("--realm=".length);
+	}
+	return realm.toLowerCase();
+}
 
 /**
- * Every section the tests define (`defineTests("name"`), with about how many tests it has (the
- * `test(` calls of its files): a section of both realms counts its tests in both
+ * Every section the tests in `folders` define (`defineTests("name"`), with about how many tests it
+ * has (the `test(` calls of its files): a section of both realms counts its tests in both
  */
-function sectionSizes() {
+function sectionSizes(folders) {
 	const sizes = new Map();
-	for (const folder of TEST_FOLDERS) {
+	for (const folder of folders) {
 		let files;
 		try {
 			files = readdirSync(folder);
@@ -55,12 +74,13 @@ function sectionSizes() {
 }
 
 /**
- * The `--sections` lists a run of every section is split into: `count` groups of about as many
- * tests each. A realm none of a group's sections is in runs no test, which passes
+ * The `--sections` lists a run of every section in `folders` is split into: `count` groups of about
+ * as many tests each. Of two realms, one that none of a group's sections is in runs no test, which
+ * passes
  */
-function sectionGroups(count) {
+function sectionGroups(count, folders) {
 	const groups = Array.from({ length: count }, () => ({ names: [], tests: 0 }));
-	const bySize = [...sectionSizes()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	const bySize = [...sectionSizes(folders)].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 	for (const [name, tests] of bySize) {
 		const smallest = groups.reduce((least, group) => (group.tests < least.tests ? group : least));
 		smallest.names.push(name);
@@ -73,7 +93,7 @@ function sectionGroups(count) {
 
 /**
  * The runs to make: one with the arguments as they are when they pick sections or only list them,
- * else one per group of sections (`SECTION_GROUPS`)
+ * else one per group of sections (`SECTION_GROUPS`), of the `--realm`'s sections only (hunt HD2-2)
  */
 function sectionRuns(args) {
 	const picks = args.some(
@@ -84,7 +104,10 @@ function sectionRuns(args) {
 			arg.startsWith("--list="),
 	);
 	if (picks) return [[]];
-	const groups = sectionGroups(SECTION_GROUPS);
+	// An unknown realm runs as given: flamework-test refuses it
+	const realm = realmOf(args);
+	if (!Object.hasOwn(TEST_FOLDERS, realm)) return [[]];
+	const groups = sectionGroups(SECTION_GROUPS, TEST_FOLDERS[realm]);
 	return groups.length > 0 ? groups.map((names) => ["--sections", names]) : [[]];
 }
 

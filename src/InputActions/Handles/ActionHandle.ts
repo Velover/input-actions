@@ -449,8 +449,9 @@ export class ActionHandle {
 
 	/**
 	 * Waits for the next key a keyboard-and-mouse or gamepad binding of this action can hold in its
-	 * `KeyCode`: the key's device picks the binding, which gets it (see `IActionCapture.Capture`).
-	 * Touch input is ignored, as is a key no binding of its device can take.
+	 * `KeyCode`: the key's device picks the binding, which becomes that key alone, its modifiers
+	 * cleared as by a one-key chord (see `IActionCapture.Capture`; hunt HD2-4). Touch input is
+	 * ignored, as is a key no binding of its device can take.
 	 */
 	Capture(
 		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,
@@ -470,7 +471,7 @@ export class ActionHandle {
 				return { Binding: binding, Slot: "KeyCode", Key: captured };
 			},
 			(target) => {
-				target.Binding.ApplyCapturedKey(target.Slot, target.Key);
+				target.Binding.ApplyChord({ KeyCode: target.Key });
 				callback(target.Key, target.Binding.Name as CapturableDevice);
 			},
 			options?.Cancel ?? [],

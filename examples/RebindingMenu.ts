@@ -44,12 +44,23 @@ function KeyLabel(key: Enum.KeyCode | undefined) {
 	return key === undefined ? "(unbound)" : UserInputService.GetStringForKeyCode(key);
 }
 
-/** "Ctrl + S": the modifiers, then the key */
-function ChordLabel(keys: InputActions.BindingData<Enum.InputActionType.Bool>) {
+/** The keys of a Bool or Direction1D binding, as its `Get()` returns them */
+interface IRowKeys {
+	KeyCode?: Enum.KeyCode;
+	Up?: Enum.KeyCode;
+	Down?: Enum.KeyCode;
+	PrimaryModifier?: Enum.KeyCode;
+	SecondaryModifier?: Enum.KeyCode;
+}
+
+/** "Ctrl + S": the modifiers, then the key; "W / S" for a composite's Up and Down */
+function ChordLabel(keys: IRowKeys) {
 	const parts = new Array<string>();
 	if (keys.PrimaryModifier !== undefined) parts.push(KeyLabel(keys.PrimaryModifier));
 	if (keys.SecondaryModifier !== undefined) parts.push(KeyLabel(keys.SecondaryModifier));
-	parts.push(KeyLabel(keys.KeyCode));
+	if (keys.KeyCode === undefined && (keys.Up !== undefined || keys.Down !== undefined))
+		parts.push(`${KeyLabel(keys.Up)} / ${KeyLabel(keys.Down)}`);
+	else parts.push(KeyLabel(keys.KeyCode));
 	return parts.join(" + ");
 }
 
@@ -66,9 +77,7 @@ function RefreshLabels() {
 	const preferred = InputActions.PreferredDevice();
 	for (const [name, action] of ROWS) {
 		const cells = COLUMNS.map((device) => {
-			const keys = ChordLabel(
-				action.Bindings[device].Get() as InputActions.BindingData<Enum.InputActionType.Bool>,
-			);
+			const keys = ChordLabel(action.Bindings[device].Get());
 			return device === preferred ? `[${keys}]` : keys;
 		});
 		print(`${name}: ${cells.join(" | ")}`);
@@ -87,7 +96,9 @@ export function CanRebind() {
 }
 
 // One field per action: "Press a key or a button for Jump". The first key pressed picks the
-// device, and goes into that device's binding; the other device's binding is left alone
+// device, and that device's binding becomes the key alone (Quick save's Ctrl+S captured with F is
+// F); the other device's binding is left alone. On a gamepad, unselect the menu's button while the
+// capture runs (GuiService.SelectedObject = undefined): Roblox's UI navigation takes ButtonA meanwhile
 export function RebindAction(action: InputActions.CaptureAction): () => void {
 	return action.Capture((key, device) => print(`${action.Name} is now ${key.Name} on ${device}`), {
 		Cancel: CANCEL,

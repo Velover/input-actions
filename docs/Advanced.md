@@ -263,6 +263,13 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed
   and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
+- **A gamepad menu: unselect its GUI while a capture runs.** While Roblox's gamepad UI navigation
+  has a GUI object selected (`GuiService.SelectedObject`), the pad's `ButtonA` (and `R2`) drive
+  that button and never reach IAS (measured, see [IAS behaviours to know](#ias-behaviours-to-know)).
+  A capture ignores input the game processed, so it likely misses them too (unmeasured with a real
+  pad: VirtualInput sends `ButtonA` as a keyboard key, which the selection doesn't take). Set
+  `GuiService.SelectedObject = undefined` as the capture starts, and select the menu's button again
+  once it ends.
 - **`Capture` takes only input that goes down:** keys, gamepad buttons and mouse buttons
   (`UserInputService.InputBegan`), and on the gamepad its sticks and triggers. **A stick pushed past
   halfway** counts as its direction going down (`Thumbstick1Up`, `Thumbstick2Left`...), and back
@@ -290,7 +297,7 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
 
 A rebinding menu usually has one field per action, not one per device. Bool and Direction1D
 actions have `Capture` and `CaptureChord` of their own: **the first key pressed picks the device**,
-and the key (or chord) goes into that device's binding's `KeyCode`:
+and that device's binding becomes the key (or the chord):
 
 ```ts
 const jump = Input.Gameplay.Actions.Jump;
@@ -306,8 +313,11 @@ const stop = jump.Capture(
 
 - A keyboard key or a mouse button goes into `Bindings.KeyboardAndMouse`, a gamepad button, a
   trigger or a stick's direction into `Bindings.Gamepad`; the other device's binding is untouched.
-  The `KeyCode` replaces the binding's composite directions, as with `Set`. Touch input is
-  ignored, and so is a key no binding of its device can take (a click, on a Direction1D action).
+  The binding becomes that key alone: the key replaces its composite directions, as with `Set`,
+  and its modifiers come off, as with `CaptureChord` given one key. Quick save on Ctrl+S captured
+  with F is F. A binding's own `Capture("KeyCode", ...)` changes the key only and keeps the
+  modifiers. Touch input is ignored, and so is a key no binding of its device can take (a click,
+  on a Direction1D action).
 - `CaptureChord` does the same with keys held together: the first key that goes down picks the
   device, and the other device's keys are ignored while any key of the chord is held, so there is
   no `Shift + ButtonA`. When a chord is refused (four keys...) and every key of it is up, the next

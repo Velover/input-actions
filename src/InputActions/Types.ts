@@ -157,21 +157,28 @@ type AllKeys<U> = U extends unknown ? keyof U : never;
 type NotScriptable<T extends Enum.InputActionType, D extends Device> = BindingShape<T, D> & {
 	readonly "a device's binding takes its keys, not InputActions.Scriptable": never;
 };
+/**
+ * What one form `V` of device `D`'s binding is checked against. It distributes over a union (a
+ * value of `BindingShape<T, D>`, or a conditional between a bare key and an object), so each member
+ * is checked as it is (hunt HD2-1). A key that fits gives back itself, never `unknown`, which would
+ * swallow the other members' checks
+ */
+type CheckDeviceBinding<V, T extends Enum.InputActionType, D extends Device> = V extends IScriptable
+	? NotScriptable<T, D>
+	: V extends EnumItem
+		? V extends BindingShape<T, D>
+			? V
+			: BindingShape<T, D>
+		: IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]] & {
+				[P in Exclude<keyof V, AllKeys<IBindingObjectMap[T["Name"]]>>]: never;
+			};
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: inference fell back to the constraint (a key the action type can't take), whose
 	// error says so; or computed names, which `Schema` checks at runtime
 	[K in keyof B]: string extends K
 		? unknown
 		: K extends Device
-			? B[K] extends IScriptable
-				? NotScriptable<T, K>
-				: B[K] extends EnumItem
-					? B[K] extends BindingShape<T, K>
-						? unknown
-						: BindingShape<T, K>
-					: IBindingObjectMap<IDeviceKeyMap[K]>[T["Name"]] & {
-							[P in Exclude<keyof B[K], AllKeys<IBindingObjectMap[T["Name"]]>>]: never;
-						}
+			? CheckDeviceBinding<B[K], T, K>
 			: IScriptable;
 };
 
@@ -411,14 +418,16 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 }
 /**
  * Bool and Direction1D actions: a rebinding menu's one field per action. The first key pressed
- * picks the device, and goes into that device's binding's `KeyCode`
+ * picks the device, and that device's binding becomes the key (or the chord)
  */
 export interface IActionCapture {
 	/**
 	 * Waits for the next key a keyboard-and-mouse or gamepad binding of this action can hold in its
-	 * `KeyCode`; that key's device picks the binding, which gets it (its composite directions give
-	 * way). Then calls `callback` with the key and the device. Touch input is ignored; a `Cancel`
-	 * key counts from any device. Returns a cancel function
+	 * `KeyCode`; that key's device picks the binding, which becomes that key alone: its composite
+	 * directions and its modifiers give way, as with `CaptureChord` given one key (Ctrl+S captured
+	 * with F is F; a binding's `Capture("KeyCode", ...)` keeps the modifiers). Then calls `callback`
+	 * with the key and the device. Touch input is ignored; a `Cancel` key counts from any device.
+	 * Returns a cancel function
 	 */
 	Capture(
 		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,

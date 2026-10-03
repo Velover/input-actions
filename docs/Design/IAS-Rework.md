@@ -123,12 +123,17 @@ Rules and lessons:
 - Unknown binding or action names are compile errors.
 - **Performance trap:** validating bindings with a mapped type that compares against the whole
   `Enum.KeyCode` union ran tsc out of memory. `CheckBindings` maps over the bindings `B` only:
-  for a device's name it checks a bare key with one conditional (`B[K] extends BindingShape<T, D>`,
+  for a device's name it checks a bare key with one conditional (`V extends BindingShape<T, D>`,
   the device's shape, with its key unions computed once in `KeyGroups.ts`) and an object with the
   device's object shape intersected with the excess-property check
-  (`Exclude<keyof B[K], AllKeys<TShape>>`); any other name must be `IScriptable`. A `string` key
+  (`Exclude<keyof V, AllKeys<TShape>>`); any other name must be `IScriptable`. A `string` key
   (inference fell back to the constraint, whose own error is the useful one) checks nothing more.
   Keep it that way: never a mapped type over the KeyCode union.
+- The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
+  checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
+  object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
+  object check, which a bare key fails). A key that fits gives back itself, not `unknown`, which
+  would swallow the other members' checks.
 - A Scriptable under a device's name is checked against `NotScriptable<T, D>`: the device's shapes
   and a property the marker lacks. The builders' parameter is `B & CheckBindings<B, T>`, and its
   intersection with `B`'s `IScriptable` made the all-optional composite shapes (Direction1D, 2D,
@@ -236,7 +241,7 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
     slots `S` and `A .. S`: both would match the binding `A .. S`. `Schema` (and `Create`) refuse
     them. Since every action has the three device bindings (below), a Scriptable slot named
     `<Action><Device>` (`JumpTouch` on Jump) collides with a device's even when the schema leaves
-    that device out.
+    that device out; the message then says the name is taken by the action's `Touch` binding.
 - **Every action has the three device bindings (0.7.0).** A device the schema leaves out gets its
   binding all the same: the one found by name (`S` or `A .. S`, so the Manager's `JumpTouch` is
   adopted as the Touch binding, typed, rather than warned about as an extra), else one made with no
@@ -267,9 +272,13 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
   (designer values when they came from the folder, schema values otherwise).
 - An existing action whose `Type` differs from the builder's type: **throw**, naming the path.
   `Create` makes every check that can throw before it changes anything (`CheckBuild`: these types,
-  on the instances it would take up; the names `Schema` refuses; an instance of a context's name
-  that is no `InputContext`), so a `Create` that throws leaves the tree as it found it: it fills no
-  other root handle's unbound binding and releases no held action (hunt HD-2).
+  on the instances it would take up; the names `Schema` refuses, with `Schema`'s own checks
+  (`ContextNameProblem`, `ActionNameProblem`, `SlotNameProblem`, `SlotCollision`), so a "/" in a
+  schema made without `Schema` throws too, which would split the save's paths and lose its rebinds
+  in `SanitizeBindings` (hunt HD2-5); an instance of a context's name that is no `InputContext`),
+  so a `Create` that throws leaves the tree as it found it: it fills no other root handle's
+  unbound binding, releases no held action (hunt HD-2), and makes no default folder (it is made
+  once the checks pass).
 - An adopted binding whose keys break the §3 rules (another device's key included): `warn` with
   the path, and leave it as it is.
 - Instances in the folder that the schema doesn't mention: left alone (IAS still runs them), not
@@ -444,7 +453,10 @@ and it throws on them at runtime):
 
 - `Capture(callback: (key, device) => void, options?): () => void`: waits for the next key that a
   `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`. The key's device
-  picks the binding, which gets it (its composite directions give way, as with `Set`), then
+  picks the binding, which becomes that key alone: its composite directions give way, as with
+  `Set`, and so do its modifiers, as with `CaptureChord` given one key (`ApplyChord`; hunt HD2-4:
+  Ctrl+S captured with F is F, as the field's prompt and callback say, not Ctrl+F). A binding's
+  `Capture("KeyCode", ...)` fills one slot and keeps the modifiers. Then
   `callback(key, device)`; `device` is `"KeyboardAndMouse" | "Gamepad"`. Touch input is ignored,
   and so is a key no binding of its device can take (a click on a Direction1D action). Same
   options and rules as the binding's `Capture` (below): `Cancel` keys from any device, typing and
@@ -617,6 +629,10 @@ own actions.
     keyboard's Return activates it (`Activated` fires) but does **not** fire its `UIButton` binding,
     and Return and the arrows never reach IAS; the gamepad's ButtonA (and R2) drive the `UIButton`
     binding and never reach IAS. Thumbstick updates are unreliable while something is selected.
+    So the docs tell a gamepad rebinding menu to clear `SelectedObject` while a capture runs:
+    measured for IAS; for the captures (`InputBegan`, game-processed input ignored) unmeasured
+    with a real pad. VirtualInput's `ButtonA` is keyboard input, which the selection doesn't take:
+    with a button selected, a Gamepad binding's `Capture` takes it (`hunter-devices-2`).
   - Thumbstick deadzones are fixed: radial 0.1 with rescale on sticks, linear 0.1 on triggers;
     `PressedThreshold` applies to the rescaled value. A stick moving on both axes can fire
     `StateChanged` twice in one frame, with an intermediate value first.

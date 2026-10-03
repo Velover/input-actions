@@ -8,7 +8,7 @@ import {
 } from "@rbxts/services";
 import { EveryFrame } from "../Internal/EveryFrame";
 import { WarnIfNotServerAuthority } from "./AuthorityMode";
-import { BindingNameProblem, CheckBindingKeys } from "./BindingRules";
+import { CheckBindingKeys } from "./BindingRules";
 import {
 	AddingBindings,
 	ApplySpec,
@@ -20,7 +20,7 @@ import {
 	WriteBindings,
 } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
-import { ROOT_MEMBERS, SCRIPTABLE } from "./Builders";
+import { ActionNameProblem, ContextNameProblem, SCRIPTABLE, SlotNameProblem } from "./Builders";
 import {
 	ActionHandle,
 	IMovedBindings,
@@ -53,7 +53,6 @@ import {
 	FindContext,
 	IsPackageBindingName,
 	MatchesSlot,
-	ReservedSlotProblem,
 	SlotCollision,
 	WarnUnmentioned,
 	WithDevices,
@@ -96,9 +95,14 @@ const standIns = new Map<string, IStandIn>();
 /** The client-only folder of the stand-ins, shared by the root handles; the server never sees it */
 let standInFolder: Folder | undefined;
 
-/** The default folder: `ReplicatedStorage.Inputs`, the one the Input Action Manager writes */
+/** The default folder when it exists: `ReplicatedStorage.Inputs`, the one the Input Action Manager writes */
+function FindDefaultFolder(): Instance | undefined {
+	return ReplicatedStorage.FindFirstChild("Inputs");
+}
+
+/** The default folder, made when missing */
 export function GetDefaultFolder(): Instance {
-	const existing = ReplicatedStorage.FindFirstChild("Inputs");
+	const existing = FindDefaultFolder();
 	if (existing !== undefined) return existing;
 	const folder = new Instance("Folder");
 	folder.Name = "Inputs";
@@ -172,10 +176,10 @@ function TemplateAction(template: InputContext | undefined, name: string): Input
 function ContextToBuildOn(
 	name: string,
 	schema: IContextSchema,
-	folder: Instance,
+	folder: Instance | undefined,
 	playerFolderName: string,
 ): InputContext | undefined {
-	const found = FindContext(folder, name, name);
+	const found = folder !== undefined ? FindContext(folder, name, name) : undefined;
 	if (schema.ServerAuthority !== true) return found;
 	const copy = Players.LocalPlayer.FindFirstChild(playerFolderName)?.FindFirstChild(name);
 	if (copy !== undefined && copy.IsA("InputContext") && HasActions(copy, schema)) return copy;
@@ -187,31 +191,35 @@ function ContextToBuildOn(
 /**
  * Every check of `Build` that can throw, made before it changes anything, so a `Create` that throws
  * leaves the tree as it was: it fills no other root handle's unbound binding and releases no held
- * action (hunt HD-2). The names `Schema` refuses (a schema made without it could still hold them),
- * and each action the tree already has against the type the schema declares.
+ * action (hunt HD-2). The names `Schema` refuses, with its checks (a schema made without it could
+ * still hold them: a "/" in a name too, hunt HD2-5), and each action the tree already has against
+ * the type the schema declares. `folder` is undefined when the default folder doesn't exist yet:
+ * it is made only once these checks pass.
  */
 function CheckBuild(
 	contexts: Record<string, IContextSchema>,
-	folder: Instance,
+	folder: Instance | undefined,
 	playerFolderName: string,
 ) {
-	for (const [name, schema] of pairs(contexts)) {
-		if (ROOT_MEMBERS.includes(name as string))
-			error(`InputActions.Create: ${name}: the name is taken by the root handle`, 0);
-		const context = ContextToBuildOn(name as string, schema, folder, playerFolderName);
+	for (const [name, schema] of Entries(contexts)) {
+		const contextProblem = ContextNameProblem(name);
+		if (contextProblem !== undefined) error(`InputActions.Create: ${name}: ${contextProblem}`, 0);
+		const context = ContextToBuildOn(name, schema, folder, playerFolderName);
 		for (const [actionName, definition] of Entries(schema.Actions)) {
-			const path = JoinPath(name as string, actionName);
-			const slots = SlotsOf(definition);
-			const collision = SlotCollision(actionName, slots);
-			if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
-			const specs = definition.Bindings as Record<string, unknown>;
-			for (const slot of slots) {
-				const problem =
-					ReservedSlotProblem(actionName, slot) ??
-					BindingNameProblem(slot, specs[slot] === SCRIPTABLE);
+			const path = JoinPath(name, actionName);
+			const actionProblem = ActionNameProblem(actionName);
+			if (actionProblem !== undefined) error(`InputActions.Create: ${path}: ${actionProblem}`, 0);
+			const specs = Entries(definition.Bindings as Record<string, unknown>);
+			for (const [slot, spec] of specs) {
+				const problem = SlotNameProblem(actionName, slot, spec);
 				if (problem !== undefined)
 					error(`InputActions.Create: ${JoinPath(path, slot)}: ${problem}`, 0);
 			}
+			const collision = SlotCollision(
+				actionName,
+				specs.map(([slot]) => slot),
+			);
+			if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
 			if (context !== undefined) FindAction(context, actionName, definition.Type, path);
 		}
 	}
@@ -401,10 +409,11 @@ export class InputRuntime implements IRuntime {
 	// ---- building
 
 	Build(contexts: Record<string, IContextSchema>, options: ICreateOptions) {
-		const folder = options.Folder ?? GetDefaultFolder();
 		const playerFolderName = options.PlayerFolderName ?? DEFAULT_PLAYER_FOLDER_NAME;
 		CheckPlayerFolderName(playerFolderName);
-		CheckBuild(contexts, folder, playerFolderName);
+		// The default folder is made only once the checks pass: a Create that throws leaves none
+		CheckBuild(contexts, options.Folder ?? FindDefaultFolder(), playerFolderName);
+		const folder = options.Folder ?? GetDefaultFolder();
 
 		for (const [name, schema] of pairs(contexts)) {
 			if (schema.ServerAuthority === true) {

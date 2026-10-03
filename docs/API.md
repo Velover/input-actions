@@ -77,9 +77,10 @@ the [root handle](#root-handle).
 | `Timeout` | `10` | seconds before it warns that the server's copy of a Server Authority context hasn't arrived (meanwhile the context runs on a local stand-in); it never throws or waits |
 | `ResetOnFocusLoss` | `true` | hold every context disabled for one frame on TextBox focus, window focus loss and menu open |
 
-Throws when an existing action's `Type` differs from the schema, or when a child named like a
-context or action is not an `InputContext`/`InputAction`. It checks these before it changes
-anything: a `Create` that throws leaves the tree as it was. See
+Throws when an existing action's `Type` differs from the schema, when a child named like a
+context or action is not an `InputContext`/`InputAction`, and on the names `Schema` refuses (a
+schema made without `Schema`). It checks these before it changes anything: a `Create` that throws
+leaves the tree as it was, and makes no `ReplicatedStorage.Inputs`. See
 [Get-or-create](Introduction.md#get-or-create). Warns once when the schema marks contexts
 `ServerAuthority: true` in a place that doesn't run Server Authority
 ([`IsServerAuthority()`](#isserverauthority) is `false`): their state would never reach the server.
@@ -245,7 +246,7 @@ Bool and Direction1D actions add (the others don't have them, and they throw if 
 
 | Member | |
 | --- | --- |
-| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which gets it (its composite directions give way), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture` |
+| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which becomes that key alone (its composite directions and modifiers give way, as with `CaptureChord` given one key: Ctrl+S captured with F is F), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture`, which keeps the modifiers |
 | `CaptureChord(callback: (chord, device) => void, options?): () => void` | as the binding's `CaptureChord`, on the binding of the device whose key goes down first; the other device's keys are ignored while any key of the chord is held (no Shift + ButtonA). `callback(undefined, undefined)` when it ends with nothing applied |
 
 `device` is `"KeyboardAndMouse"` or `"Gamepad"`. See [Rebinding](Advanced.md#rebinding).
@@ -279,7 +280,7 @@ press; they throw if called on it anyway):
 
 | Member | |
 | --- | --- |
-| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway; never the wheel, mouse movement or a tap), applies it, calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
 | `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the

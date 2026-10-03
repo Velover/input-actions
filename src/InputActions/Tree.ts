@@ -64,17 +64,26 @@ export function WithDevices(slots: readonly string[]): string[] {
 }
 
 /**
- * Why two slots of one action can't have these names, if they can't: slots `S` and `<Action>S`
- * would both match the binding `<Action>S`.
+ * Why the schema's slots of one action can't have these names, if they can't: slots `S` and
+ * `<Action>S` would both match the binding `<Action>S`. Every action also has the three device
+ * bindings, so a slot named `<Action><Device>` collides with a device's the schema leaves out
  */
 export function SlotCollision(actionName: string, slots: readonly string[]): string | undefined {
 	if (actionName === "") return undefined;
-	for (const slot of slots) {
-		if (!slots.includes(actionName + slot)) continue;
-		return (
-			`the slots "${slot}" and "${actionName}${slot}" would both match the binding ` +
-			`${actionName}${slot}: rename one`
-		);
+	const all = WithDevices(slots);
+	for (const slot of all) {
+		const binding = actionName + slot;
+		if (!all.includes(binding)) continue;
+		// One of the two is a device's binding the schema leaves out: the other is the one to rename
+		const device = !slots.includes(slot) ? slot : !slots.includes(binding) ? binding : undefined;
+		if (device !== undefined) {
+			const named = device === slot ? binding : slot;
+			const every = "(every action has the three device bindings): rename it";
+			return named === binding
+				? `the name "${named}" is taken by the action's ${device} binding ${every}`
+				: `the slot "${named}" would match the binding ${binding}, the action's ${device} binding ${every}`;
+		}
+		return `the slots "${slot}" and "${binding}" would both match the binding ${binding}: rename one`;
 	}
 	return undefined;
 }

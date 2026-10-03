@@ -1,7 +1,7 @@
 import { BindingNameProblem, CheckBindingSpec } from "./BindingRules";
 import { Entries } from "./Internal";
 import { IsDevice } from "./KeyGroups";
-import { ReservedSlotProblem, SlotCollision, WithDevices } from "./Tree";
+import { ReservedSlotProblem, SlotCollision } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
@@ -27,6 +27,39 @@ export const ROOT_MEMBERS = [
 	"ResetBindings",
 	"Destroy",
 ];
+
+// ---- the names `Schema` refuses, which `Create` checks again for a schema made without it
+
+/** Whether a name has a "/", which would split a save's `Context/Action/Binding` paths */
+function HasSlash(name: string) {
+	return name.find("/", 1, true)[0] !== undefined;
+}
+
+/** Why a context can't have this name, if it can't */
+export function ContextNameProblem(name: string): string | undefined {
+	if (ROOT_MEMBERS.includes(name)) return "the name is taken by the root handle";
+	if (HasSlash(name)) return `a context name can't contain "/"`;
+	return undefined;
+}
+
+/** Why an action can't have this name, if it can't */
+export function ActionNameProblem(name: string): string | undefined {
+	return HasSlash(name) ? `an action name can't contain "/"` : undefined;
+}
+
+/**
+ * Why a binding of action `actionName` declared as `spec` can't have the name `slot`, if it can't: a
+ * "/", a name of the package's own bindings, or a name that doesn't fit the spec (keys under a
+ * device's name, `InputActions.Scriptable` under any other). `SlotCollision` checks the slots together
+ */
+export function SlotNameProblem(
+	actionName: string,
+	slot: string,
+	spec: unknown,
+): string | undefined {
+	if (HasSlash(slot)) return `a binding name can't contain "/"`;
+	return ReservedSlotProblem(actionName, slot) ?? BindingNameProblem(slot, spec === SCRIPTABLE);
+}
 
 function DeepFreeze<T extends object>(value: T): T {
 	if (table.isfrozen(value)) return value;
@@ -133,34 +166,31 @@ export function Schema<S extends Record<string, IContextSchema>>(
 ): IInputSchema<S> {
 	for (const [contextName, context] of Entries<IContextSchema>(contexts)) {
 		const where = `InputActions.Schema: ${contextName}`;
-		if (ROOT_MEMBERS.includes(contextName))
-			error(`${where}: the name is taken by the root handle`, 2);
-		if (contextName.find("/", 1, true)[0] !== undefined)
-			error(`${where}: a context name can't contain "/"`, 2);
+		const contextProblem = ContextNameProblem(contextName);
+		if (contextProblem !== undefined) error(`${where}: ${contextProblem}`, 2);
 		if (!typeIs(context, "table") || !typeIs(context.Actions, "table"))
 			error(`${where}: missing Actions`, 2);
 		const optionsProblem = ContextOptionsProblem(context);
 		if (optionsProblem !== undefined) error(`${where}: ${optionsProblem}`, 2);
 		for (const [actionName, action] of Entries(context.Actions)) {
 			const actionWhere = `${where}/${actionName}`;
-			if (actionName.find("/", 1, true)[0] !== undefined)
-				error(`${actionWhere}: an action name can't contain "/"`, 2);
+			const actionProblem = ActionNameProblem(actionName);
+			if (actionProblem !== undefined) error(`${actionWhere}: ${actionProblem}`, 2);
 			if (!typeIs(action, "table") || !ACTION_TYPES.includes(action.Type)) {
 				error(`${actionWhere}: not an action; use InputActions.Bool, Direction1D, ...`, 2);
 			}
 			const bindings = Entries(action.Bindings as Record<string, unknown>);
 			for (const [slot, spec] of bindings) {
-				if (slot.find("/", 1, true)[0] !== undefined)
-					error(`${actionWhere}/${slot}: a binding name can't contain "/"`, 2);
-				const reserved = ReservedSlotProblem(actionName, slot);
-				if (reserved !== undefined) error(`${actionWhere}/${slot}: ${reserved}`, 2);
-				const nameProblem = BindingNameProblem(slot, spec === SCRIPTABLE);
+				const nameProblem = SlotNameProblem(actionName, slot, spec);
 				if (nameProblem !== undefined) error(`${actionWhere}/${slot}: ${nameProblem}`, 2);
 				if (spec === SCRIPTABLE || !IsDevice(slot)) continue;
 				const problem = CheckBindingSpec(action.Type.Name, spec, slot);
 				if (problem !== undefined) error(`${actionWhere}/${slot}: ${problem}`, 2);
 			}
-			const collision = SlotCollision(actionName, WithDevices(bindings.map(([slot]) => slot)));
+			const collision = SlotCollision(
+				actionName,
+				bindings.map(([slot]) => slot),
+			);
 			if (collision !== undefined) error(`${actionWhere}: ${collision}`, 2);
 		}
 	}

@@ -45,7 +45,7 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
   `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*` and
-  `hunter-devices` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
+  `hunter-devices*` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
   are in `src/shared/fixtures/` (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
   expects and the warnings' wording; and
   `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those
@@ -354,7 +354,10 @@ commands use npm; use bun here.
   99,908. So a run without `--sections` (or `--list`) is split: `scripts/test.mjs` reads the
   sections from the test folders (`defineTests("name"`) and runs them in `SECTION_GROUPS` (2)
   groups of about as many tests each, one Studio session per group and project, each with its own
-  summaries. A run with `--sections` is one run, as given: keep such a list well under the cut.
+  summaries. With `--realm server` or `--realm client` it reads that realm's folders only (the
+  realm's own and `src/shared/tests`): flamework-test running one realm fails it on a `--sections`
+  entry the realm doesn't have (`MISS matched nothing`, hunt HD2-2). A run with `--sections` is one
+  run, as given: keep such a list well under the cut, and with `--realm`, to that realm's sections.
 - Tests live in `src/server/tests`, `src/client/tests` and `src/shared/tests` (both realms). Each
   test file is a `@Provider({ activeIn: ["testing"] })` that calls `defineTests` in `onStart`;
   `src/server/tests/players.ts` is a plain module of helpers beside them. The entry points register
