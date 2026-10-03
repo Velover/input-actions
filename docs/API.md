@@ -209,7 +209,7 @@ All action types:
 | `Instance: InputAction`, `Name: string`, `Type: Enum.InputActionType` | `Instance` is the action it wraps now |
 | `GetState(): V` | the current value (`boolean`, `number`, `Vector2`, `Vector3`) |
 | `StateChanged: RBXScriptSignal<(value: V) => void>` | forwards the IAS signal; never repeats the value it passed on last (the Server Authority swap can bring such a repeat, which is dropped) |
-| `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use |
+| `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use. Made while the action is held, that binding releases it before the value lands, as `AttachButton` does (see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
 | `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. A label is on one action at a time: the last `AttachLabel` takes it over. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere); once the label was taken over, they leave it alone. See [Keybind labels](Advanced.md#keybind-labels) |

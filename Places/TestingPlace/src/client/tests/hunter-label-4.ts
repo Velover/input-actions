@@ -542,6 +542,85 @@ export class HunterLabel4Tests implements OnStart {
 				);
 			});
 
+			// HL4-4's last path (measured after the round, fixed: Fire makes <Action>Script through AddingBindings): the first Fire on an action makes its <Action>Script binding, a binding added to the action. On the server's copy, a first Fire(false) while F held Jump left it held on the client and the server once F was up (measured: "P fired +JumpScript:false R P", true/true): IAS pressed it again as the binding was added, and a value at rest fired on a binding just made changes nothing
+			test("the server's copy: the first Fire of Jump, at rest, while a key holds it: at rest on the client and the server once the key is up", () => {
+				const authority = getProject() === "authority";
+				if (authority) settleServerAfter();
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				expectTrue(server("provide", "sa") === true, "the server provides SA_SCHEMA");
+				const input = create(SA_SCHEMA, {
+					Folder: server("templates") as Folder,
+					ResetOnFocusLoss: false,
+				});
+				eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy", 10);
+				const jump = input.SaGameplay.Actions.Jump;
+				expectEqual(jump.Instance.FindFirstChild("JumpScript"), undefined, "no Fire on Jump yet");
+				const log = eventLog(jump.Instance);
+				const edges = recordEdges(jump);
+				real.Press(K.F);
+				eventually(() => jump.IsPressed(), `F${real.FocusNote()}`);
+				if (authority) eventually(() => serverJump() === true, "the server sees F", 10);
+				jump.Fire(false);
+				log.push("fired");
+				frames(10);
+				const during = `${jump.IsPressed()}/${authority ? serverJump() : "-"}`;
+				real.Release(K.F);
+				settle(() => jump.IsPressed(), false, 2);
+				if (authority) settle(serverJump, false, 2);
+				frames(10);
+				const after = `${jump.IsPressed()}/${authority ? serverJump() : "-"}`;
+				expectEqual(
+					after,
+					`false/${authority ? "false" : "-"}`,
+					`signals ${expectedSignalBehavior()}, IsServerAuthority ${InputActions.IsServerAuthority()}: client/server Jump once F came up (${during} after Fire(false) with F still down; the handle's edges ${edges.join("")}; IAS: ${log.join(" ")})${real.FocusNote()}`,
+				);
+				real.Press(K.F);
+				eventually(() => jump.IsPressed(), `F again${real.FocusNote()}`);
+				if (authority) eventually(() => serverJump() === true, "the server sees F again", 10);
+				real.Release(K.F);
+				eventually(() => !jump.IsPressed(), "F released");
+				if (authority) eventually(() => serverJump() === false, "the server sees F up", 10);
+			});
+
+			// The same with a first Fire of a press (passed before the fix too): the action is the Fire's until it fires the value at rest
+			test("the server's copy: the first Fire of Jump, pressed, while a key holds it, then at rest once the key is up: at rest on the client and the server", () => {
+				const authority = getProject() === "authority";
+				if (authority) settleServerAfter();
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				expectTrue(server("provide", "sa") === true, "the server provides SA_SCHEMA");
+				const input = create(SA_SCHEMA, {
+					Folder: server("templates") as Folder,
+					ResetOnFocusLoss: false,
+				});
+				eventually(() => input.SaGameplay.IsLinkedToServer(), "on the server's copy", 10);
+				const jump = input.SaGameplay.Actions.Jump;
+				expectEqual(jump.Instance.FindFirstChild("JumpScript"), undefined, "no Fire on Jump yet");
+				const log = eventLog(jump.Instance);
+				const edges = recordEdges(jump);
+				real.Press(K.F);
+				eventually(() => jump.IsPressed(), `F${real.FocusNote()}`);
+				if (authority) eventually(() => serverJump() === true, "the server sees F", 10);
+				jump.Fire(true);
+				log.push("fired");
+				frames(10);
+				real.Release(K.F);
+				frames(10);
+				const held = `${jump.IsPressed()}/${authority ? serverJump() : "-"}`;
+				jump.Fire(false);
+				log.push("at rest");
+				settle(() => jump.IsPressed(), false, 2);
+				if (authority) settle(serverJump, false, 2);
+				frames(10);
+				const after = `${jump.IsPressed()}/${authority ? serverJump() : "-"}`;
+				expectEqual(
+					`${held} -> ${after}`,
+					`true/${authority ? "true" : "-"} -> false/${authority ? "false" : "-"}`,
+					`signals ${expectedSignalBehavior()}, IsServerAuthority ${InputActions.IsServerAuthority()}: client/server Jump held by the Fire after F came up, then after Fire(false) (the handle's edges ${edges.join("")}; IAS: ${log.join(" ")})${real.FocusNote()}`,
+				);
+			});
+
 			// HL4-4 (hunter, fixed as above; the swap's Join path: a stand-in binding the copy lacks moves onto the copy's Jump while J holds it)
 			test("a stand-in's binding moved at the swap onto a copy's action a key holds: at rest once the key is up", () => {
 				const real = realInput();

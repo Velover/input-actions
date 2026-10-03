@@ -7,6 +7,7 @@ import {
 	expectEqual,
 	expectFalse,
 	expectTrue,
+	fail,
 	getProject,
 	skip,
 	test,
@@ -31,6 +32,7 @@ import {
 	clickProblem,
 	emptyPoint,
 	guiInset,
+	pointerReport,
 	RealInput,
 	realInput,
 	screenCenter,
@@ -463,9 +465,28 @@ export class RealInputTests implements OnStart {
 				eventually(() => !Jump.IsPressed(), "released with the button");
 				eventually(() => activated.count === 1, "Activated");
 
-				// on empty space the MouseLeftButton action takes it
-				real.MouseDown(emptyPoint());
-				eventually(() => Fire.IsPressed(), "MouseLeftButton");
+				// on empty space the MouseLeftButton action takes it. Sent at once after Activated, the
+				// press was lost now and then (no InputBegan, the cursor not moved: a third of the runs of
+				// every section in a project): MouseDown waits two frames after a release now
+				const seen = new Array<string>();
+				const began = UserInputService.InputBegan.Connect((input, processed) => {
+					seen.push(
+						`${input.UserInputType.Name} at ${input.Position}${processed ? ", processed" : ""}`,
+					);
+				});
+				defer(() => began.Disconnect());
+				const point = emptyPoint();
+				real.MouseDown(point);
+				const deadline = os.clock() + 5;
+				while (!Fire.IsPressed() && os.clock() < deadline) frames(1);
+				if (!Fire.IsPressed())
+					fail(
+						`expected MouseLeftButton to hold within 5 seconds of a click at ${point}; Jump ` +
+							`${Jump.IsPressed() ? "held" : "not held"}, Activated ${activated.count}; ` +
+							`InputBegan: ${seen.size() === 0 ? "nothing" : seen.join(", ")}; ` +
+							`Fire's action ${Fire.Instance.GetState()}, Enabled ${Fire.Instance.Enabled}; ` +
+							`${pointerReport(point)}${real.FocusNote()}`,
+					);
 				expectFalse(Jump.IsPressed());
 				real.MouseUp();
 				eventually(() => !Fire.IsPressed(), "released");

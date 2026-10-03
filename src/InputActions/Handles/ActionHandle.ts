@@ -385,7 +385,15 @@ export class ActionHandle {
 
 	Fire(value: unknown) {
 		if (this._runtime.IsDestroyed()) return;
-		const binding = this.GetScriptBinding();
+		let binding = this._scriptBinding;
+		if (binding === undefined || binding.Parent !== this.Instance) {
+			// The first Fire adds <Action>Script: added to a held action, it makes IAS reset it, and
+			// on the server's copy the action then stays held after its key comes up, whatever this
+			// Fire writes (a value at rest changes nothing on a binding just made): let go of then
+			binding = AddingBindings(this.Instance, () => this.GetScriptBinding());
+			// Under Immediate signals that ran listeners, and one may have destroyed the root handle
+			if (this._runtime.IsDestroyed()) return;
+		}
 		binding.Fire(value);
 		// IAS ignores a Fire on a disabled action or context: nothing is held then
 		if (IsLive(this.Instance)) SetHeldValue(binding, value, this._neutral, this._runtime);

@@ -1,5 +1,12 @@
 import { defer } from "@flamework-experimental/testing";
-import { GuiService, Players, RunService, UserInputService, Workspace } from "@rbxts/services";
+import {
+	ContextActionService,
+	GuiService,
+	Players,
+	RunService,
+	UserInputService,
+	Workspace,
+} from "@rbxts/services";
 import { frames } from "./helpers";
 
 // Real keyboard and mouse input through `UserInputService:CreateVirtualInput()`, which IAS treats as
@@ -72,6 +79,71 @@ export function emptyPoint(): Vector2 {
 	return toScreen(inViewport.sub(guiInset()));
 }
 
+/**
+ * For a failure message, when a click at a screen `point` didn't reach what it should have: what
+ * else could have taken it or moved it. The cursor's behaviour (locked, it clicks at the centre),
+ * the camera's distance from its focus (first person locks the cursor), the GUI objects under the
+ * point, CAS actions bound to the left button, and the enabled IAS contexts that bind it or sink.
+ */
+export function pointerReport(point: Vector2): string {
+	const parts = new Array<string>();
+	const buttons = UserInputService.GetMouseButtonsPressed().map(
+		(input) => input.UserInputType.Name,
+	);
+	parts.push(
+		`MouseBehavior ${UserInputService.MouseBehavior.Name}, the mouse at ${UserInputService.GetMouseLocation()}, buttons down: ${buttons.size() === 0 ? "none" : buttons.join(", ")}`,
+	);
+	const camera = Workspace.CurrentCamera;
+	if (camera !== undefined) {
+		const distance = camera.CFrame.Position.sub(camera.Focus.Position).Magnitude;
+		parts.push(
+			`camera ${camera.CameraType.Name}, ${math.round(distance * 10) / 10} studs from its focus, CameraMode ${Players.LocalPlayer.CameraMode.Name}`,
+		);
+	}
+	const guiPoint = point.add(screenOrigin());
+	const playerGui = Players.LocalPlayer.FindFirstChildOfClass("PlayerGui");
+	const under = new Array<string>();
+	if (playerGui !== undefined) {
+		for (const gui of playerGui.GetGuiObjectsAtPosition(guiPoint.X, guiPoint.Y)) {
+			under.push(`${gui.GetFullName()}${gui.Active ? " (Active)" : ""}`);
+		}
+	}
+	parts.push(`PlayerGui at ${guiPoint}: ${under.size() === 0 ? "nothing" : under.join(", ")}`);
+	const bound = new Array<string>();
+	for (const [name, info] of ContextActionService.GetAllBoundActionInfo()) {
+		const takes = info.inputTypes.some(
+			(kind) => kind === Enum.UserInputType.MouseButton1 || kind === Enum.KeyCode.MouseLeftButton,
+		);
+		if (takes) bound.push(`${name} at ${info.priorityLevel}`);
+	}
+	parts.push(`CAS on the left button: ${bound.size() === 0 ? "none" : bound.join(", ")}`);
+	const contexts = new Array<string>();
+	for (const service of game.GetChildren()) {
+		const [ok, descendants] = pcall(() => service.GetDescendants());
+		if (!ok) continue;
+		for (const context of descendants) {
+			if (!context.IsA("InputContext") || !context.Enabled) continue;
+			const left = context
+				.GetDescendants()
+				.some(
+					(binding) =>
+						binding.IsA("InputBinding") && binding.KeyCode === Enum.KeyCode.MouseLeftButton,
+				);
+			if (!left && !context.Sink) continue;
+			contexts.push(
+				`${context.GetFullName()} (${context.Priority}${context.Sink ? ", sinks" : ""}${left ? ", binds the left button" : ""})`,
+			);
+		}
+	}
+	parts.push(
+		`enabled contexts that bind the left button or sink: ${contexts.size() === 0 ? "none" : contexts.join(", ")}`,
+	);
+	parts.push(
+		`TextBox focused: ${UserInputService.GetFocusedTextBox()?.GetFullName() ?? "none"}, selected: ${GuiService.SelectedObject?.GetFullName() ?? "none"}, menu open: ${GuiService.MenuIsOpen}`,
+	);
+	return parts.join("; ");
+}
+
 /** Whether the window renders: GUI layout and hit tests need it (a display that is off stops it) */
 export function isRendering(): boolean {
 	let steps = 0;
@@ -130,6 +202,8 @@ export class RealInput {
 	private readonly _notches = new Array<number>();
 	/** `WindowFocusReleased` events since the test began */
 	private _focusLosses = 0;
+	/** A mouse button went up, and no frames were waited since: the next press waits for them */
+	private _mouseReleased = false;
 
 	constructor(virtualInput: VirtualInput) {
 		this.Device = virtualInput;
@@ -170,9 +244,17 @@ export class RealInput {
 		frames(2);
 	}
 
-	/** Holds a mouse button down at a screen position (a touch under a simulated phone) */
+	/**
+	 * Holds a mouse button down at a screen position (a touch under a simulated phone). Two frames
+	 * after a button went up first: a press sent right after a release landed can be lost, with no
+	 * `InputBegan` and nothing pressed (measured under `default`: a click on a button, then at once,
+	 * after its `Activated`, a press elsewhere: 5 of 13 lost; a frame or two later, none of 13; with
+	 * this wait, none of 60 under `default` and `ias-immediate`)
+	 */
 	MouseDown(position: Vector2, button: Enum.UserInputType = Enum.UserInputType.MouseButton1) {
 		if (this._buttons.has(button)) error(`${button.Name} is already down`, 2);
+		if (this._mouseReleased) frames(2);
+		this._mouseReleased = false;
 		this.Device.SendMouseButton(position, button, true);
 		this._buttons.set(button, position);
 	}
@@ -182,14 +264,16 @@ export class RealInput {
 		if (position === undefined) return;
 		this._buttons.delete(button);
 		this.Device.SendMouseButton(position, button, false);
+		this._mouseReleased = true;
 	}
 
-	/** A click (or a tap) at a screen position, a few frames between down and up */
+	/** A click (or a tap) at a screen position, a few frames between down and up, and after */
 	Click(position: Vector2) {
 		this.MouseDown(position);
 		frames(2);
 		this.MouseUp();
 		frames(2);
+		this._mouseReleased = false;
 	}
 
 	/**
