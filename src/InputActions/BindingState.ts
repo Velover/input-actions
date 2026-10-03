@@ -278,11 +278,31 @@ export function AddingBindings<T>(action: InputAction, add: () => T): T {
 }
 
 /**
+ * What a binding that reads `start` reads once `values` are written onto it: written onto a binding
+ * made for the purpose and never parented, so the values read as a binding holds them (a float
+ * property reads 0.3 as 0.30000001192092896), and `ReleasedThreshold` as the write leaves it
+ */
+function ReadingOf(
+	start: IBindingValues,
+	values: IBindingValues,
+	releasedThreshold: EReleasedThreshold,
+): IBindingValues {
+	const scratch = new Instance("InputBinding");
+	WriteBinding(scratch, start);
+	WriteBinding(scratch, values, releasedThreshold);
+	const reading = ReadBinding(scratch);
+	scratch.Destroy();
+	return reading;
+}
+
+/**
  * A binding the package made unbound for a device its root handle's schema left out (a placeholder)
  * takes the defaults another root handle's schema gives that device: `Create` twice on one folder,
  * or a Server Authority swap onto bindings another handle made on the copy. Every handle on it
  * shares the new defaults (they are the same table). A binding still as it was made gets them
- * written; one a player rebound since keeps its keys. Does nothing to any other binding.
+ * written; one a player rebound since keeps its keys. Either way the defaults are a reading, as
+ * everywhere else, so `Reset` then `ExportBindings` saves nothing (hunt HD-1). Does nothing to any
+ * other binding.
  * @param releasedThreshold how the write treats `ReleasedThreshold` (see `EReleasedThreshold`)
  */
 export function FillPlaceholder(
@@ -296,7 +316,8 @@ export function FillPlaceholder(
 	entry.Placeholder = undefined;
 	const untouched = SameValues(ReadBinding(binding), current);
 	if (untouched) WriteBindings([[binding, defaults, releasedThreshold]]);
-	const filled = untouched ? ReadBinding(binding) : defaults;
+	// A rebound one: what the binding as it was made would read with them
+	const filled = untouched ? ReadBinding(binding) : ReadingOf(current, defaults, releasedThreshold);
 	const target = current as unknown as Record<string, unknown>;
 	for (const [name, value] of pairs(filled as unknown as Record<string, unknown>))
 		target[name] = value;

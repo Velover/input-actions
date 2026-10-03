@@ -78,7 +78,8 @@ the [root handle](#root-handle).
 | `ResetOnFocusLoss` | `true` | hold every context disabled for one frame on TextBox focus, window focus loss and menu open |
 
 Throws when an existing action's `Type` differs from the schema, or when a child named like a
-context or action is not an `InputContext`/`InputAction`. See
+context or action is not an `InputContext`/`InputAction`. It checks these before it changes
+anything: a `Create` that throws leaves the tree as it was. See
 [Get-or-create](Introduction.md#get-or-create). Warns once when the schema marks contexts
 `ServerAuthority: true` in a place that doesn't run Server Authority
 ([`IsServerAuthority()`](#isserverauthority) is `false`): their state would never reach the server.
@@ -278,7 +279,7 @@ press; they throw if called on it anyway):
 
 | Member | |
 | --- | --- |
-| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and the triggers; never the wheel, mouse movement or a tap), applies it, calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway; never the wheel, mouse movement or a tap), applies it, calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
 | `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the

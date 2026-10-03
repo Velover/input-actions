@@ -200,13 +200,14 @@ export class VirtualPad {
 	}
 }
 
+// Kept short: each of the 41 pad tests repeats its reason in the realm's result, which Studio's MCP
+// cuts at 100,000 characters (CLAUDE.md, Tests). Why the pad is opt-in is on `virtualPad`.
+
 /** Why a gamepad test skips when the service may not plug the pad in (the default) */
-export const PAD_OFF =
-	"the virtual pad is off: set VIRTUAL_PAD=1 to let tests plug it in (every process sees a plugged-in pad, a Roblox Player's UI switches to gamepad mode)";
+export const PAD_OFF = "the virtual pad is off (VIRTUAL_PAD=1)";
 
 /** Why a test that presses the pad skips when the service has pad input off (the default) */
-export const PAD_INPUT_OFF =
-	"pad input is off: set VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers";
+export const PAD_INPUT_OFF = "pad input is off (VIRTUAL_PAD_INPUT=1, Steam Input off)";
 
 /**
  * The virtual pad for the running test, or the reason there is none: the service isn't running

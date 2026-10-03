@@ -129,6 +129,10 @@ Rules and lessons:
   (`Exclude<keyof B[K], AllKeys<TShape>>`); any other name must be `IScriptable`. A `string` key
   (inference fell back to the constraint, whose own error is the useful one) checks nothing more.
   Keep it that way: never a mapped type over the KeyCode union.
+- A Scriptable under a device's name is checked against `NotScriptable<T, D>`: the device's shapes
+  and a property the marker lacks. The builders' parameter is `B & CheckBindings<B, T>`, and its
+  intersection with `B`'s `IScriptable` made the all-optional composite shapes (Direction1D, 2D,
+  3D) ones the marker satisfies: it compiled there (hunt HD-3).
 - **Enum items matching all-optional shapes:** the composite shapes are all-optional, so a bare
   enum item matched them structurally. Every object shape carries `EnumType?: never`.
 - `InputActions.BoolAction` is exported: the type of any Bool action handle, for helpers written in
@@ -247,7 +251,10 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
     `ISharedEntry.Placeholder`), the later schema fills it: the shared defaults become that
     schema's binding (every handle on it shares the defaults table, so the earlier handle's
     `Reset` and export follow), and the binding is written when it is still as it was made (a
-    player's rebind stays). The earlier handle's `BindingsChanged` doesn't fire for it. The same
+    player's rebind stays). The defaults are a reading either way: of the binding once written,
+    or, when the player rebound it, of a scratch binding the values are written onto, so a float a
+    binding can't hold exactly (`PressedThreshold` 0.3) doesn't make `Reset` then the export save
+    it (hunt HD-1). The earlier handle's `BindingsChanged` doesn't fire for it. The same
     holds at a Server Authority swap onto bindings another root handle made on the copy. In the
     other order the first schema's binding is simply adopted, as before. Without this, a second
     schema that names `Gamepad: ButtonA` would find the first one's empty binding and keep it
@@ -259,6 +266,10 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
 - **Defaults are the tree right after `Create`.** `Reset()` returns a binding to that snapshot
   (designer values when they came from the folder, schema values otherwise).
 - An existing action whose `Type` differs from the builder's type: **throw**, naming the path.
+  `Create` makes every check that can throw before it changes anything (`CheckBuild`: these types,
+  on the instances it would take up; the names `Schema` refuses; an instance of a context's name
+  that is no `InputContext`), so a `Create` that throws leaves the tree as it found it: it fills no
+  other root handle's unbound binding and releases no held action (hunt HD-2).
 - An adopted binding whose keys break the §3 rules (another device's key included): `warn` with
   the path, and leave it as it is.
 - Instances in the folder that the schema doesn't mention: left alone (IAS still runs them), not
@@ -543,12 +554,15 @@ Binding handle (non-Scriptable: a device's binding):
   slots (axis keys are legal there), and a chord can end on one. A Direction2D `KeyCode` slot of
   the Gamepad binding takes the whole stick (`Thumbstick1`/`Thumbstick2`) of the first stick pushed
   past 0.5 (`CapturedKey`). A stick's own `InputBegan`/`InputEnded`, if any, are ignored: only the
-  axes count. A stick already pushed when the capture starts counts once it has come back. The
-  triggers (`ButtonL2`/`ButtonR2`) go down and up through `InputBegan`/`InputEnded` or through
-  `InputChanged` (`Position.Z` past 0.5, back under 0.2), whichever comes first, once each:
-  **unmeasured** which Roblox sends for a real pad (VirtualInput's `ButtonR2` arrives as
-  `InputBegan`); the `device-capture` section prints what came, for the next probe. Mouse movement,
-  the wheel and touch gestures still never count.
+  axes count. A stick already pushed when the capture starts counts once it has come back. A pad's
+  triggers (`ButtonL2`/`ButtonR2`) go down past halfway too (`Position.Z` past 0.5), at their
+  `InputBegan` or an `InputChanged`, whichever shows it first: an `InputBegan` below halfway waits
+  for an `InputChanged` past it, so a light pull is no key (hunt HD-4). They come up back under
+  0.2 or at their `InputEnded`, whichever comes first. **Unmeasured** which events Roblox sends
+  for a real pad's trigger, and where; this rule holds in either order. VirtualInput's `ButtonR2`
+  arrives as keyboard input, with no position: it goes down and up with its
+  `InputBegan`/`InputEnded`. The `device-capture` section prints what came, for the next probe.
+  Mouse movement, the wheel and touch gestures still never count.
 - `CaptureChord(callback, options?): () => void` (0.6.1), on the KeyboardAndMouse and Gamepad
   bindings of Bool and Direction1D actions only (the types whose `KeyCode` takes keys that begin;
   typed through `BindingHandleOf<T, D>`, and it throws on the others at runtime). It follows the keys that begin while it waits (`InputBegan`, not
@@ -711,7 +725,13 @@ client; the server only reads action state, which IAS replicates on its own.
     swapped first, or found the copy there), its bindings of the same name are adopted rather than
     doubled (attached buttons are renamed). What the stand-in's binding changed from its defaults (rebinds,
     an import) is written onto the adopted one, which keeps its defaults, the first handle's
-    snapshot (§4), so the stand-in handle's export reads the same after the swap. A value the
+    snapshot (§4), so the stand-in handle's export reads the same after the swap, but for a change
+    to a value those defaults hold already: that is a default now, as when a later schema fills an
+    unbound binding a player rebound (§4). So a gamepad key a player gave a stand-in whose schema
+    left `Gamepad` out drops out of its export when the other handle's schema has that key, and a
+    later session without that schema loads no gamepad key there. Kept (hunt HD-5, disputed): an
+    export base per root handle would have `Reset` then the export save the key again, and give
+    two root handles on one binding two answers. A value the
     stand-in held on a Scriptable binding that the adopted one already holds stays held by both
     root handles (IAS ignores the repeated Fire), so destroying either leaves it to the other. A
     binding moved onto a copy's action that is not at rest (another root handle's input holds it)

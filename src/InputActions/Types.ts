@@ -149,6 +149,14 @@ export type BindingData<
 // `InputActions.Scriptable` (design spec §3, 0.7.0). Compares a bare key against the device's key
 // union with a conditional, never a mapped type over the KeyCode union, which runs tsc out of memory.
 type AllKeys<U> = U extends unknown ? keyof U : never;
+/**
+ * What a Scriptable under a device's name is checked against: the device's shapes, and a property
+ * the marker lacks. The parameter is `B & CheckBindings<B, T>`, and the intersection with `B`'s
+ * `IScriptable` makes an all-optional shape (a composite) one the marker satisfies (hunt HD-3)
+ */
+type NotScriptable<T extends Enum.InputActionType, D extends Device> = BindingShape<T, D> & {
+	readonly "a device's binding takes its keys, not InputActions.Scriptable": never;
+};
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: inference fell back to the constraint (a key the action type can't take), whose
 	// error says so; or computed names, which `Schema` checks at runtime
@@ -156,7 +164,7 @@ export type CheckBindings<B, T extends Enum.InputActionType> = {
 		? unknown
 		: K extends Device
 			? B[K] extends IScriptable
-				? BindingShape<T, K>
+				? NotScriptable<T, K>
 				: B[K] extends EnumItem
 					? B[K] extends BindingShape<T, K>
 						? unknown
@@ -289,7 +297,8 @@ export interface ICaptureBindingHandle<
 	 * Waits for the next key of this binding's device legal for `slot`, applies it, then calls
 	 * `callback`; other devices' keys are ignored (a `Cancel` key counts from any device). On the
 	 * gamepad a stick pushed past halfway counts as its direction (`Thumbstick1Up`...), and a
-	 * Direction2D `KeyCode` takes the whole stick. Returns a cancel function
+	 * Direction2D `KeyCode` takes the whole stick; a trigger counts once pulled past halfway.
+	 * Returns a cancel function
 	 */
 	Capture(
 		slot: CaptureSlot<T>,

@@ -7,7 +7,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 
 - `bun run test:all` builds the package from `../../` and copies it into
   `node_modules/@rbxts/input-actions` (`scripts/link-package.mjs`, also `bun run link`), then runs
-  every test section in Studio under six Rojo projects:
+  every test section in Studio, in two groups of sections (see [Tests](#tests)), under six Rojo
+  projects:
   - `default` (`default.project.json`): legacy player scripts;
   - `ias` (`tests/ias.project.json`): `Workspace.PlayerScriptsUseInputActionSystem = Enabled`;
   - `immediate` (`tests/immediate.project.json`): legacy player scripts, with
@@ -43,9 +44,9 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   server when the client resets an action; authority only), `real-input` (real keys and mouse
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
-  `server-authority` (server). The `validator-r*`, `hunter-r*` and `hunter-chord` sections are reviewers'
-  adversarial tests, kept as regression tests. Fixtures are in `src/shared/fixtures/`
-  (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
+  `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*` and
+  `hunter-devices` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
+  are in `src/shared/fixtures/` (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
   expects and the warnings' wording; and
   `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those
   rounds' sections). Project-specific tests skip under the other projects (`getProject()`, then
@@ -120,9 +121,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     `--allow-plug`). `scripts/virtual-pad.mjs` passes `--allow-plug` only when the environment
     variable `VIRTUAL_PAD=1` is set, and `--allow-input` only when `VIRTUAL_PAD_INPUT=1` is (turn
     Steam Input for Xbox controllers off, or exit Steam, first). Without them `virtualPad()` answers
-    the reason ("the virtual pad is off: set VIRTUAL_PAD=1 ...", or "pad input is off: set
-    VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers") and the gamepad tests
-    `skip` with it; `virtualPad({ Input: false })` is for a test that only plugs the pad in, which
+    the reason ("the virtual pad is off (VIRTUAL_PAD=1)", or "pad input is off (VIRTUAL_PAD_INPUT=1,
+    Steam Input off)": short, see [Tests](#tests)) and the gamepad tests `skip` with it; `virtualPad({ Input: false })` is for a test that only plugs the pad in, which
     needs `VIRTUAL_PAD=1` alone. `/health` reports `plug` and `input`. A service already running is
     used as it is: when it allows less than the variables ask for, the run warns.
   - Measured on 2026-10-03 (`default`, `ias`, `touch`):
@@ -344,6 +344,17 @@ commands use npm; use bun here.
   command line gives its own). flamework-test's own 120 s is too short: the client's run under
   `authority` takes about 160 s, since its real-input tests wait on the server. A run past the limit
   reports `did not finish within ... (--timeout)` and no results for that realm.
+- **A realm's result must stay under 100,000 characters.** flamework-test reads each realm's
+  result (JSON: every test's name, status, time and skip reason) as the answer of one
+  `execute_luau` call, and Studio's MCP cuts an answer at 100,000 characters, adding
+  `... (truncated)`: the run then reports `the task result was not JSON` and fails that realm,
+  every test passed or not. Measured on 2026-10-03 with the `hunter-devices` section added: the
+  client's result of every section was 99,848 characters under `ias` and past the cut under
+  `default` and `touch`; with the virtual pad's skip reasons (41 tests) shortened, 99,142 and
+  99,908. So a run without `--sections` (or `--list`) is split: `scripts/test.mjs` reads the
+  sections from the test folders (`defineTests("name"`) and runs them in `SECTION_GROUPS` (2)
+  groups of about as many tests each, one Studio session per group and project, each with its own
+  summaries. A run with `--sections` is one run, as given: keep such a list well under the cut.
 - Tests live in `src/server/tests`, `src/client/tests` and `src/shared/tests` (both realms). Each
   test file is a `@Provider({ activeIn: ["testing"] })` that calls `defineTests` in `onStart`;
   `src/server/tests/players.ts` is a plain module of helpers beside them. The entry points register

@@ -163,6 +163,61 @@ function TemplateAction(template: InputContext | undefined, name: string): Input
 }
 
 /**
+ * The context whose actions `Build` would take up for a context of the schema, as the tree is now:
+ * the folder's; for a Server Authority context the server's copy when it has every action, else the
+ * stand-in other root handles wait on (unless the copy takes them up first), else the template the
+ * new stand-in is cloned from. Undefined when the context is to be made. Throws as `Build` does on
+ * an instance of that name that is no InputContext.
+ */
+function ContextToBuildOn(
+	name: string,
+	schema: IContextSchema,
+	folder: Instance,
+	playerFolderName: string,
+): InputContext | undefined {
+	const found = FindContext(folder, name, name);
+	if (schema.ServerAuthority !== true) return found;
+	const copy = Players.LocalPlayer.FindFirstChild(playerFolderName)?.FindFirstChild(name);
+	if (copy !== undefined && copy.IsA("InputContext") && HasActions(copy, schema)) return copy;
+	const standIn = standIns.get(`${playerFolderName}/${name}`);
+	if (standIn !== undefined && !IsCopyReady(standIn, copy)) return standIn.Instance;
+	return found;
+}
+
+/**
+ * Every check of `Build` that can throw, made before it changes anything, so a `Create` that throws
+ * leaves the tree as it was: it fills no other root handle's unbound binding and releases no held
+ * action (hunt HD-2). The names `Schema` refuses (a schema made without it could still hold them),
+ * and each action the tree already has against the type the schema declares.
+ */
+function CheckBuild(
+	contexts: Record<string, IContextSchema>,
+	folder: Instance,
+	playerFolderName: string,
+) {
+	for (const [name, schema] of pairs(contexts)) {
+		if (ROOT_MEMBERS.includes(name as string))
+			error(`InputActions.Create: ${name}: the name is taken by the root handle`, 0);
+		const context = ContextToBuildOn(name as string, schema, folder, playerFolderName);
+		for (const [actionName, definition] of Entries(schema.Actions)) {
+			const path = JoinPath(name as string, actionName);
+			const slots = SlotsOf(definition);
+			const collision = SlotCollision(actionName, slots);
+			if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
+			const specs = definition.Bindings as Record<string, unknown>;
+			for (const slot of slots) {
+				const problem =
+					ReservedSlotProblem(actionName, slot) ??
+					BindingNameProblem(slot, specs[slot] === SCRIPTABLE);
+				if (problem !== undefined)
+					error(`InputActions.Create: ${JoinPath(path, slot)}: ${problem}`, 0);
+			}
+			if (context !== undefined) FindAction(context, actionName, definition.Type, path);
+		}
+	}
+}
+
+/**
  * The server makes its copy enabled, since IAS on the server ignores the client's input for a
  * context or action the server disabled (probed), and the client owns `Enabled`. The first time the
  * package takes up the copy, the context and the actions the template or the schema has get the
@@ -349,11 +404,9 @@ export class InputRuntime implements IRuntime {
 		const folder = options.Folder ?? GetDefaultFolder();
 		const playerFolderName = options.PlayerFolderName ?? DEFAULT_PLAYER_FOLDER_NAME;
 		CheckPlayerFolderName(playerFolderName);
+		CheckBuild(contexts, folder, playerFolderName);
 
 		for (const [name, schema] of pairs(contexts)) {
-			// Schema refuses these names; a schema made without it could still hold one
-			if (ROOT_MEMBERS.includes(name as string))
-				error(`InputActions.Create: ${name}: the name is taken by the root handle`, 0);
 			if (schema.ServerAuthority === true) {
 				this.BuildServerAuthorityContext(name, schema, folder, playerFolderName);
 			} else {
@@ -771,10 +824,8 @@ export class InputRuntime implements IRuntime {
 		warnExtras: boolean,
 	) {
 		const path = JoinPath(contextHandle.Name, actionName);
-		// Schema refuses these; a schema made without it could still hold them
+		// The slots' names were checked before anything was built (`CheckBuild`)
 		const slots = SlotsOf(definition);
-		const collision = SlotCollision(actionName, slots);
-		if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
 		let action = FindAction(context, actionName, definition.Type, path);
 		const created = action === undefined;
 		if (action === undefined) {
@@ -843,12 +894,8 @@ export class InputRuntime implements IRuntime {
 		templateAction: InputAction | undefined,
 	): BindingHandle | ScriptableBindingHandle {
 		const path = JoinPath(contextHandle.Name, actionName, slot);
-		// Schema refuses these names; a schema made without it could still hold one
-		const reserved = ReservedSlotProblem(actionName, slot);
-		if (reserved !== undefined) error(`InputActions.Create: ${path}: ${reserved}`, 0);
+		// Its name was checked before anything was built (`CheckBuild`)
 		const scriptable = spec === SCRIPTABLE;
-		const nameProblem = BindingNameProblem(slot, scriptable);
-		if (nameProblem !== undefined) error(`InputActions.Create: ${path}: ${nameProblem}`, 0);
 		let binding = FindBinding(action, actionName, slot);
 		// Found: the designer's, or one another root handle on this folder made
 		if (binding !== undefined) this.Use(binding);

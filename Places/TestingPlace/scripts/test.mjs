@@ -9,11 +9,84 @@
 // simulator (`--project tests/touch.project.json`) runs through scripts/device-test.mjs instead,
 // after the others; and a device an earlier run left set is set back before any project runs.
 // While the projects run, the virtual-pad service (scripts/virtual-pad.mjs) serves the tests'
-// gamepad input.
+// gamepad input. A run without `--sections` runs every section in groups, one run per group
+// (`SECTION_GROUPS`): Studio answers a realm's result only up to 100,000 characters.
 
 import { dlopen, FFIType } from "bun:ffi";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { DEVICE_PROJECTS, projectName, restoreLeftDevice, runOnDevice } from "./device-test.mjs";
 import { startVirtualPad } from "./virtual-pad.mjs";
+
+/**
+ * How many runs a run of every section is split into, by `--sections`. flamework-test reads a
+ * realm's result (every test's name, status, time and skip reason) as the answer of one
+ * `execute_luau` call, which Studio's MCP cuts at 100,000 characters: past that the run reports
+ * `the task result was not JSON` and fails the realm. With every section, the client's result
+ * reached it on 2026-10-03 (99,908 characters under `touch`, about 670 tests).
+ */
+const SECTION_GROUPS = 2;
+/** The folders whose files define the test sections */
+const TEST_FOLDERS = ["src/client/tests", "src/server/tests", "src/shared/tests"];
+
+/**
+ * Every section the tests define (`defineTests("name"`), with about how many tests it has (the
+ * `test(` calls of its files): a section of both realms counts its tests in both
+ */
+function sectionSizes() {
+	const sizes = new Map();
+	for (const folder of TEST_FOLDERS) {
+		let files;
+		try {
+			files = readdirSync(folder);
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			if (!file.endsWith(".ts")) continue;
+			const source = readFileSync(join(folder, file), "utf8");
+			const names = [...source.matchAll(/defineTests\(\s*"([^"]+)"/g)].map((match) => match[1]);
+			const tests = (source.match(/\btest\(/g) ?? []).length;
+			for (const name of names)
+				sizes.set(name, (sizes.get(name) ?? 0) + Math.ceil(tests / names.length));
+		}
+	}
+	return sizes;
+}
+
+/**
+ * The `--sections` lists a run of every section is split into: `count` groups of about as many
+ * tests each. A realm none of a group's sections is in runs no test, which passes
+ */
+function sectionGroups(count) {
+	const groups = Array.from({ length: count }, () => ({ names: [], tests: 0 }));
+	const bySize = [...sectionSizes()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	for (const [name, tests] of bySize) {
+		const smallest = groups.reduce((least, group) => (group.tests < least.tests ? group : least));
+		smallest.names.push(name);
+		smallest.tests += tests;
+	}
+	return groups
+		.filter((group) => group.names.length > 0)
+		.map((group) => group.names.sort().join(","));
+}
+
+/**
+ * The runs to make: one with the arguments as they are when they pick sections or only list them,
+ * else one per group of sections (`SECTION_GROUPS`)
+ */
+function sectionRuns(args) {
+	const picks = args.some(
+		(arg) =>
+			arg === "--sections" ||
+			arg.startsWith("--sections=") ||
+			arg === "--list" ||
+			arg.startsWith("--list="),
+	);
+	if (picks) return [[]];
+	const groups = sectionGroups(SECTION_GROUPS);
+	return groups.length > 0 ? groups.map((names) => ["--sections", names]) : [[]];
+}
 
 /**
  * How long one realm's run may take, unless `--timeout` is given: flamework-test's own 120 s is too
@@ -66,7 +139,9 @@ function keepDisplayAwake(args) {
 	} catch {
 		// Reported below, as a refusal is
 	}
-	console.error("warning: could not keep the display on for the whole run; each flamework-test call still asks");
+	console.error(
+		"warning: could not keep the display on for the whole run; each flamework-test call still asks",
+	);
 }
 
 /** Runs a command in the terminal. Returns its exit code, or undefined when it can't be started. */
@@ -120,18 +195,50 @@ if (code === 0) {
 	const rest = ["--timeout", RUN_TIMEOUT, ...split.rest];
 	const onDevice = projects.filter((project) => projectName(project) in DEVICE_PROJECTS);
 	const plain = projects.filter((project) => !onDevice.includes(project));
+	// Every section, split into groups: one realm's result of them all is past what Studio answers
+	const runs = sectionRuns(split.rest);
+	if (runs.length > 1)
+		console.log(`every section, in ${runs.length} runs per project (SECTION_GROUPS)`);
+	code = 0;
+	let interrupted = false;
 	if (plain.length > 0 || onDevice.length === 0) {
 		const projectArgs = plain.length > 0 ? ["--project", plain.join(",")] : [];
-		const args = ["test", "test.rbxl", "--original", "tests/place.rbxlx", ...projectArgs, ...rest];
-		code = run(["flamework-test", ...args]) ?? 127;
+		for (const sections of runs) {
+			const args = [
+				"test",
+				"test.rbxl",
+				"--original",
+				"tests/place.rbxlx",
+				...projectArgs,
+				...rest,
+				...sections,
+			];
+			const runCode = run(["flamework-test", ...args]) ?? 127;
+			code = Math.max(code, runCode);
+			if (runCode === 130) {
+				interrupted = true;
+				break;
+			}
+		}
 	}
 	const outcomes = [];
-	for (const project of onDevice) {
-		const deviceCode = await runOnDevice(project, "test.rbxl", "tests/place.rbxlx", rest);
-		outcomes.push(`${projectName(project)} ${deviceCode === 0 ? "passed" : "FAILED"}`);
-		code = Math.max(code, deviceCode);
-		// Ctrl+C: the device was set back and the window closed; the rest is skipped
-		if (deviceCode === 130) break;
+	for (const project of interrupted ? [] : onDevice) {
+		let projectCode = 0;
+		for (const sections of runs) {
+			const deviceCode = await runOnDevice(project, "test.rbxl", "tests/place.rbxlx", [
+				...rest,
+				...sections,
+			]);
+			projectCode = Math.max(projectCode, deviceCode);
+			// Ctrl+C: the device was set back and the window closed; the rest is skipped
+			if (deviceCode === 130) {
+				interrupted = true;
+				break;
+			}
+		}
+		outcomes.push(`${projectName(project)} ${projectCode === 0 ? "passed" : "FAILED"}`);
+		code = Math.max(code, projectCode);
+		if (interrupted) break;
 	}
 	if (outcomes.length > 0) console.log(`\nprojects on a simulated device: ${outcomes.join(", ")}`);
 }

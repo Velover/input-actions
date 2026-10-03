@@ -181,7 +181,12 @@ function KeysDownNow(): Set<Enum.KeyCode> {
 	if (keys.has(Enum.KeyCode.MouseLeftButton)) keys.add(Enum.KeyCode.TouchPosition);
 	for (const gamepad of UserInputService.GetConnectedGamepads()) {
 		for (const input of UserInputService.GetGamepadState(gamepad)) {
-			if (input.UserInputState === Enum.UserInputState.Begin) keys.add(input.KeyCode);
+			// A trigger is down past halfway only, as a capture hears it (below)
+			if (
+				input.UserInputState === Enum.UserInputState.Begin &&
+				!TRIGGER_KEYS.includes(input.KeyCode)
+			)
+				keys.add(input.KeyCode);
 			for (const [key, value] of AnalogValues(input)) {
 				if (value > PRESS_THRESHOLD) keys.add(key);
 			}
@@ -239,11 +244,13 @@ class DownAtStart {
 /**
  * The keys a capture hears, in the order they go down and come up. A stick is heard through
  * `InputChanged` only: each direction goes down past halfway (0.5, IAS's default
- * `PressedThreshold`) and comes up back under 0.2. A trigger goes down and up through its
- * `InputBegan`/`InputEnded` and through `InputChanged` alike, whichever comes first (unmeasured
- * which Roblox sends): it goes down once, and comes up once. Mouse movement, the wheel and touch
- * drags change only, and are never heard. Keys down when it starts are heard only once they have
- * come up and gone down again.
+ * `PressedThreshold`) and comes up back under 0.2. A pad's trigger goes down past halfway too, at
+ * its `InputBegan` or an `InputChanged`, whichever shows it there first (an `InputBegan` below
+ * halfway waits for one: hunt HD-4), and comes up under 0.2 or at its `InputEnded`, whichever comes
+ * first; which events Roblox sends for a trigger, and where, is unmeasured. A trigger's KeyCode
+ * sent as keyboard input (VirtualInput) has no position, and goes down and up with its
+ * `InputBegan`/`InputEnded`. Mouse movement, the wheel and touch drags change only, and are never
+ * heard. Keys down when it starts are heard only once they have come up and gone down again.
  */
 class CaptureInput {
 	private readonly _connections = new Array<RBXScriptConnection>();
@@ -273,6 +280,8 @@ class CaptureInput {
 				if (key === undefined || STICK_DIRECTIONS.has(key)) return;
 				if (TRIGGER_KEYS.includes(key)) {
 					if (this._analogDown.has(key)) return;
+					const pad = GAMEPAD_INPUT_TYPES.has(input.UserInputType);
+					if (pad && input.Position.Z <= PRESS_THRESHOLD) return;
 					this._analogDown.add(key);
 				}
 				down(key, gameProcessed);

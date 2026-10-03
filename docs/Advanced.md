@@ -44,7 +44,8 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
 - `Create` looks in `ReplicatedStorage.Inputs` (created client-side when missing), or in
   `options.Folder`. Contexts can live anywhere in the DataModel.
 - An existing action whose `Type` differs from the builder's type throws, naming the path
-  (`Gameplay/Jump`). Nothing `Create` made before the throw is left behind.
+  (`Gameplay/Jump`). `Create` checks this before it changes anything, so a `Create` that throws
+  leaves the folder as it was: it fills no unbound binding and releases no held action.
 - An adopted binding whose keys break the type rules (another device's key included) is left as it
   is, with a `warn` naming it.
 - Every action gets the three device bindings: the folder's (`JumpTouch`, say, adopted as the Touch
@@ -269,8 +270,9 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   ends a chord. A `Direction2D` `KeyCode` slot of the Gamepad binding takes the whole stick
   (`Thumbstick1` or `Thumbstick2`) of the first one pushed. A stick already pushed when the capture
   starts counts once it has come back. **The triggers** (`ButtonL2`, `ButtonR2`) count as they go
-  down past halfway. The mouse wheel, mouse movement, touch drags and trackpad pan and pinch only
-  change, so a capture never takes them: a wheel notch doesn't land in a `Direction1D` slot
+  down past halfway (a lighter pull is no key), and come up back under 0.2. The mouse wheel, mouse
+  movement, touch drags and trackpad pan and pinch only change, so a capture never takes them: a
+  wheel notch doesn't land in a `Direction1D` slot
   (measured), and from keyboard and mouse a `Direction2D` `KeyCode` slot, which takes only those
   deltas, captures nothing. Offer those as choices in your settings UI and apply them with `Set`
   (`Set(Enum.KeyCode.MouseWheel)`).
@@ -560,7 +562,10 @@ when you mark contexts this way. The package warns you when it can tell that you
 - A handle that swaps onto a copy another handle already uses (its schema has actions the copy
   gained later) shares that handle's bindings of the same name instead of adding its own; attached
   buttons are renamed. Its rebinds and imports made on the stand-in are written onto the shared
-  binding, which keeps the first handle's defaults, as with `Create` twice. A value both handles
+  binding, which keeps the first handle's defaults, as with `Create` twice. So a rebind to a value
+  those defaults hold is a default after the swap, and leaves the handle's export: a gamepad key a
+  player gave an action whose schema left `Gamepad` out drops out when the other handle's schema
+  binds the same key there. A value both handles
   hold on the same Scriptable binding stays held until neither does. A binding of its own that it
   brings onto an action the other handle's input holds releases that action, as `AttachButton`
   does.
