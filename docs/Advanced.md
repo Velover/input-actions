@@ -259,15 +259,16 @@ stop(); // each returns a function that stops it; Input.Destroy() stops them all
   no tap. A plain `OnTap` hears both taps of a double tap; with `WaitForDoubleTap` and the same
   `Window` as `OnDoubleTap`, the two exclude each other: a tap fires only once the window has
   passed without a second press, and the double tap's second press is no tap.
-- **A release nobody made ends a gesture without completing it:** the context disabled
+- **A release the player didn't make ends a gesture without completing it:** the context disabled
   (`SetEnabled`, `Request`, the focus-loss reset), the action disabled, a rebind or a binding added
   while it is held (IAS resets the action), and the Server Authority swap when the server's copy
   doesn't carry the press. No tap, double tap or long press comes of it, and a hold in progress calls
-  `Cancelled`. The package tells such a release by the action being disabled when it arrives, or by
-  a reset it made itself since the press began. At the swap, a press the copy carries goes on (a
-  hold keeps running), and a value a Scriptable binding held is fired again on the copy, which is a
-  new press. A release IAS makes on its own when the window loses focus counts as the player's
-  while `ResetOnFocusLoss` is off.
+  `Cancelled`. The package tells such a release by the action or its context being disabled when it
+  arrives, or by a reset it made itself since the press began. At the swap a press ends so, since
+  the copy doesn't show it yet, and a value a Scriptable binding held is fired again on the copy, a
+  new press; only a press the copy already shows (another root handle's input holds it there) goes
+  on. A release IAS makes on its own when the window loses focus counts as the player's while
+  `ResetOnFocusLoss` is off.
 - The function a gesture returns and `Destroy` stop it without calling anything, a hold in progress
   included. After `Destroy`, a new gesture does nothing.
 

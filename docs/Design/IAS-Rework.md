@@ -893,9 +893,10 @@ another action type they throw (`needs a Bool action`).
   while held), `AddingBindings` (taken back when it added nothing and changed no key),
   `ReleaseHeldValues` and `FinishLink` (the swap). A press that began after the mark is the
   player's again, so a mark never swallows a later real release.
-- The swap: a press the copy carries goes on (no edge reaches the listeners); one it doesn't ends
-  with `FinishLink`'s `Released`, a reset; a value a Scriptable binding held is fired again on the
-  copy, a new press.
+- The swap: a press the copy doesn't show ends with `FinishLink`'s `Released`, a reset (the usual
+  case: the moved binding's key holds the copy's action only once pressed again); a value a
+  Scriptable binding held is fired again on the copy, a new press; a press the copy shows already
+  (another root handle's input holds it there) goes on, no edge reaching the listeners.
 - Destroy and a gesture's function stop it without calling anything, a hold in progress included;
   every listener checks the root handle's `IsDestroyed()` first, so a delivery already queued under
   Deferred signals calls nothing either. After `Destroy` a new gesture returns a function that does

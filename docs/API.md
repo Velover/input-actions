@@ -43,8 +43,8 @@ InputActions.Scriptable
   device's main binding, the one the direct form gives; the others are **extras**, named as you
   like, each with the device's keys and the action type's rules, or `{}` for a binding with no keys
   (`Main` may be `{}` too). An extra can't be named `Main`, after a member of a binding handle
-  (`Instance`, `Name`, `Get`, `Set`, `Reset`, `Clear`, `Capture`, `CaptureChord`, `Extras`, and
-  the handle's internal ones), after a binding property (`KeyCode`, `Up`... `PressedThreshold`,
+  (`Instance`, `Name`, `Get`, `Describe`, `Set`, `Reset`, `Clear`, `Capture`, `CaptureChord`,
+  `Extras`, and the handle's internal ones), after a binding property (`KeyCode`, `Up`... `PressedThreshold`,
   `DisplayName`, `DisplayImage`, `EnumType`), nor contain `/`; no binding of a namespace is
   `InputActions.Scriptable`. See [Several bindings per device](Advanced.md#several-bindings-per-device).
 - `options`: `{ TrackPrevious?: boolean; DisplayName?: string; Enabled?: boolean }`. `DisplayName`
