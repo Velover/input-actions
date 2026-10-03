@@ -7,6 +7,7 @@ import {
 	expectFalse,
 	expectThrows,
 	expectTrue,
+	getProject,
 	skip,
 	test,
 } from "@flamework-experimental/testing";
@@ -143,7 +144,9 @@ export class CaptureChordTests implements OnStart {
 				expectEqual(keys.Instance.KeyCode, K.Y);
 			});
 
-			test("a mouse button can't be a modifier: that chord is ignored", () => {
+			// On the phone the mouse button arrives as a finger, a Touch key: since 0.7.0 a capture on
+			// the KeyboardAndMouse binding hears that device's keys only, so G alone makes the chord
+			test("a mouse button can't be a modifier: that chord is ignored (on the phone a finger is another device's key, and G counts alone)", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const keys = createTestInput().Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
@@ -152,7 +155,16 @@ export class CaptureChordTests implements OnStart {
 				real.MouseDown(emptyPoint());
 				frames(2);
 				real.Tap(K.G);
-				staysSilent(outcomes, "a mouse button (a touch on a phone) and G settle nothing", real);
+				if (getProject() === "touch") {
+					eventually(() => outcomes.size() === 1, `G alone settles${real.FocusNote()}`);
+					const chord = expectDefined(outcomes[0].chord, "a chord");
+					expectEqual(chord.KeyCode, K.G);
+					expectEqual(chord.PrimaryModifier, undefined, "the finger is no modifier");
+					expectEqual(keys.Instance.KeyCode, K.G);
+					real.MouseUp();
+					return;
+				}
+				staysSilent(outcomes, "a mouse button and G settle nothing", real);
 				real.MouseUp();
 				staysSilent(outcomes, "the mouse button coming up after settles nothing", real);
 				expectEqual(keys.Instance.KeyCode, K.Space);

@@ -15,6 +15,7 @@ import {
 import { InputActions } from "@rbxts/input-actions";
 import { HttpService, UserInputService } from "@rbxts/services";
 import { createTestInput, frames, newFolder, recordSignal, recordWarnings } from "./helpers";
+import { emptyPoint, realInput } from "./virtual";
 import { virtualPad } from "./virtual-pad";
 
 const K = Enum.KeyCode;
@@ -313,11 +314,21 @@ export class DevicesTests implements OnStart {
 				);
 			});
 
+			// Under the simulated phone PreferredInput follows the last input: Touch after a tap,
+			// KeyboardAndMouse after a key (the touch section measures it), so the test taps first
 			test("PreferredDevice follows UserInputService.PreferredInput, the TV remote as Gamepad", () => {
+				if (getProject() === "touch") {
+					const real = realInput();
+					if (typeIs(real, "string")) return skip(real);
+					real.Click(emptyPoint());
+					eventually(
+						() => InputActions.PreferredDevice() === "Touch",
+						`Touch after a tap (PreferredInput ${UserInputService.PreferredInput.Name})`,
+					);
+				}
 				const device = InputActions.PreferredDevice();
 				expectEqual(device, deviceFor(UserInputService.PreferredInput));
-				if (getProject() === "touch") expectEqual(device, "Touch");
-				else if (UserInputService.GetConnectedGamepads().size() === 0)
+				if (getProject() !== "touch" && UserInputService.GetConnectedGamepads().size() === 0)
 					expectEqual(device, "KeyboardAndMouse");
 				expectEqual(deviceFor(Enum.PreferredInput.MicroGamepad), "Gamepad");
 			});

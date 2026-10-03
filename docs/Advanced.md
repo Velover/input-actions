@@ -276,7 +276,8 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`Set(Enum.KeyCode.MouseWheel)`).
 - **Touch has nothing to capture.** A finger has no keys to press: the `Touch` binding has no
   `Capture` or `CaptureChord` (calling one anyway throws), and a tap is never captured by the other
-  bindings either. Offer the touch keys (`TouchPosition` for a tap, `TouchDelta` for a drag,
+  bindings either (a finger held down is no part of a chord: a key pressed meanwhile counts
+  alone). Offer the touch keys (`TouchPosition` for a tap, `TouchDelta` for a drag,
   `TouchPinch`) as choices and apply them with `Set`, or attach on-screen buttons with
   `AttachButton`.
 - `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord` (the action's
