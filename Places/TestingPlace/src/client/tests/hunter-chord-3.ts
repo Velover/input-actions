@@ -4,6 +4,7 @@ import {
 	defineTests,
 	eventually,
 	expectEqual,
+	getProject,
 	skip,
 	test,
 } from "@flamework-experimental/testing";
@@ -75,8 +76,12 @@ function waitFor(predicate: () => boolean, seconds = 2): boolean {
 	return true;
 }
 
+/**
+ * Whether Studio simulates a phone, where VirtualInput's mouse events arrive as touch. Not
+ * `PreferredInput`: on the phone it follows the last input, and a key makes it KeyboardAndMouse
+ */
 function isTouch() {
-	return UserInputService.PreferredInput === Enum.PreferredInput.Touch;
+	return getProject() === "touch";
 }
 
 /** The key a click (a tap on the simulated phone) is captured as */
