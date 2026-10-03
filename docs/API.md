@@ -117,8 +117,10 @@ A number, a boolean or a string is checked against an object named by the senten
 isn't generic, so that handles of different devices still compare (`BindingHandle<A, Device>`
 takes any of the three), and it checks again at runtime with the sentence. So does a binding under a
 computed name (`{ [name]: binding }`): its device is known only at runtime, so it is checked
-against the action type's shapes with any device's keys (or a namespace of them, or
-`InputActions.Scriptable`), and `Schema` checks the rest.
+against what a binding of the action type can be under some name: a shape with the keys of one
+device (a binding never mixes devices), a namespace of one device's bindings whose extras take no
+reserved name, or `InputActions.Scriptable`. `Schema` checks the rest. A value typed `any` compiles,
+for `Schema` to check.
 
 ### Create
 

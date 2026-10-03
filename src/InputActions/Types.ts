@@ -1,4 +1,4 @@
-import type { BindingHandleMember, BindingPropertyName } from "./BindingRules";
+import type { BindingHandleMember, BindingPropertyName, ReservedExtraName } from "./BindingRules";
 import type {
 	CapturableDevice,
 	Device,
@@ -520,22 +520,33 @@ type CheckDeviceValue<V, T extends Enum.InputActionType, D extends Device> = V e
 /** Why a binding with keys can't have name `K`, as `BindingNameProblem` says it at runtime */
 type NotADevice<K> =
 	`${K & string} is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable`;
-/** A device's namespace under a computed name: the action type's shapes, any device's, or `{}` */
-interface IAnyDeviceNamespace<T extends Enum.InputActionType> {
-	readonly Main: IBindingShapeMap[T["Name"]] | IUnboundBinding;
-	readonly [extra: string]: IBindingShapeMap[T["Name"]] | IUnboundBinding;
-}
+/** A binding of device `D`'s namespace under a computed name: its shapes, or `{}` */
+type AnyNameNamespaceBinding<T extends Enum.InputActionType, D extends Device> =
+	| BindingShape<T, D>
+	| IUnboundBinding;
+/**
+ * Device `D`'s namespace under a computed name: `Main` and the extras with the device's keys, and
+ * no extra under a reserved name (`RESERVED_EXTRA_NAMES`, as `Schema` refuses it: a binding handle's
+ * member, a binding's property). A union over the devices, so one namespace holds one device's keys
+ */
+type AnyNameNamespace<T extends Enum.InputActionType, D extends Device = Device> = D extends Device
+	? { readonly [N in Exclude<ReservedExtraName, "Main">]?: never } & {
+			readonly Main: AnyNameNamespaceBinding<T, D>;
+			readonly [extra: string]: AnyNameNamespaceBinding<T, D>;
+		}
+	: never;
 /**
  * What a binding under a computed (string) name is checked against: the name, and so the device,
- * is known only at runtime, where `Schema` checks the rest. So the action type's shapes with any
- * device's keys, a namespace of them, or `InputActions.Scriptable`: a key or a shape no binding of
- * the action type can take is refused, as before the readable errors widened `BindingSpec` (hunt
- * HF-8), in TypeScript's own words
+ * is known only at runtime, where `Schema` checks the rest. So a shape of the action type with one
+ * device's keys (`BindingShape<T>`, a union over the devices: no binding mixes them), a namespace of
+ * one device's bindings with no reserved extra name, or `InputActions.Scriptable`: a key or a shape
+ * no binding of the action type can take under any name is refused (hunts HF-8, HF2-2), in
+ * TypeScript's own words
  */
 type AnyNameBindingSpec<T extends Enum.InputActionType> =
-	| IBindingShapeMap[T["Name"]]
+	| BindingShape<T>
 	| IScriptable
-	| IAnyDeviceNamespace<T>;
+	| AnyNameNamespace<T>;
 /**
  * What a builder's bindings `B` are checked against: each binding named after a device against that
  * device's keys (a namespace binding by binding), any other against `InputActions.Scriptable`; what
@@ -543,11 +554,14 @@ type AnyNameBindingSpec<T extends Enum.InputActionType> =
  */
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: computed names, which `Schema` checks at runtime, against the action type's shapes.
-	// Not where the value takes any object: the builders' constraint, which TypeScript reads here
-	// for the object literal's contextual type (intersected with `BindingSpec<T>`, the shapes' unions
-	// multiplied out took tsc from 2 s to 20 s on the type rules), or a value typed `unknown`
+	// Not where the value takes the Scriptable marker: the builders' constraint, which TypeScript
+	// reads here for the object literal's contextual type (intersected with `BindingSpec<T>`, the
+	// shapes' unions multiplied out took tsc from 2 s to 20 s on the type rules, and to 245 s with
+	// `unknown extends B[K]` here), `any`, or Scriptable itself. Not any object either (hunt HF2-3:
+	// `IAnyObject extends B[K]` let through every type whose properties are all optional): the
+	// marker's one property, which no binding has, fails TypeScript's check against such a type
 	[K in keyof B]: string extends K
-		? IAnyObject extends B[K]
+		? IScriptable extends B[K]
 			? unknown
 			: AnyNameBindingSpec<T>
 		: K extends Device

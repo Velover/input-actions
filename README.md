@@ -142,12 +142,15 @@ const release = Input.Ui.Request(true); // open the menu context until release()
 - **Saves** keep their format. Entries under the device names load as before; others are skipped
   with a reason (`Mouse is not a device: ...`). An extra saves at `Context/Action/Device/Extra`. To
   keep a 0.6 save's rebinds, rename its paths on the JSON string before importing it (an entry whose
-  keys aren't that device's is still skipped):
+  keys aren't that device's is still skipped). Every 0.6 binding name needs its own rename: each one
+  that became a device (`Keyboard`, `Pad`) and each one that became an extra (`Arrows`, `Alternate`,
+  under the device it now belongs to). For the example above:
 
   ```ts
   const [renamed] = json.gsub('"([^"/]+/[^"/]+)/Keyboard":', '"%1/KeyboardAndMouse":');
   const [padded] = renamed.gsub('"([^"/]+/[^"/]+)/Pad":', '"%1/Gamepad":');
-  const [migrated] = padded.gsub('"([^"/]+/[^"/]+)/Arrows":', '"%1/KeyboardAndMouse/Arrows":');
+  const [arrows] = padded.gsub('"([^"/]+/[^"/]+)/Arrows":', '"%1/KeyboardAndMouse/Arrows":');
+  const [migrated] = arrows.gsub('"([^"/]+/[^"/]+)/Alternate":', '"%1/KeyboardAndMouse/Alternate":');
   Input.ImportBindings(migrated);
   ```
 - **Bindings in the folder or a template** are adopted by the new names only (`JumpKeyboardAndMouse`,

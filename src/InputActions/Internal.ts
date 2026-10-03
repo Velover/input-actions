@@ -83,33 +83,55 @@ export function ReleaseOnServer(
 }
 
 /**
- * When something last reset each action (`os.clock()`): its context or itself disabled, a held
- * binding removed, a key change or a binding added while it was held, the Server Authority swap
- * telling the listeners a release. Gestures (`OnTap`...) read it: a `Released` that ends a press
- * begun before a reset is the reset's, no player's release, and ends the gesture without it
+ * Numbers the resets the package marks and the releases the action handles hear, in the order they
+ * happen: a counter, so no two tie (two `os.clock()` reads can)
+ */
+let sequence = 0;
+
+/** The next number in the order of marks and releases (`MarkReset`, `ResetSince`) */
+export function NextSequence(): number {
+	sequence += 1;
+	return sequence;
+}
+
+/**
+ * When the package last reset each action while it was not at rest (a `NextSequence` number): its
+ * context or itself disabled, a held binding removed, a key change or a binding added while it was
+ * held, another root handle's `Destroy` letting go of it. Gestures (`OnTap`...) read it: the
+ * `Released` such a reset makes is no player's release, and ends the gesture without completing it
  */
 const lastResets = setmetatable(new Map<InputAction, number>(), { __mode: "k" });
 
 /**
  * Notes that the package is about to reset `action`. Called before the change, since under
- * Immediate signals IAS's `Released` runs inside it. Returns a function that takes the note back,
- * for a change that turns out to reset nothing (`AddingBindings` adding no binding)
+ * Immediate signals IAS's `Released` runs inside it. Only while IAS shows the action not at rest:
+ * a reset of an action at rest releases nothing, and a release of the player's still on its way
+ * to the handles (Deferred signals) would be taken for the reset's (hunt HF2-1). A value the
+ * package fired that IAS doesn't show yet (a Server Authority copy shows it one simulation step
+ * later) doesn't count: no release may follow, and the mark would take the player's next one.
+ * Returns a function that takes the note back, for a change that turns out to reset nothing
+ * (`AddingBindings` adding no binding)
  */
 export function MarkReset(action: InputAction): () => void {
+	if (action.GetState() === NEUTRAL_VALUES[action.Type.Name]) return () => {};
 	const before = lastResets.get(action);
-	const now = os.clock();
-	lastResets.set(action, now);
+	const mark = NextSequence();
+	lastResets.set(action, mark);
 	return () => {
-		if (lastResets.get(action) !== now) return;
+		if (lastResets.get(action) !== mark) return;
 		if (before === undefined) lastResets.delete(action);
 		else lastResets.set(action, before);
 	};
 }
 
-/** Whether the package reset `action` at or after `since` (an `os.clock()` time) */
+/**
+ * Whether the package marked a reset of `action` after `since` (a `NextSequence` number): an
+ * action handle asks with the number its previous release got, so a reset of a press still on its
+ * way to the handle (Deferred signals: pressed and reset in one frame) counts too (hunt HF2-1)
+ */
 export function ResetSince(action: InputAction, since: number): boolean {
 	const last = lastResets.get(action);
-	return last !== undefined && last >= since;
+	return last !== undefined && last > since;
 }
 
 /** `Context/Action/Slot` */

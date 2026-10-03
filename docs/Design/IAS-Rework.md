@@ -148,16 +148,30 @@ Rules and lessons:
   the device's object shapes plus the excess-property check (`Exclude<keyof V, AllKeys<TShape>>`),
   then, only when that fails, property by property over the object's own keys (the readable
   errors below); any other name must be `IScriptable`. A `string` key (computed names, which
-  `Schema` checks at runtime) is checked against the action type's shapes with any device's keys,
-  a namespace of them, or `IScriptable` (`AnyNameBindingSpec<T>`): since the readable errors widened
+  `Schema` checks at runtime) is checked against `AnyNameBindingSpec<T>`: a shape of the action
+  type with one device's keys (`BindingShape<T>`, a union over the devices, so no binding mixes
+  them), a namespace of one device's bindings (`AnyNameNamespace<T>`, also a union over the
+  devices, the reserved extra names but `Main` as optional `never` properties beside its index
+  signature, as `Schema` refuses them), or `IScriptable`. Since the readable errors widened
   `BindingSpec<T>` to any enum item and object (below), `string extends K ? unknown` checked nothing
   there, and `Bool({ [name]: K.MouseDelta })` or `Bool(x as Record<string, Enum.KeyCode>)`
-  compiled (hunt HF-8, a regression from 73f3ce0). Not when `IAnyObject` is assignable to the value
-  (`IAnyObject extends B[K] ? unknown`): TypeScript reads the parameter `B & CheckBindings<B, T>`
-  with the constraint `Record<string, BindingSpec<T>>` for the object literal's contextual type,
-  and `BindingSpec<T> & AnyNameBindingSpec<T>` multiplied the two unions out: the type rules went
-  from 2.0 s to 20 s. A value typed `unknown` (or `any`) keeps compiling, for `Schema` to check.
-  Keep it that way: never a mapped type over the KeyCode union.
+  compiled (hunt HF-8, a regression from 73f3ce0). Round 1's fix took the action type's shapes with
+  any device's keys (`IBindingShapeMap[T]`) and a namespace of them with any extra name: one
+  binding could mix devices (`{ KeyCode: ButtonA, PrimaryModifier: LeftControl }`) and a namespace
+  take a reserved name (`{ Main: E, Set: F }`), which `Schema` refuses under every name (hunt
+  HF2-2; the type rules' time went from 2.3 s to 2.5 s). Not when the Scriptable marker is
+  assignable to the value (`IScriptable extends B[K] ? unknown`): TypeScript reads the parameter
+  `B & CheckBindings<B, T>` with the constraint `Record<string, BindingSpec<T>>` for the object
+  literal's contextual type, and `BindingSpec<T> & AnyNameBindingSpec<T>` multiplied the two unions
+  out: the type rules went from 2.0 s to 20 s with round 1's spec, and to 245 s with this one when
+  the escape was `unknown extends B[K]`. The constraint holds the marker, so does `any`, and so
+  does Scriptable itself; a type whose properties are all optional (a `Partial`, a `BindingPart`,
+  another binding's `Get()`) doesn't, since TypeScript refuses a type with properties of which the
+  target has none (the marker's one, which no binding has). Round 1's escape, `IAnyObject extends
+  B[K]`, took those too, keys the action type never takes included (hunt HF2-3: `IAnyObject` has
+  no properties, only an index signature, so that check never applies to it). A value typed `any`
+  keeps compiling, for `Schema` to check; one typed `unknown` fails the builders' constraint, as it
+  always did. Keep it that way: never a mapped type over the KeyCode union.
 - The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
   checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
   object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
@@ -528,8 +542,9 @@ the constraint, whose error listed every key the type takes ("... 252 more ...")
   (one another root handle uses is released as above, by this toggle too off the server's copy).
   Under Server Authority the release pairs of §8 have let go of the server's copy already; the
   reset covers a local context, and the copy in a place without Server Authority, where no pair is
-  fired. Each of these releases is noted first (`MarkReset`: `ResetIfHeld`'s toggle, `ReleaseOwn`'s
-  fire at rest and its pair, `ReleaseOnServer`'s pair), for the other root handles' gestures (§6;
+  fired. Each of these releases is noted first (`MarkReset`, which notes an action IAS shows held:
+  `ResetIfHeld`'s toggle, `ReleaseOwn`'s fire at rest and its pair, `ReleaseOnServer`'s pair), for
+  the other root handles' gestures (§6;
   hunt HF-1: under Deferred signals the toggled action is enabled again before its `Released`
   arrives, and their `OnTap` and `OnLongPress` took it for the player's release).
 - The root handle is a table of its own: the contexts by name beside the six public members
@@ -939,18 +954,44 @@ another action type they throw (`needs a Bool action`).
 - **A reset ends a gesture without completing it** (decided): no tap, double tap or long press, and
   a hold's `Cancelled`. A release is a reset's when the action is not live as it arrives (the
   context or the action disabled, the focus-loss reset holding the contexts off for its frame), or
-  when the package reset the action since the press began: `MarkReset(action)` (`Internal.ts`, a
-  weak map of `os.clock` times read by `ResetSince`) is called before each reset the package
-  makes, since under Immediate signals IAS's `Released` runs inside it: `ActionHandle.Release`
-  (a context or action disabled, `ResetState`, `Destroy`), `ReleaseActions` (every action of a
-  context being disabled, another root handle's too), `WriteBindings` (an action whose keys change
-  while held), `AddingBindings` (taken back when it added nothing and changed no key),
-  `ReleaseHeldValues` and `FinishLink` (the swap), and `Destroy`'s releases of what it shares or
-  leaves: `ReleaseOwn`'s fire at rest and its pair on `<Action>Script`, `ResetIfHeld`'s `Enabled`
-  toggle (under Deferred signals the action is enabled again before the release arrives, so only
-  the mark tells it), `ReleaseOnServer`'s pair (hunt HF-1: another root handle's `Destroy` released
-  a held shared action unmarked, and the gestures completed on it). A press that began after the mark is the
-  player's again, so a mark never swallows a later real release.
+  when the package reset the action while IAS showed it held, after the handle's previous release
+  reached it. `MarkReset(action)` (`Internal.ts`, a weak map of numbers from `NextSequence`, a
+  counter of marks and releases in the order they happen, so none tie; read by `ResetSince`) is
+  called before each reset the package makes, since under Immediate signals IAS's `Released` runs
+  inside it: `ActionHandle.Release` (a context or action disabled, `ResetState`, `Destroy`),
+  `ReleaseActions` (every action of a context being disabled, another root handle's too),
+  `WriteBindings` (an action whose keys change while held), `AddingBindings` (taken back when it
+  added nothing and changed no key), `ReleaseHeldValues` (the swap), and `Destroy`'s releases of
+  what it shares or leaves: `ReleaseOwn`'s fire at rest and its pair on `<Action>Script`,
+  `ResetIfHeld`'s `Enabled` toggle (under Deferred signals the action is enabled again before the
+  release arrives, so only the mark tells it), `ReleaseOnServer`'s pair (hunt HF-1: another root
+  handle's `Destroy` released a held shared action unmarked, and the gestures completed on it).
+  `FinishLink`'s release (the swap) is a reset for its own handle, passed to `EmitReleased`
+  directly: a mark on the copy, which shows the action at rest, would reach the other root handles
+  on it. Each action handle keeps the number its last release got (`_releasedAt`, also set by
+  `Attach`: a mark the server's copy got before the swap is no part of the presses the handle hears
+  from it), and a release is a reset's when the action has a mark after it.
+  - **After the previous release, not after the press arrived (hunt HF2-1).** Under Deferred
+    signals a press and a reset in one frame (`Fire(true)` then `Set`, `Request(false)` let go at
+    once, the first `Fire` or an `AttachButton` in the frame a key went down, per-frame code or an
+    `InputBegan` handler that sees the press before the handle's listeners) mark the reset while the
+    press is still on its way to the handle: it arrives after the mark, and a rule of "a mark since
+    the press arrived" took the reset's release for the player's (OnTap fired, and a quick second
+    press made a double tap with it).
+  - **Only a reset of an action IAS shows held is marked (hunt HF2-1).** A reset of an action at
+    rest releases nothing; marked, it would make a release of the player's still on its way (the
+    key let go, then the context turned off and on in the same frame) a reset's, where under
+    Immediate signals that release arrived before the reset and completed the gesture. So
+    `MarkReset` returns at once when `GetState()` is at rest, and `ReleaseActions` no longer marks
+    every action of the context in effect. A value the package fired that IAS doesn't show yet (a
+    Server Authority copy shows a `Fire` one simulation step later) counts as at rest: no release
+    may follow, and the mark would take the player's next release.
+  - A mark is used up by the release it ends (the handle's next release is numbered after it), so a
+    later real release is the player's again.
+  - **Known gap (accepted):** a release of the player's and a new press both still on their way to
+    the handle when the reset comes, all in one frame, take the player's release for the reset's,
+    and the reset's for the player's. IAS doesn't tell how many edges are on their way; the handle
+    only sees that the action is held at the mark.
 - The swap: a press the copy doesn't show ends with `FinishLink`'s `Released`, a reset (the usual
   case: the moved binding's key holds the copy's action only once pressed again); a value a
   Scriptable binding held is fired again on the copy, a new press; a press the copy shows already

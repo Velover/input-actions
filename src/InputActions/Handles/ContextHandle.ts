@@ -82,7 +82,8 @@ export class ContextState {
  * the template's keys), which the server would otherwise keep held.
  */
 function ReleaseActions(context: InputContext, handles: readonly ContextHandle[]) {
-	// Every action of the context, another root handle's too: the disable releases what keys hold
+	// Every action of the context, another root handle's too: the disable releases what keys hold.
+	// `MarkReset` notes only those IAS shows held: one at rest makes no release (hunt HF2-1)
 	for (const child of context.GetChildren()) if (child.IsA("InputAction")) MarkReset(child);
 	const released = new Set<InputAction>();
 	for (const handle of handles) {

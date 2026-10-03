@@ -14,6 +14,7 @@ import {
 	IsServerAuthorityCopy,
 	MarkReset,
 	NEUTRAL_VALUES,
+	NextSequence,
 	ResetSince,
 } from "../Internal";
 import { CapturableDevice, Device, GetKeyDevice, IsDevice } from "../KeyGroups";
@@ -260,8 +261,12 @@ export class ActionHandle {
 	private readonly _gestures = new Set<() => void>();
 	/** The gestures' signal (`GestureEdges`), made with the first gesture */
 	private _gestureEdges?: BindableEvent;
-	/** When the press the listeners last heard arrived (`os.clock`), until its release */
-	private _pressedAt?: number;
+	/**
+	 * Where the handle's last release came in the order of marks and releases (`NextSequence`), or
+	 * where it was pointed at its action (`Attach`): a reset marked after it ends the press the
+	 * handle hears next, also one still on its way when the mark was made (see `EmitReleased`)
+	 */
+	private _releasedAt = 0;
 	/** How many presses and releases the handle has passed on: each edge's number (`GestureEdges`) */
 	private _edges = 0;
 
@@ -306,6 +311,9 @@ export class ActionHandle {
 		for (const connection of this._forwards) connection.Disconnect();
 		this._forwards.clear();
 		this.Instance = action;
+		// A reset marked on `action` before is no part of the presses the handle hears from it: one
+		// another root handle's press on the server's copy had before the swap ended with it
+		this._releasedAt = NextSequence();
 		const stateChanged = this._stateChanged;
 		// An event still on its way from an instance the handle left is not passed on, nor one
 		// repeating what the listeners have
@@ -344,7 +352,6 @@ export class ActionHandle {
 		this._shownPressed = true;
 		this._lastEdge = "Pressed";
 		const now = os.clock();
-		this._pressedAt = now;
 		const edge = ++this._edges;
 		this._pressed?.Fire();
 		this._gestureEdges?.Fire(edge, true, now, false);
@@ -353,20 +360,25 @@ export class ActionHandle {
 	/**
 	 * Tells the listeners and the gestures of a release. Whether it is a reset's (no player's) is
 	 * worked out once, here, as it arrives, and every gesture gets that answer: the action not live,
-	 * or the package reset it since the press began (`MarkReset`). A gesture's callback that turns the
-	 * context off (a menu opened on a tap) then leaves the other gestures' release the player's
-	 * (hunt HF-7)
+	 * or the package reset it while IAS showed it pressed, after the handle's previous release
+	 * (`MarkReset`, `ResetSince`). After the previous release, not after this press arrived: under
+	 * Deferred signals a press and a reset in one frame mark the reset before the press reaches the
+	 * handle (hunt HF2-1). A release of the player's and a new press both still on their way when
+	 * the reset comes (all in one frame) take the player's release for the reset's, and the reset's
+	 * for the player's: IAS doesn't tell how many edges are on their way. A gesture's callback that
+	 * turns the context off (a menu opened on a tap) leaves the other gestures' release the player's
+	 * (hunt HF-7). `reset`: the swap's release (`FinishLink`), a reset whatever the marks say
 	 */
-	private EmitReleased() {
+	private EmitReleased(reset = false) {
 		const track = this._track;
 		if (track !== undefined) track.ReleasedCount++;
 		this._shownPressed = false;
 		this._lastEdge = "Released";
 		const now = os.clock();
-		const began = this._pressedAt;
-		this._pressedAt = undefined;
 		const action = this.Instance;
-		const reset = !IsLive(action) || (began !== undefined && ResetSince(action, began));
+		reset ||= !IsLive(action) || ResetSince(action, this._releasedAt);
+		// Before the listeners run: a reset one of them makes ends the next press, not this one
+		this._releasedAt = NextSequence();
 		const edge = ++this._edges;
 		this._released?.Fire();
 		this._gestureEdges?.Fire(edge, false, now, reset);
@@ -445,12 +457,11 @@ export class ActionHandle {
 		}
 		const pressed = state === true;
 		if (this.Type !== Enum.InputActionType.Bool || pressed === this._shownPressed) return;
+		// The swap's release, no player's: it ends a gesture without completing it. Told to this
+		// handle alone: a mark on the copy, which shows the action at rest, would reach the other
+		// root handles on it
 		if (pressed) this.EmitPressed();
-		else {
-			// The swap's release, no player's: it ends a gesture without completing it
-			MarkReset(this.Instance);
-			this.EmitReleased();
-		}
+		else this.EmitReleased(true);
 	}
 
 	/** Destroys the handle's own signals, and stops its gestures */

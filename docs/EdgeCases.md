@@ -222,13 +222,28 @@ How the handles move from the local stand-in to the server's copy is in
 
 A release the player didn't make ends a gesture without completing it (see
 [Gestures](Advanced.md#gestures)). The package tells such a release by the action or its context
-being disabled when it arrives at the handle, or by a reset it made itself since the press began:
-a context or the action disabled, a rebind or a binding added while held, the swap, and another
-root handle's `Destroy` letting go of an action they share (see
-[above](#several-root-handles-on-one-folder)), also when that `Destroy` turns the action off and on
-again before the release arrives. It is worked out once per release, as the release arrives, and
-every gesture on the handle gets the same answer: a gesture whose callback turns the context off (a
-tap that opens a menu) doesn't make that same release a reset for the gestures that hear it after.
+being disabled when it arrives at the handle, or by a reset it made itself while the action was
+held, since the handle's previous release: a context or the action disabled, a rebind or a binding
+added while held, the swap, and another root handle's `Destroy` letting go of an action they share
+(see [above](#several-root-handles-on-one-folder)), also when that `Destroy` turns the action off
+and on again before the release arrives. It is worked out once per release, as the release arrives,
+and every gesture on the handle gets the same answer: a gesture whose callback turns the context off
+(a tap that opens a menu) doesn't make that same release a reset for the gestures that hear it
+after.
+
+Under Deferred signals a press and a reset can come in one frame, before the handle hears the press:
+`Fire(true)` then a rebind, a context turned off and on again at once, a first `Fire` or an
+`AttachButton` in the frame a key went down, an `InputBegan` handler or per-frame code that rebinds
+or disables the action as its key goes down. The release that follows is still the reset's: no tap,
+and the hold is cancelled. A reset of an action that isn't held releases nothing and changes nothing:
+a key let go of, then the context turned off and on in the same frame, is the player's release (a
+tap), as under Immediate signals. Once the reset's release has arrived, the next press is the
+player's again.
+
+One case is told wrong: the player lets go and presses again, and the package resets the action, all
+in one frame under Deferred signals, before the handle hears any of it. That release of the player's
+is then taken for the reset's, and the reset's release for the player's (IAS doesn't say how many
+presses and releases are still on their way).
 
 At the Server Authority swap a press ends so, since the copy doesn't show it yet, and a value a
 Scriptable binding held is fired again on the copy, a new press; only a press the copy already shows

@@ -208,12 +208,15 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   the later files listed in `tests/type-rules/tsconfig.json` (`features-type-rules.ts` also pins
   each readable compile error's sentence, through the package's internal `CheckBindings` type).
   roblox-ts refuses those directives, so plain `tsc -p tests/type-rules` checks them
-  (`bun run typecheck`; about 2.35 s of `tsc`, 2026-10-03); `bun run build` and `bun run test` run
-  it, and an unused directive fails them.
+  (`bun run typecheck`; about 2.5 s of `tsc`'s check, 3 s in all, 2026-10-03); `bun run build`
+  and `bun run test` run it, and an unused directive fails them.
 - **With the display off, Studio renders nothing.** `RenderStepped` and `BindToRenderStep` never
   fire while Heartbeat keeps running at about 240 Hz; it renders again as soon as the display is
   back on. Measured on 2026-10-01 by turning the displays off during a play session: 0 render steps
-  a second while off, about 150-180 while on. Long unattended runs hit this when the machine idles
+  a second while off, about 150-180 while on. Nor does VirtualInput's input arrive then: no key or
+  click reaches `InputBegan` or IAS (2026-10-03, the display asleep after a keep-awake process
+  ended: every `real-input` test that presses a key or clicks failed, the GUI ones skipped with
+  "renders nothing"). Long unattended runs hit this when the machine idles
   with its screen off, so `bun run test:all` passes `--keep-awake`, which `scripts/test.mjs` holds
   from its start to its end (flamework-test alone holds it only while each of its calls lasts, and
   the touch pass starts Studio between them); give any other unattended run the flag too.
