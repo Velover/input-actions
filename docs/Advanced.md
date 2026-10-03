@@ -7,6 +7,7 @@
 - [TrackPrevious](#trackprevious)
 - [Rebinding](#rebinding)
 - [Saving keybinds](#saving-keybinds)
+- [Several bindings per device](#several-bindings-per-device)
 - [Server Authority](#server-authority)
 - [UI navigation preset](#ui-navigation-preset)
 - [IAS behaviours to know](#ias-behaviours-to-know)
@@ -51,7 +52,8 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
 - Every action gets the three device bindings: the folder's (`JumpTouch`, say, adopted as the Touch
   binding even when the schema leaves Touch out), else one made with no keys. IAS never prefers a
   binding without keys, so an unbound one changes nothing for `GetPreferredBinding()` or a keybind
-  label.
+  label. A device's extras are found as `<Action><Device><Extra>` or `<Device><Extra>`
+  (`MoveKeyboardAndMouseArrows`), else made (see [Several bindings per device](#several-bindings-per-device)).
 - Instances the schema doesn't mention are left alone (IAS still runs them) and are not typed. In
   Studio, each gets one `warn`. That includes bindings whose names match no slot, such as the
   Manager's default name `InputBinding`, because they run beside the package's own binding.
@@ -458,7 +460,9 @@ Input.ResetBindings();
   every export imports cleanly.
 - A context handle's `ImportBindings` applies only its own paths and skips the others.
 - Paths end with the device (`Context/Action/KeyboardAndMouse`, `.../Gamepad`, `.../Touch`), also
-  for the bindings the schema leaves out. A 0.6 save loads as it is where its bindings were named
+  for the bindings the schema leaves out; a device's extra adds its name
+  (`Context/Action/KeyboardAndMouse/Arrows`, see [Several bindings per device](#several-bindings-per-device)).
+  A 0.6 save loads as it is where its bindings were named
   after the devices; an entry under another name (`Mouse`, `Alternate`, a Scriptable slot) is
   skipped with the reason `Mouse is not a device: ...`, and one with another device's key with the
   reason the rules give.
@@ -480,6 +484,101 @@ folder or the template wins over the schema's (a stick the Input Action Manager 
 schema leaves out). So it keeps a `ResponseCurve` without a `KeyCode` on a `Gamepad` binding, and the
 import checks it against the binding it finds. What the client exports and loads, the server
 keeps.
+
+## Several bindings per device
+
+An action has one binding per device by default. For more (WASD beside the arrows, the stick
+beside the D-pad, a Primary/Alternate column in a settings menu), give the device a **namespace**:
+an object with `Main`, its main binding, and **extras** under names of your own:
+
+```ts
+const K = Enum.KeyCode;
+export const InputSchema = InputActions.Schema({
+	Gameplay: {
+		Actions: {
+			Move: InputActions.Direction2D({
+				KeyboardAndMouse: {
+					Main: { Up: K.W, Down: K.S, Left: K.A, Right: K.D },
+					Arrows: { Up: K.Up, Down: K.Down, Left: K.Left, Right: K.Right },
+				},
+				Gamepad: {
+					Main: K.Thumbstick1,
+					DPad: { Up: K.DPadUp, Down: K.DPadDown, Left: K.DPadLeft, Right: K.DPadRight },
+				},
+			}),
+			// an Alternate column: {} is a binding with no keys, for the player to fill
+			Jump: InputActions.Bool({
+				KeyboardAndMouse: { Main: K.Space, Alt: {} },
+				Gamepad: { Main: K.ButtonA, Alt: {} },
+			}),
+			Crouch: InputActions.Bool({ KeyboardAndMouse: K.C }), // one binding: the direct form, as before
+		},
+	},
+});
+```
+
+- `Main` is what the direct form gives (`KeyboardAndMouse: K.Space` is `KeyboardAndMouse: { Main:
+  K.Space }`). Each binding of a namespace takes the device's keys and the action type's rules,
+  checked at compile time and by `Schema`; `{}` is a binding with no keys (`Main` may be one too).
+- Names: anything but `Main`, a member of a binding handle (`Get`, `Set`, `Capture`, `Extras`...),
+  a binding property (`KeyCode`, `Up`, `Scale`...) or a name with `/`; a compile error, and `Schema`
+  throws naming it. No binding of a namespace is `InputActions.Scriptable`: a Scriptable binding
+  keeps a name of its own beside the devices.
+- **Handles.** `Bindings.KeyboardAndMouse` is still the main binding's handle, so code written for
+  one binding per device keeps working; the extras are properties of it, typed where declared, each
+  a full binding handle of the device:
+
+  ```ts
+  const keys = Input.Gameplay.Actions.Move.Bindings.KeyboardAndMouse;
+  keys.Set({ Up: K.I }); // Main
+  keys.Arrows.Set({ Up: K.Eight }); // the extra: keyboard and mouse keys only
+  keys.Arrows.Reset(); // back to the schema's arrows
+  Input.Gameplay.Actions.Move.Bindings.Gamepad.DPad.Get(); // { Up: DPadUp, ... }
+  ```
+
+- **Captures** on an extra are locked to its device, as on the main binding:
+  `Jump.Bindings.Gamepad.Alt.Capture("KeyCode", ...)` takes a gamepad button, never a key; a
+  `Touch` extra has none. The one-field `Jump.Capture` and
+  `Jump.CaptureChord` write the device's **main** binding, never an extra: a menu's Alternate
+  column captures through the extra's handle.
+
+  ```ts
+  // a two-column menu: Primary and Alternate, on the device the player uses
+  const device = InputActions.PreferredDevice();
+  if (device !== "Touch") {
+  	const binding = Jump.Bindings[device];
+  	binding.Capture("KeyCode", onKey); // Primary
+  	binding.Alt.Capture("KeyCode", onKey); // Alternate
+  }
+  ```
+
+- **`Extras()`** lists a device's extras by name, for code that doesn't know the schema
+  (`binding.Extras().Alt`, or all of them with `pairs`, in no order: sort the names). It is a
+  table, so it also works on a handle picked by a device at runtime, and on a row type such as
+  `InputActions.CaptureAction`, whose type knows no extras: `action.Bindings[device].Extras().Alt`
+  is undefined on an action without that column.
+- **Several bindings of an action aren't combined**: the last one to change wins, between a main
+  binding and its extras too (holding W and Up, then releasing W, reads at rest while Up is held).
+  A keybind label shows one binding of the device in use (which one, when it has several, is IAS's
+  choice).
+- **Instances.** An extra is made as `<Action><Device><Extra>` (`MoveKeyboardAndMouseArrows`) and
+  adopted by that name or `<Device><Extra>`, as the device bindings are; the main binding keeps its
+  name (`MoveKeyboardAndMouse`), so an existing tree is adopted as before. A Scriptable slot can't
+  take an extra's binding name (`KeyboardAndMouseArrows` beside the extra `Arrows`).
+- **Saves.** An extra saves at `Context/Action/Device/Extra` (`Gameplay/Move/KeyboardAndMouse/Arrows`);
+  the main binding keeps `Context/Action/Device`, so saves made before you added extras still load,
+  the extras at their defaults. An entry for an extra the schema doesn't declare is skipped with
+  the reason `Gameplay/Move/KeyboardAndMouse has no extra binding Numpad: ...`; `SanitizeBindings`
+  keeps the declared extras and drops the rest. `BindingsChanged` passes the same path.
+- **Several root handles** (`Create` twice on one folder): each gets or makes the extras its own
+  schema declares, and only those are on its handles; one that the other's schema doesn't declare
+  stays out of the other's handles, saves and resets, and goes with the root handle that has it. Two
+  schemas that declare the same extra share it, with the first one's defaults (what exists wins). A
+  later schema whose namespace names a device an earlier one left out fills its unbound binding with
+  `Main` (a `Main: {}` fills it with no keys), and makes its extras. Making an extra for an action
+  that is held releases it, as any binding added does.
+- **Server Authority.** The extras move from the stand-in to the server's copy with the other
+  bindings at the swap, with their rebinds and defaults.
 
 ## Server Authority
 
@@ -749,7 +848,8 @@ IAS code, with or without this package. The package's tests run under both `Defe
 
 - **Several bindings on one action are not combined: the last one to change wins.** Holding A and
   B, then releasing A, releases the action, with real keys as with `Fire`. The same goes for
-  Direction2D: the state is the value of the binding that fired or moved last.
+  Direction2D: the state is the value of the binding that fired or moved last. A device's main
+  binding and its extras are several bindings too.
 - **A chord doesn't block its plain key.** With `Ctrl+C` on one action and plain `C` on another,
   pressing `Ctrl` then `C` fires both. The modifier must go down first (`C` then `Ctrl` fires only
   the plain `C`), and letting go of the modifier releases the chord while `C` stays held. The package

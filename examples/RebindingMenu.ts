@@ -1,18 +1,24 @@
-// A settings screen: a column per device with the current keys, a one-field rebind per action,
-// capturing a key or a chord into one device's binding, and saving and loading the rebinds.
+// A settings screen: a column per device with the current keys, a Primary and an Alternate key per
+// device (an `Alt` extra the schema declares), a one-field rebind per action, capturing a key or a
+// chord into one device's binding, and saving and loading the rebinds.
 import { InputActions } from "@rbxts/input-actions";
 import { UserInputService } from "@rbxts/services";
 
 const InputSchema = InputActions.Schema({
 	Gameplay: {
 		Actions: {
+			// each device's main binding, and an Alternate one the player fills ({}: no keys yet)
 			Jump: InputActions.Bool({
-				KeyboardAndMouse: Enum.KeyCode.Space,
-				Gamepad: Enum.KeyCode.ButtonA,
+				KeyboardAndMouse: { Main: Enum.KeyCode.Space, Alt: {} },
+				Gamepad: { Main: Enum.KeyCode.ButtonA, Alt: {} },
 			}),
-			// a chord: Ctrl+S; no gamepad key in the schema, but a player can give it one
+			// a chord: Ctrl+S, and F5 as its Alternate; no gamepad key in the schema, but a player can
+			// give it one
 			QuickSave: InputActions.Bool({
-				KeyboardAndMouse: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
+				KeyboardAndMouse: {
+					Main: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
+					Alt: Enum.KeyCode.F5,
+				},
 			}),
 			Throttle: InputActions.Direction1D({
 				KeyboardAndMouse: { Up: Enum.KeyCode.W, Down: Enum.KeyCode.S },
@@ -36,6 +42,22 @@ const { Jump, QuickSave, Throttle, Move } = Input.Gameplay.Actions;
 
 /** The menu's columns: the devices with keys to press (touch has none) */
 const COLUMNS = ["KeyboardAndMouse", "Gamepad"] as const;
+
+/** Each device's two keys: its main binding, and the `Alt` extra where the schema declares one */
+type Slot = "Primary" | "Alternate";
+
+/**
+ * The binding of a cell: the device's main binding, or its `Alt` extra, by name at runtime, so one
+ * function serves every row (Throttle declares none: its Alternate cells are empty)
+ */
+function CellBinding(
+	action: InputActions.CaptureAction,
+	device: InputActions.CapturableDevice,
+	slot: Slot,
+) {
+	const binding = action.Bindings[device];
+	return slot === "Primary" ? binding : binding.Extras().Alt;
+}
 
 /** Keys that close a capture without a change, from either device */
 const CANCEL = [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB];
@@ -71,13 +93,16 @@ const ROWS: Array<[string, InputActions.CaptureAction]> = [
 	["Throttle", Throttle],
 ];
 
-// Text labels refresh whenever a binding changes, whatever changed it. Each row shows its keys
-// on both devices; the column of the device the player uses is marked
+// Text labels refresh whenever a binding changes, whatever changed it, an Alternate key included.
+// Each row shows its keys on both devices, Primary / Alternate; the column of the device the player
+// uses is marked
 function RefreshLabels() {
 	const preferred = InputActions.PreferredDevice();
 	for (const [name, action] of ROWS) {
 		const cells = COLUMNS.map((device) => {
-			const keys = ChordLabel(action.Bindings[device].Get());
+			const primary = ChordLabel(action.Bindings[device].Get());
+			const alternate = CellBinding(action, device, "Alternate");
+			const keys = `${primary} / ${alternate !== undefined ? ChordLabel(alternate.Get()) : "-"}`;
 			return device === preferred ? `[${keys}]` : keys;
 		});
 		print(`${name}: ${cells.join(" | ")}`);
@@ -105,16 +130,26 @@ export function RebindAction(action: InputActions.CaptureAction): () => void {
 	});
 }
 
-// One cell of the two-column menu: only that device's keys count, the other device's are ignored
+// One cell of the menu, Primary or Alternate: only that device's keys count, the other device's are
+// ignored. The action's one-field Capture above always writes Primary
 export function RebindCell(
 	action: InputActions.CaptureAction,
 	device: InputActions.CapturableDevice,
+	slot: Slot = "Primary",
 ): () => void {
-	return action.Bindings[device].Capture(
+	const binding = CellBinding(action, device, slot);
+	if (binding === undefined) return () => {}; // no Alternate on this row
+	return binding.Capture(
 		"KeyCode",
-		(key) => print(`${action.Name} (${device}) is now ${key.Name}`),
+		(key) => print(`${action.Name} (${device}, ${slot}) is now ${key.Name}`),
 		{ Cancel: CANCEL },
 	);
+}
+
+// An extra the schema declares is typed where it is: Jump's Alternate keys, emptied
+export function ClearJumpAlternates() {
+	Jump.Bindings.KeyboardAndMouse.Alt.Clear();
+	Jump.Bindings.Gamepad.Alt.Clear();
 }
 
 // "Hold the keys, then let go" for a chord such as Ctrl+Shift+S (or LB + A on a gamepad): up to two
@@ -168,7 +203,8 @@ export function ResetAll() {
 }
 
 // Save: send this to the server, which cleans it with SanitizeBindings and stores it. It holds every
-// device binding that differs from its defaults, also a gamepad key given to QuickSave
+// device binding that differs from its defaults, also a gamepad key given to QuickSave; an Alternate
+// key saves at its own path ("Gameplay/Jump/KeyboardAndMouse/Alt")
 export function Save(): string {
 	return Input.ExportBindings();
 }

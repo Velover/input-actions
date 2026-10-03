@@ -27,8 +27,9 @@ and a few safety nets. This package adds those.
 
 An action's bindings are its **devices'**: `KeyboardAndMouse`, `Gamepad` and `Touch`, the
 `Enum.PreferredInput` names. Each binding holds only its device's keys, and every action has the
-three (unbound when the schema leaves one out). A binding driven from code instead of keys is an
-`InputActions.Scriptable`, under any other name.
+three (unbound when the schema leaves one out). A device can have extra bindings beside its main
+one (WASD and the arrows), declared as `{ Main: <binding>, Arrows: <binding> }`. A binding driven
+from code instead of keys is an `InputActions.Scriptable`, under any other name.
 
 ```ts
 const Input = InputActions.Create(InputSchema);

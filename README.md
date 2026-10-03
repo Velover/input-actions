@@ -13,7 +13,9 @@ requests, on-screen buttons, keybind labels and Server Authority support.
   `Gamepad` and `Touch`, and each takes only its device's keys (a keyboard key on the gamepad's
   binding is a compile error). Every action has the three, so a player can give a gamepad button to
   an action the game bound on the keyboard only. `InputActions.PreferredDevice()` names the device
-  in use.
+  in use. A device takes several bindings through a namespace, `{ Main: WASD, Arrows: ARROWS }`:
+  WASD plus the arrows, the stick plus the D-pad, or an Alternate column, each extra a typed
+  handle of its own (`Move.Bindings.KeyboardAndMouse.Arrows`).
 - **Works with the Input Action Manager.** Contexts the Manager made in `ReplicatedStorage.Inputs`
   are adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
 - **Rebinding:** `Set`, `Reset`, `Clear`, `Capture` (one key), `CaptureChord` (keys held together,
@@ -93,9 +95,33 @@ const release = Input.Ui.Request(true); // open the menu context until release()
 0.7.0 breaks schemas that name bindings freely:
 
 - **Binding names are devices.** A binding with keys is named `KeyboardAndMouse`, `Gamepad` or
-  `Touch`, and takes only that device's keys: rename `Mouse`, `Keyboard`, `Pad`, `Alternate`... A
-  second binding on the same device (WASD beside the arrows) is no longer possible: pick one, or let
-  the player rebind. `Schema` throws on any other name, naming it.
+  `Touch`, and takes only that device's keys: rename `Mouse`, `Keyboard`, `Pad`... `Schema` throws
+  on any other name, naming it. **A second binding of a device becomes an extra** in the device's
+  namespace, `{ Main: <binding>, <Name>: <binding> }`, under a name of your own:
+
+  ```ts
+  // const K = Enum.KeyCode; 0.6:
+  Move: InputActions.Direction2D({
+  	Keyboard: { Up: K.W, Down: K.S, Left: K.A, Right: K.D },
+  	Arrows: { Up: K.Up, Down: K.Down, Left: K.Left, Right: K.Right },
+  	Pad: K.Thumbstick1,
+  }),
+  Jump: InputActions.Bool({ Keyboard: K.Space, Alternate: K.F }),
+  // 0.7
+  Move: InputActions.Direction2D({
+  	KeyboardAndMouse: {
+  		Main: { Up: K.W, Down: K.S, Left: K.A, Right: K.D },
+  		Arrows: { Up: K.Up, Down: K.Down, Left: K.Left, Right: K.Right },
+  	},
+  	Gamepad: K.Thumbstick1,
+  }),
+  Jump: InputActions.Bool({ KeyboardAndMouse: { Main: K.Space, Alternate: K.F } }),
+  ```
+
+  `Move.Bindings.Arrows` becomes `Move.Bindings.KeyboardAndMouse.Arrows`, and
+  `Move.Bindings.KeyboardAndMouse` is still `Main`'s handle. An extra takes its device's keys; it
+  can't be named `Main`, after a binding handle's member (`Get`, `Set`, `Capture`...) or a binding
+  property (`KeyCode`, `Up`...). See [Several bindings per device](docs/Advanced.md#several-bindings-per-device).
 - **Every other binding is `InputActions.Scriptable`** (driven from code); a Scriptable under a
   device's name is refused.
 - **Every action has the three device bindings**, unbound when the schema leaves one out:
@@ -106,20 +132,22 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   is never captured: set touch keys with `Set`). `action.Capture` and `action.CaptureChord` (Bool
   and Direction1D actions) give a menu one field per action.
 - **Saves** keep their format: entries under the device names load as before; others are skipped
-  with a reason (`Mouse is not a device: ...`). To keep a 0.6 save's rebinds, rename its paths to
-  the device each old slot became before importing it, on the JSON string itself (one old slot per
-  device: two entries under one path keep only one); an entry whose keys aren't that device's is
-  still skipped, with a reason:
+  with a reason (`Mouse is not a device: ...`). An extra saves at `Context/Action/Device/Extra`. To
+  keep a 0.6 save's rebinds, rename its paths to the device (or the device's extra) each old slot
+  became before importing it, on the JSON string itself; an entry whose keys aren't that device's
+  is still skipped, with a reason:
 
   ```ts
   const [renamed] = json.gsub('"([^"/]+/[^"/]+)/Keyboard":', '"%1/KeyboardAndMouse":');
-  const [migrated] = renamed.gsub('"([^"/]+/[^"/]+)/Pad":', '"%1/Gamepad":');
+  const [padded] = renamed.gsub('"([^"/]+/[^"/]+)/Pad":', '"%1/Gamepad":');
+  const [migrated] = padded.gsub('"([^"/]+/[^"/]+)/Arrows":', '"%1/KeyboardAndMouse/Arrows":');
   Input.ImportBindings(migrated);
   ```
 - **Bindings in the folder or a template** are adopted by the new names only (`JumpKeyboardAndMouse`,
-  `JumpGamepad`, `JumpTouch`, or the bare device name). One named after an old slot (`JumpKeyboard`)
-  is no longer adopted: it keeps running beside the package's new binding, with only a warning in
-  Studio. Rename or delete such bindings.
+  `JumpGamepad`, `JumpTouch`, or the bare device name; an extra as `<Action><Device><Extra>`,
+  `MoveKeyboardAndMouseArrows`). One named after an old slot (`JumpKeyboard`, `MoveArrows`) is no
+  longer adopted: it keeps running beside the package's new binding, with only a warning in Studio.
+  Rename or delete such bindings.
 - **Types:** `InputActions.InputSchema<S>` is now the checked schema type (a misspelt context option
   is a compile error there too): a helper generic over the schema takes `InputSchema<S>` to pass it
   to `Create`, `ForPlayer`, `ProvideToPlayers` or `SanitizeBindings`; one typed `{ Contexts: S }`
@@ -127,7 +155,7 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   ones with `Capture`): type a variable that may hold the `Touch` one
   `InputActions.BindingHandle<A, InputActions.Device>`.
 - The `UiNavigation` preset's `Scroll` is the wheel on the keyboard and mouse (its `Mouse` slot and
-  the `PageUp`/`PageDown` composite are gone).
+  the `PageUp`/`PageDown` composite are gone; for both, declare the action yourself with an extra).
 
 ## Documentation
 

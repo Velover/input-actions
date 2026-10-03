@@ -13,7 +13,11 @@ binding is `InputActions.Scriptable`. A binding's `Capture`/`CaptureChord` take 
 only, the `Touch` binding has none, Bool and Direction1D actions get a one-field `Capture` and
 `CaptureChord` whose first key picks the device, captures hear the gamepad's sticks and triggers,
 and `InputActions.PreferredDevice()` names the device in use (§6). Saves keep their format (§7).
-Multiple controllers are out of scope (rare on Roblox).
+Multiple controllers are out of scope (rare on Roblox). **Extra bindings per device** (agreed on
+2026-10-04): a device takes a binding or a namespace, `{ Main: <binding>, <Extra>: <binding> }`,
+so WASD plus the arrows, the stick plus the D-pad, or an Alternate column fit in a schema again;
+the device's handle is the main binding's, with the declared extras on it, each a binding handle of
+that device (§3, §4, §6), saved at `Context/Action/Device/Extra` (§7).
 
 ## 1. What stays, what goes
 
@@ -114,8 +118,8 @@ Rules and lessons:
   names, so adoption keeps working). Any other name takes only `InputActions.Scriptable`
   (code-driven sources). A key binding under another name, or a Scriptable under a device's name,
   is a compile error, and `Schema` (and `Create`, for a schema made without it) throws naming it.
-  So an action has one binding per device: a second keyboard binding (WASD and the arrows) is no
-  longer possible in the schema.
+  So an action has one main binding per device; a second binding of the device (WASD and the
+  arrows) is an extra, in the device's namespace ([Extra bindings per device](#extra-bindings-per-device-070)).
 - Binding handles: a binding declared `InputActions.Scriptable` gets `Fire(value)`; a device's
   binding gets `Get`/`Set`/`Reset`/`Clear`, and no `Fire`. The `KeyboardAndMouse` and `Gamepad`
   ones add `Capture` (and `CaptureChord` on Bool and Direction1D actions); the `Touch` one has no
@@ -210,6 +214,55 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
   and is left as it is, like the other rule breaks). The messages say which device the key is
   (`ButtonA is a Gamepad key: a KeyboardAndMouse binding takes keyboard and mouse keys`).
 
+### Extra bindings per device (0.7.0)
+
+```ts
+Move: InputActions.Direction2D({
+	KeyboardAndMouse: { Main: WASD, Arrows: ARROWS },          // a namespace
+	Gamepad: { Main: K.Thumbstick1, DPad: { Up: K.DPadUp, Down: K.DPadDown } },
+}),
+Jump: InputActions.Bool({ KeyboardAndMouse: { Main: K.Space, Alt: {} }, Gamepad: K.ButtonA }),
+move.Bindings.KeyboardAndMouse.Arrows.Capture("Up", cb);  // an extra: typed where declared
+jump.Bindings.KeyboardAndMouse.Capture("KeyCode", cb);     // Main, as with the direct form
+```
+
+- A device takes a binding (as above) or a **namespace**: an object with a `Main` key, the
+  device's main binding, beside **extras** named as you like. No binding has a `Main` property:
+  every object shape carries `Main?: never` (as `EnumType?: never`), so the types tell the two
+  apart, and at runtime `IsNamespace` does (a table with `Main`).
+- Every binding of a namespace, `Main` included, takes the device's binding shapes (its keys, the
+  action type's rules), or `{}`: a binding with no keys, which a player fills (an Alternate column
+  starts so). `{}` is allowed in a namespace only; the direct form is as before (`{}` compiles only
+  where a shape is all-optional). **Decided:** `Main` may be `{}` too, one rule for every binding of
+  a namespace (a game that binds only the extras, or leaves the main one to the player). A `{}`
+  the schema declares is the schema's binding: unlike a device the schema leaves out, it is no
+  placeholder (§4), so another schema's keys don't fill it; a `Main: {}` that meets another root
+  handle's placeholder fills it with no keys, and it stops being one.
+- No binding of a namespace is `InputActions.Scriptable` (a Scriptable binding keeps a name of its
+  own beside the devices): a compile error, and `Schema` throws.
+- **Reserved extra names** (`RESERVED_EXTRA_NAMES` in `BindingRules.ts`, the type
+  `ReservedExtraName` derived from it): `Main`; every member of a binding handle, internal ones
+  included (`BINDING_HANDLE_MEMBERS`), since the extras hang off the main binding's handle by
+  name; every binding property (`KeyCode`, `Up`... `EnumType`), which would make the namespace
+  read as a binding; and a name with "/" or none at all. A compile error (`CheckNamespace` maps
+  over the namespace's keys only, so no cost beyond the few names), and `Schema` and `Create`
+  throw naming the path `Context/Action/Device/Extra` (`SchemaProblem`, which `CheckBuild` runs).
+  The `device-extras` section checks the list against a live handle's members.
+- Types: `CheckBindings` checks a device's value with `CheckDeviceValue`, a namespace with
+  `CheckNamespace` (each binding as `CheckDeviceBinding`, `{}` as it is), anything else as before;
+  `BindingSpec<T>` takes `IBindingNamespace<T>` so inference keeps the literal namespace.
+- Handles: the device's handle is the main binding's; each declared extra is a property of it,
+  typed `BindingHandleOf<T, D>` (its device's keys and captures; a `Touch` extra has none).
+  `ActionHandle<D>` adds them beside `IActionHandle<T, B>` (`WithExtras`), not inside it: read
+  through conditional types in `BindingHandles<T, B>`, `B` made `IBoolActionHandle<B>` no longer
+  assignable to `InputActions.BoolAction` (`IBoolActionHandle<unknown>`).
+- `Extras()`, on every device binding handle, lists the declared extras by name, as a table
+  (`IExtraBindings<H>`, `{ readonly [name: string]: H | undefined }`), empty on an extra. Not a
+  `ReadonlyMap`: roblox-ts types its methods with a `this` parameter, so `get` can't be called on
+  the union of maps a handle picked by a device at runtime gives (`Bindings[device].Extras()`);
+  and typing the maps alike for every device made tsc compare handles across devices (TS2590).
+  A table read by name works on that union.
+
 ## 4. Schema, `Create`, and get-or-create
 
 - `InputActions.Schema(contexts)` returns a frozen plain object `{ Contexts }`. The builders and
@@ -242,12 +295,24 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
     (the Input Action Manager names bindings `<Action><Device>`, e.g. `JumpKeyboardAndMouse`,
     `JumpGamepad`, `JumpTouch`; see `Places/GamePlace.rbxl`). Bindings the package creates are
     named `A .. S`.
+  - A device's extra (0.7.0) is slot `<Device><Extra>`: found as `KeyboardAndMouseArrows` or
+    `MoveKeyboardAndMouseArrows`, made as the latter, cloned from a template's binding of that
+    name, and checked against its device's keys when adopted (a warning names the path
+    `Context/Action/Device/Extra`). The main binding keeps its name (`MoveKeyboardAndMouse`), so a
+    tree made for the direct form is adopted as before. `ActionSlots` (`Tree.ts`) lists an
+    action's bindings: each device's main binding, right before its extras, the Scriptable slots,
+    then the devices the schema leaves out.
   - A slot can't take a name whose binding (`S` or `A .. S`) would be one the package names itself
     (§6): `Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`. Nor can one action have
     slots `S` and `A .. S`: both would match the binding `A .. S`. `Schema` (and `Create`) refuse
     them. Since every action has the three device bindings (below), a Scriptable slot named
     `<Action><Device>` (`JumpTouch` on Jump) collides with a device's even when the schema leaves
     that device out; the message then says the name is taken by the action's `Touch` binding.
+    The extras' slots count too (`SlotCollision` takes `ActionSlots`): a Scriptable slot named
+    `KeyboardAndMouseArrows` or `MoveKeyboardAndMouseArrows` beside the `KeyboardAndMouse` extra
+    `Arrows` is refused, the message naming the extra by its device and name, and so is an extra
+    whose slot would be a name the package gives its own bindings (`Script` on the `Gamepad` of an
+    action named `Gamepad`).
 - **Every action has the three device bindings (0.7.0).** A device the schema leaves out gets its
   binding all the same: the one found by name (`S` or `A .. S`, so the Manager's `JumpTouch` is
   adopted as the Touch binding, typed, rather than warned about as an extra), else one made with no
@@ -280,6 +345,19 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
     schema that names `Gamepad: ButtonA` would find the first one's empty binding and keep it
     ("what exists wins"). A fill changes the binding's keys, so IAS resets the action: it runs
     inside `AddingBindings` (§6), and an action held then is let go of as when a binding is added.
+  - **Extras and the fill (decided):** a later schema's namespace fills a placeholder with its
+    `Main` (a `Main: {}` fills it with no keys, and it stops being one); its extras are made as any
+    binding the action lacks, by that `Create`. An extra is never a placeholder: it exists only
+    where a schema declares it, so there is nothing to fill.
+- **Extras and several root handles (decided):** each root handle gets or makes the extras its own
+  schema declares, and has handles for those only. Two schemas that declare the same extra share
+  its binding, with the first one's defaults ("what exists wins", as for any binding); an extra
+  only one of them declares is that root handle's: the other's types and handles don't have it
+  (its `Extras()` doesn't list it), its exports, imports and resets leave it alone (an import
+  skips its path: "has no extra binding"), it warns about it in Studio no more than about another
+  root handle's instances, and it goes with the last root handle that uses it. Simple and
+  consistent with the device bindings: the alternative, giving every root handle on the action
+  every extra any schema declared, would hand an earlier root handle bindings its type can't name.
 - **Precedence: what exists wins.** An existing context keeps its `Priority`, `Sink`, `Enabled`;
   an existing action keeps `Enabled`/`DisplayName`; an existing binding keeps its keys, modifiers
   and tuning. The schema fills only what is missing.
@@ -416,7 +494,9 @@ Action handle (all types):
   `Vector2Scale` to fired values **(probed)**.
 - `SetEnabled`, `IsEnabled`.
 - `Bindings`: typed record of binding handles: the three devices' always (`KeyboardAndMouse`,
-  `Gamepad`, `Touch`), and the schema's Scriptable slots.
+  `Gamepad`, `Touch`), and the schema's Scriptable slots. A device's handle is its main binding's,
+  with the extras its namespace declares as properties (§3): code written for the direct form
+  works on the namespace form unchanged, and a menu's generic code needs no branch.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
 - `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
   `label.InputAction` to the action the handle wraps, and again at the Server Authority swap while
@@ -434,7 +514,9 @@ Action handle (all types):
   but an InputActionLabel throws.
   `InputActionLabel` is a Studio beta (2026-08-06); measured in Studio 2026-10-03: it shows the
   preferred binding (`ResolvedText`/`ResolvedImageContent`) and follows a rebind; on the simulated
-  phone an action with no touch binding shows nothing.
+  phone an action with no touch binding shows nothing. With extras a device has several bindings,
+  and the label still shows one (IAS's `PreferredBinding`); which one IAS picks among several
+  bindings of the device in use is unverified.
 
 Bool actions add `Pressed`, `Released` (IAS signals, passed on so that the two always alternate:
 an IAS signal repeating the last one passed on is dropped, as a Server Authority copy once sent
@@ -504,15 +586,21 @@ and it throws on them at runtime):
   ends with nothing applied.
 - Both reuse the binding captures' code (`Capture.ts`: `CaptureKey`, `CaptureChord`, the
   `CaptureInput` stream), with a target picked per key.
+- Both write the device's main binding, never one of its extras (a menu's extra column captures
+  through the extra's own handle).
 - `InputActions.PreferredDevice(): Device` (0.7.0): `UserInputService.PreferredInput` as the
   binding name that holds its keys, `MicroGamepad` as `"Gamepad"`. Roblox counts a gamepad as
   preferred as soon as one is plugged in, before any of its buttons is pressed **(measured with
   the virtual pad, 2026-10-03)**, and under the simulated phone it stays `Touch`. A two-column menu
   writes `action.Bindings[InputActions.PreferredDevice()]`; a game hides rebinding on `"Touch"`.
 
-Binding handle (non-Scriptable: a device's binding):
+Binding handle (non-Scriptable: a device's binding, main or extra):
 
-- `Instance: InputBinding`, `Name` (the device).
+- `Instance: InputBinding`, `Name` (the device; an extra's too).
+- An extra (0.7.0) is a binding handle of its device like the main one: the same members, its
+  device's keys and captures (none on `Touch`), its path `Context/Action/Device/Extra` in saves and
+  `BindingsChanged`, its defaults the binding right after `Create`. `Extras()` lists a device's
+  extras by name (§3); empty on an extra.
 - `Get()`: the current binding as plain data in the schema's shape (for settings UIs), typed
   `BindingData<A, D>`: the same forms as `BindingPart<A, D>`, so `Set(binding.Get())` compiles on
   every device binding (a menu's Cancel giving back the snapshot it took). Where the device has a
@@ -654,7 +742,8 @@ Scriptable binding handle: `Instance`, `Name`, `Fire(value: V)`.
 
 Root handle: one property per context, plus `ExportBindings()`, `ImportBindings(json)`,
 `ResetBindings()`, `BindingsChanged: RBXScriptSignal<(path: string) => void>` (fires on
-`Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`/import, with the path `Context/Action/Slot`), `Destroy()`.
+`Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`/import, with the path `Context/Action/Slot`, a
+device's extra `Context/Action/Device/Extra`), `Destroy()`.
 Context handles also have `ExportBindings()`, `ImportBindings(json)`, `ResetBindings()` for their
 own actions.
 
@@ -662,7 +751,8 @@ own actions.
 
 - Several bindings on one action are **not combined: the last one to change wins.** Holding A and
   B, then releasing A, releases the action. Same for Direction2D: the state is the last fired or
-  moved binding's value.
+  moved binding's value. A device's main binding and its extras are several bindings too: holding
+  W (WASD) and Up (the arrows' extra), then releasing W, reads at rest while Up is held.
 - `GetState()` updates synchronously after a `Fire`; the events are deferred under
   `SignalBehavior = Deferred`.
 - A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
@@ -720,6 +810,15 @@ own actions.
   holds the KeyboardAndMouse, Gamepad, Touch bindings`; one with another device's key, with the
   reason the rules give (`F is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys`).
   `SanitizeBindings` keeps the device paths of every action, and drops the same entries.
+- **A device's extra** is saved at `Context/Action/Device/Extra` (one more segment); its main
+  binding keeps `Context/Action/Device`, so a save made before a schema declared extras loads as it
+  is, and the extras stay at their defaults. An import skips an extra its schema doesn't declare
+  (`Gameplay/Move/KeyboardAndMouse has no extra binding Numpad: a device's extras are the ones its
+  schema declares`, also through a root handle that shares the action but not the extra), a
+  `.../Device/Main` path (`Main is the device's own binding, saved as Gameplay/Move/KeyboardAndMouse,
+  not Gameplay/Move/KeyboardAndMouse/Main`), and a path of five segments or more (`unknown path`);
+  an extra under a name that isn't a device gets the device reason. `SanitizeBindings` keeps the
+  extras the schema declares (each checked against its device's keys) and drops the rest.
 
 - `ExportBindings()` returns only what differs from the defaults snapshot, via
   `HttpService.JSONEncode`. Enums by `Name`; `Vector2`/`Vector3` as arrays.
@@ -825,6 +924,14 @@ client; the server only reads action state, which IAS replicates on its own.
     binding moved onto a copy's action that is not at rest (another root handle's input holds it)
     makes IAS reset it, as any binding added does (§6): the package lets go of it after the moves,
     with the pair below on such a copy (hunt HL4-4).
+  - **Extras at the swap (decided):** a device's extras are bindings of the stand-in's action like
+    the others: they move onto the copy's action with their rebinds and defaults, and the handles
+    hung off the main binding's handle follow (`LinkTo` retargets them). One another root handle
+    on the copy already made under the same name (its schema declares the same extra) is adopted,
+    with the stand-in's rebinds written onto it, as for the device bindings; one only the
+    stand-in's schema declares moves over and stays that root handle's (§4). The swap knows no more
+    about extras than about any binding, so its rules (held values, `AddingBindings`, the labels)
+    hold for them unchanged.
   - A copy whose action has another `Type`: `warn` naming the path, and stay on the stand-in (it
     keeps working).
   - Context handles of Server Authority contexts add `IsLinkedToServer(): boolean` and
@@ -1094,7 +1201,12 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   unbound bindings, `PreferredDevice`) and `device-capture` (device-locked binding captures and the
   one-field action capture with real keys and VirtualInput's gamepad KeyCodes; sticks and triggers
   through the virtual pad, skipped unless pad input is on; the `PreferredDevice` test with the pad
-  plugged in skips unless `VIRTUAL_PAD=1`), and `tests/type-rules/devices-type-rules.ts`.
+  plugged in skips unless `VIRTUAL_PAD=1`), and `tests/type-rules/devices-type-rules.ts`. Extra
+  bindings per device add `device-extras` (shared: namespaces against bindings, keys per device in
+  them, reserved names, extras' names against the action's other bindings, `SanitizeBindings` with
+  extra paths; client: the handles and `Extras()`, the reserved list against a live handle, captures
+  on extras with real keys, saves and skip reasons, adoption, root handles with other or the same
+  extras, the fill, a held action, the swap) and `tests/type-rules/device-extras-type-rules.ts`.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

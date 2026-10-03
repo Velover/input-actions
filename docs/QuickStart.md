@@ -42,8 +42,11 @@ export const InputSchema = InputActions.Schema({
   adopted), and takes only that device's keys: a keyboard key on `Gamepad` is a compile error. Any
   other name is for `InputActions.Scriptable`, a binding you drive from code (`Virtual` above).
 - **Every action has the three device bindings**, unbound when you leave one out: `Dash` has them
-  too, and `Crouch.Bindings.Gamepad` is there for a player to bind. One binding per device: WASD and
-  the arrows can't both be in the schema.
+  too, and `Crouch.Bindings.Gamepad` is there for a player to bind.
+- **Several bindings of one device** go in a namespace: `KeyboardAndMouse: { Main: <WASD>, Arrows:
+  <the arrows> }`. `Bindings.KeyboardAndMouse` is then `Main`'s handle, and
+  `Bindings.KeyboardAndMouse.Arrows` the extra's (see
+  [Several bindings per device](Advanced.md#several-bindings-per-device)).
 - `Script` and `UIButton1`, `UIButton2`, ... are taken: the package names its own bindings
   `<Action>Script` and `<Action>UIButton<n>`. A name `S` finds a binding named `S` or `<Action>S`,
   so `Jump` can't have a Scriptable named `JumpGamepad` (its Gamepad binding is `JumpGamepad`).
