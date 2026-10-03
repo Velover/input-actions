@@ -33,6 +33,7 @@ export const ROOT_MEMBERS = [
 	"ExportBindings",
 	"ImportBindings",
 	"ResetBindings",
+	"FindConflicts",
 	"Destroy",
 ];
 

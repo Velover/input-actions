@@ -255,8 +255,17 @@ export function IsDevice(name: unknown): name is Device {
 	return (DEVICES as readonly defined[]).includes(name as defined);
 }
 
+/**
+ * What a device's binding takes, in the messages: the runtime's and the compile errors' (the types
+ * read the same words from this interface, so the two can't drift apart)
+ */
+export interface IDeviceKeysText {
+	KeyboardAndMouse: "keyboard and mouse keys";
+	Gamepad: "gamepad keys";
+	Touch: "touch keys (TouchPosition, TouchDelta, TouchPinch)";
+}
 /** What a device's binding takes, for messages */
-export const DEVICE_KEYS_TEXT: Record<Device, string> = {
+export const DEVICE_KEYS_TEXT: IDeviceKeysText = {
 	KeyboardAndMouse: "keyboard and mouse keys",
 	Gamepad: "gamepad keys",
 	Touch: "touch keys (TouchPosition, TouchDelta, TouchPinch)",

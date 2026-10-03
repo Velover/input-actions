@@ -80,6 +80,36 @@ export function ReleaseOnServer(
 	binding.Destroy();
 }
 
+/**
+ * When something last reset each action (`os.clock()`): its context or itself disabled, a held
+ * binding removed, a key change or a binding added while it was held, the Server Authority swap
+ * telling the listeners a release. Gestures (`OnTap`...) read it: a `Released` that ends a press
+ * begun before a reset is the reset's, no player's release, and ends the gesture without it
+ */
+const lastResets = setmetatable(new Map<InputAction, number>(), { __mode: "k" });
+
+/**
+ * Notes that the package is about to reset `action`. Called before the change, since under
+ * Immediate signals IAS's `Released` runs inside it. Returns a function that takes the note back,
+ * for a change that turns out to reset nothing (`AddingBindings` adding no binding)
+ */
+export function MarkReset(action: InputAction): () => void {
+	const before = lastResets.get(action);
+	const now = os.clock();
+	lastResets.set(action, now);
+	return () => {
+		if (lastResets.get(action) !== now) return;
+		if (before === undefined) lastResets.delete(action);
+		else lastResets.set(action, before);
+	};
+}
+
+/** Whether the package reset `action` at or after `since` (an `os.clock()` time) */
+export function ResetSince(action: InputAction, since: number): boolean {
+	const last = lastResets.get(action);
+	return last !== undefined && last >= since;
+}
+
 /** `Context/Action/Slot` */
 export function JoinPath(...parts: string[]): string {
 	return parts.join("/");

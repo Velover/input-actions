@@ -7,9 +7,19 @@ import {
 	WriteBindings,
 } from "../BindingState";
 import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
-import { IRuntime, IsLive, IsServerAuthorityCopy, NEUTRAL_VALUES } from "../Internal";
-import { CapturableDevice, GetKeyDevice } from "../KeyGroups";
-import type { ICaptureOptions, IChord, IChordCaptureOptions } from "../Types";
+import { IGestureSource, OnDoubleTap, OnHold, OnLongPress, OnTap } from "../Gestures";
+import { IRuntime, IsLive, IsServerAuthorityCopy, MarkReset, NEUTRAL_VALUES } from "../Internal";
+import { CapturableDevice, Device, GetKeyDevice, IsDevice } from "../KeyGroups";
+import { PreferredDevice } from "../PreferredDevice";
+import type {
+	ICaptureOptions,
+	IChord,
+	IChordCaptureOptions,
+	IDoubleTapOptions,
+	IHoldOptions,
+	ILongPressOptions,
+	ITapOptions,
+} from "../Types";
 import {
 	ClearHeldValue,
 	GetEntry,
@@ -81,6 +91,7 @@ export interface IMovedBindings {
  * replaces the one it fires over, and one it fires at rest drops it (hunt HL4-2).
  */
 export function ReleaseHeldValues(source: InputAction) {
+	MarkReset(source);
 	const neutral = NEUTRAL_VALUES[source.Type.Name];
 	for (const binding of source.GetChildren()) {
 		if (!binding.IsA("InputBinding") || GetHeldValue(binding) === undefined) continue;
@@ -238,6 +249,8 @@ export class ActionHandle {
 	/** The labels `AttachLabel` points at this action, until let go of or taken over */
 	private readonly _labels = new Map<InputActionLabel, ILabelAttachment>();
 	private _track?: ITrackState;
+	/** The gestures running on this handle (`OnTap`...): `Destroy` stops them */
+	private readonly _gestures = new Set<() => void>();
 
 	// A parameter named `Instance` would shadow the global in the field initializers
 	constructor(
@@ -377,12 +390,15 @@ export class ActionHandle {
 		} else {
 			if (track !== undefined) track.ReleasedCount++;
 			this._lastEdge = "Released";
+			// The swap's release, no player's: it ends a gesture without completing it
+			MarkReset(this.Instance);
 			this._released?.Fire();
 		}
 	}
 
-	/** Destroys the handle's own signals */
+	/** Destroys the handle's own signals, and stops its gestures */
 	Destroy() {
+		for (const stop of [...this._gestures]) stop();
 		const labels = new Array<InputActionLabel>();
 		for (const [label] of this._labels) labels.push(label);
 		for (const label of labels) this.DetachLabel(label);
@@ -434,6 +450,59 @@ export class ActionHandle {
 
 	IsPressed() {
 		return this.Instance.GetState() === true;
+	}
+
+	/**
+	 * The binding of `device` (by default the one the player uses) as text: its main binding's
+	 * `Describe` (see `IActionHandle.Describe`)
+	 */
+	Describe(device: Device = PreferredDevice()): string {
+		if (!IsDevice(device)) {
+			error(
+				`InputActions: ${this.Name}: Describe takes a device (KeyboardAndMouse, Gamepad, Touch), not ${tostring(device)}`,
+				2,
+			);
+		}
+		const binding = this.Bindings[device];
+		return binding instanceof BindingHandle ? binding.Describe() : "";
+	}
+
+	// ---- gestures (Bool actions; see `Gestures.ts`)
+
+	IsDestroyed() {
+		return this._runtime.IsDestroyed();
+	}
+
+	AddGesture(stop: () => void) {
+		this._gestures.add(stop);
+	}
+
+	RemoveGesture(stop: () => void) {
+		this._gestures.delete(stop);
+	}
+
+	/** The handle as a gesture's source: a Bool action's (the types hide the gestures on the others) */
+	private GestureSource(method: string): IGestureSource {
+		if (this.Pressed === undefined) {
+			error(`InputActions: ${this.Name}: ${method} needs a Bool action, not ${this.Type.Name}`, 3);
+		}
+		return this as unknown as IGestureSource;
+	}
+
+	OnTap(callback: () => void, options?: ITapOptions): () => void {
+		return OnTap(this.GestureSource("OnTap"), callback, options);
+	}
+
+	OnDoubleTap(callback: () => void, options?: IDoubleTapOptions): () => void {
+		return OnDoubleTap(this.GestureSource("OnDoubleTap"), callback, options);
+	}
+
+	OnHold(callback: () => void, options: IHoldOptions): () => void {
+		return OnHold(this.GestureSource("OnHold"), callback, options);
+	}
+
+	OnLongPress(callback: (heldFor: number) => void, options: ILongPressOptions): () => void {
+		return OnLongPress(this.GestureSource("OnLongPress"), callback, options);
 	}
 
 	/** The handle of a device's binding (every action has the three), when it is one with keys */
@@ -640,6 +709,7 @@ export class ActionHandle {
 	 */
 	Release() {
 		const action = this.Instance;
+		MarkReset(action);
 		const held = new Array<InputBinding>();
 		for (const child of action.GetChildren()) {
 			if (child.IsA("InputBinding") && GetHeldValue(child) !== undefined) {

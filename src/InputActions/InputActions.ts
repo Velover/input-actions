@@ -1,8 +1,11 @@
-import { UserInputService } from "@rbxts/services";
 import { IsServerAuthority as IsServerAuthorityImpl } from "./AuthorityMode";
 import { SanitizeBindings as SanitizeBindingsImpl } from "./BindingsJson";
 import * as Builders from "./Builders";
 import type * as Keys from "./KeyGroups";
+import {
+	PreferredDevice as PreferredDeviceImpl,
+	PreferredDeviceChanged as PreferredDeviceChangedSignal,
+} from "./PreferredDevice";
 import { UiNavigation as UiNavigationPreset } from "./Presets";
 import type { IUiNavigationOptions, UiNavigationActions } from "./Presets";
 import { Create as CreateImpl } from "./Runtime";
@@ -78,13 +81,17 @@ export namespace InputActions {
 	 * pressed. A rebinding menu shows `action.Bindings[InputActions.PreferredDevice()]`, and has
 	 * nothing to capture on `"Touch"`.
 	 */
-	export function PreferredDevice(): Device {
-		const preferred = UserInputService.PreferredInput;
-		if (preferred === Enum.PreferredInput.Touch) return "Touch";
-		if (preferred === Enum.PreferredInput.Gamepad || preferred === Enum.PreferredInput.MicroGamepad)
-			return "Gamepad";
-		return "KeyboardAndMouse";
-	}
+	export const PreferredDevice = PreferredDeviceImpl;
+
+	/**
+	 * Client: fires with the device each time `PreferredDevice()` changes (a key pressed after a
+	 * tap, a gamepad plugged in). `MicroGamepad` and `Gamepad` both read `"Gamepad"`, so a switch
+	 * between them fires nothing, and it never fires the same device twice in a row. It listens to
+	 * `PreferredInput` from the first time it is read, once for the game. On the server it never
+	 * fires. A menu or a keybind hint re-renders on it:
+	 * `InputActions.PreferredDeviceChanged.Connect((device) => render(device))`
+	 */
+	export declare const PreferredDeviceChanged: RBXScriptSignal<(device: Device) => void>;
 
 	export namespace Presets {
 		/** Menu navigation: Navigate, Accept, Cancel, NextPage, PreviousPage and Scroll */
@@ -194,6 +201,18 @@ export namespace InputActions {
 	export type ChordCaptureOptions = T.IChordCaptureOptions;
 	export type ImportResult = T.IImportResult;
 	export type SkippedBinding = T.ISkippedBinding;
+	/** What `FindConflicts(binding)` lists: another binding of the device that shares a key with it */
+	export type BindingConflict = T.IBindingConflict;
+	/** What `FindConflicts()` lists: two bindings of one device that share a key */
+	export type ConflictPair = T.IConflictPair;
+	/** `OnTap`'s options */
+	export type TapOptions = T.ITapOptions;
+	/** `OnDoubleTap`'s options */
+	export type DoubleTapOptions = T.IDoubleTapOptions;
+	/** `OnHold`'s options */
+	export type HoldOptions = T.IHoldOptions;
+	/** `OnLongPress`'s options */
+	export type LongPressOptions = T.ILongPressOptions;
 
 	export type CreateOptions = T.ICreateOptions;
 	export type ProvideOptions = T.IProvideOptions;
@@ -220,3 +239,10 @@ export namespace InputActions {
 	/** Every other key: the keyboard's, the mouse's, the trackpad's */
 	export type KeyboardAndMouseKey = Keys.KeyboardAndMouseKey;
 }
+
+// `PreferredDeviceChanged` is made the first time it is read, which connects it to `PreferredInput`:
+// the namespace declares it, and its table answers it through `__index`
+setmetatable(InputActions as unknown as object, {
+	__index: (_, key) =>
+		key === "PreferredDeviceChanged" ? PreferredDeviceChangedSignal() : undefined,
+});

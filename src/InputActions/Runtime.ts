@@ -21,6 +21,7 @@ import {
 } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
 import { SCRIPTABLE, SchemaProblem } from "./Builders";
+import { ConflictSubject, FindAllConflicts, FindConflicts } from "./Conflicts";
 import {
 	ActionHandle,
 	IMovedBindings,
@@ -59,6 +60,8 @@ import {
 import type {
 	ICheckedInputSchema,
 	IActionDefinition,
+	IBindingConflict,
+	IConflictPair,
 	IContextSchema,
 	ICreateOptions,
 	IImportResult,
@@ -281,6 +284,9 @@ export class InputRuntime implements IRuntime {
 			ResetBindings() {
 				runtime.ResetBindings();
 			},
+			FindConflicts(binding?: unknown) {
+				return runtime.FindConflicts(binding);
+			},
 			Destroy() {
 				runtime.Destroy();
 			},
@@ -333,6 +339,15 @@ export class InputRuntime implements IRuntime {
 
 	ResetBindings() {
 		ResetBindings(this, this._bindings);
+	}
+
+	/**
+	 * The bindings of every context that share a key with `binding`, of its device; with no binding,
+	 * every pair of them that does (see `Conflicts.ts`)
+	 */
+	FindConflicts(binding?: unknown): IBindingConflict[] | IConflictPair[] {
+		if (binding === undefined) return FindAllConflicts(this._bindings);
+		return FindConflicts(this._bindings, ConflictSubject(binding, undefined, 4));
 	}
 
 	/**

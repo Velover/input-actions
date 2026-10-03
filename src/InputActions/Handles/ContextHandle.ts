@@ -1,6 +1,7 @@
 import { ExportBindings, ImportBindings, ResetBindings } from "../BindingsJson";
-import { IRuntime, ReleaseOnServer } from "../Internal";
-import type { IImportResult } from "../Types";
+import { ConflictSubject, FindAllConflicts, FindConflicts } from "../Conflicts";
+import { IRuntime, MarkReset, ReleaseOnServer } from "../Internal";
+import type { IBindingConflict, IConflictPair, IImportResult } from "../Types";
 import type { ActionHandle } from "./ActionHandle";
 import type { BindingHandle } from "./BindingHandle";
 
@@ -81,6 +82,8 @@ export class ContextState {
  * the template's keys), which the server would otherwise keep held.
  */
 function ReleaseActions(context: InputContext, handles: readonly ContextHandle[]) {
+	// Every action of the context, another root handle's too: the disable releases what keys hold
+	for (const child of context.GetChildren()) if (child.IsA("InputAction")) MarkReset(child);
 	const released = new Set<InputAction>();
 	for (const handle of handles) {
 		for (const [, action] of pairs(handle.Actions)) {
@@ -164,6 +167,15 @@ export class ContextHandle {
 
 	ResetBindings() {
 		ResetBindings(this._runtime, this.BindingHandles);
+	}
+
+	/**
+	 * The bindings of this context's actions that share a key with `binding`, of its device; with no
+	 * binding, every pair of them that does (see `Conflicts.ts`)
+	 */
+	FindConflicts(binding?: unknown): IBindingConflict[] | IConflictPair[] {
+		if (binding === undefined) return FindAllConflicts(this.BindingHandles);
+		return FindConflicts(this.BindingHandles, ConflictSubject(binding, this.Name, 3));
 	}
 
 	IsLinkedToServer() {

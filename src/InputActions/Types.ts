@@ -1,10 +1,14 @@
-import type { ReservedExtraName } from "./BindingRules";
+import type { BindingHandleMember, BindingPropertyName } from "./BindingRules";
 import type {
 	CapturableDevice,
 	Device,
+	GamepadKey,
 	IAnyDeviceKeys,
 	IDeviceKeyMap,
 	IDeviceKeys,
+	IDeviceKeysText,
+	StickKey,
+	TouchKey,
 } from "./KeyGroups";
 
 // ---- binding shapes (one input source per binding, as IAS enforces). Each takes the keys of one
@@ -142,11 +146,25 @@ export type BindingShape<
 export interface IUnboundBinding {
 	readonly [property: string]: never;
 }
-/** What each binding of a device's namespace takes before the device checks */
+/**
+ * Any object, for inference only: an object binding with a key the action type or the device can't
+ * take, or a property it doesn't have, is still inferred as written, and `CheckBindings` says in
+ * words what is wrong (0.7.0). Without it inference fell back to the constraint, whose error listed
+ * every key the action type takes
+ */
+interface IAnyObject {
+	readonly [property: string]: unknown;
+}
+/**
+ * What each binding of a device's namespace takes before the device checks. Any enum item, as any
+ * object, so that a key the binding can't take is inferred as written and refused in words
+ */
 type NamespaceBindingSpec<T extends Enum.InputActionType> =
 	| IBindingShapeMap[T["Name"]]
+	| EnumItem
 	| IScriptable
-	| IUnboundBinding;
+	| IUnboundBinding
+	| IAnyObject;
 /**
  * A device's bindings (0.7.0): its main binding, and extra bindings by names of your own, each with
  * the device's keys, or `{}` for one with no keys (a player fills it, e.g. an Alternate column)
@@ -156,13 +174,16 @@ export interface IBindingNamespace<T extends Enum.InputActionType> {
 	readonly [extra: string]: NamespaceBindingSpec<T>;
 }
 /**
- * What the builders' records take before the device checks: any device's keys, a device's
- * namespace, or Scriptable
+ * What the builders' records take before the checks: a binding (the action type's shapes, for the
+ * editor's completions; any enum item or object, so that what the checks refuse is inferred as
+ * written and refused in words), a device's namespace, or Scriptable
  */
 export type BindingSpec<T extends Enum.InputActionType> =
 	| IBindingShapeMap[T["Name"]]
+	| EnumItem
 	| IScriptable
-	| IBindingNamespace<T>;
+	| IBindingNamespace<T>
+	| IAnyObject;
 type PartialEach<U> = U extends unknown ? Partial<U> : never;
 /**
  * Each object form with every property optional, but only the forms whose `KeyCode` the device
@@ -197,42 +218,193 @@ export type BindingPart<
 	D extends Device = Device,
 > = D extends Device ? DeviceParts<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
 
-// Generic inference skips excess-property checks, so unknown properties are rejected here. A binding
-// named after a device takes that device's keys (`BindingShape<T, D>`), any other name only
-// `InputActions.Scriptable` (design spec §3, 0.7.0). Compares a bare key against the device's key
-// union with a conditional, never a mapped type over the KeyCode union, which runs tsc out of memory.
+// Generic inference skips excess-property checks, so the builders' records are checked here, binding
+// by binding: a binding named after a device takes that device's keys (`BindingShape<T, D>`), any
+// other name only `InputActions.Scriptable` (design spec §3, 0.7.0). A key is compared with a
+// conditional against the union of keys a slot takes, never through a mapped type over the KeyCode
+// union, which runs tsc out of memory: the mapped types here go over a binding's own properties or a
+// namespace's names. Where a check refuses something, what the value is checked against is a
+// sentence saying why, in the runtime's words (`Space is a KeyboardAndMouse key: a Gamepad binding
+// takes gamepad keys`): a string type, which no binding is, so the error ends on it (F5).
 type AllKeys<U> = U extends unknown ? keyof U : never;
+type CompositeSlotName = "Up" | "Down" | "Left" | "Right" | "Forward" | "Backward";
+type KeySlotName = "KeyCode" | CompositeSlotName | "PrimaryModifier" | "SecondaryModifier";
+
+/** The device a key belongs to, as `GetKeyDevice` tells it at runtime */
+type KeyDeviceOf<K> = K extends GamepadKey ? "Gamepad" : K extends TouchKey ? "Touch" : "KeyboardAndMouse";
+/** The key slots of a binding of each action type, and the keys each takes (`K`: a device's) */
+interface ISlotKeyMap<K extends IDeviceKeys> {
+	Bool: { KeyCode: K["Bool"]; PrimaryModifier: K["Modifier"]; SecondaryModifier: K["Modifier"] };
+	Direction1D: {
+		KeyCode: K["Direction1D"];
+		Up: K["Composite"];
+		Down: K["Composite"];
+		PrimaryModifier: K["Modifier"];
+		SecondaryModifier: K["Modifier"];
+	};
+	Direction2D: {
+		KeyCode: K["Stick"] | K["Delta2D"];
+		Up: K["Composite"];
+		Down: K["Composite"];
+		Left: K["Composite"];
+		Right: K["Composite"];
+		PrimaryModifier: K["Modifier"];
+		SecondaryModifier: K["Modifier"];
+	};
+	Direction3D: {
+		Up: K["Composite"];
+		Down: K["Composite"];
+		Left: K["Composite"];
+		Right: K["Composite"];
+		Forward: K["Composite"];
+		Backward: K["Composite"];
+		PrimaryModifier: K["Modifier"];
+		SecondaryModifier: K["Modifier"];
+	};
+	ViewportPosition: { KeyCode: K["Position"] };
+}
+/** The keys slot `P` of a binding takes on action type `T`, with the keys `K` (none: no such slot) */
+type SlotKeys<T extends Enum.InputActionType, K extends IDeviceKeys, P> =
+	P extends keyof ISlotKeyMap<K>[T["Name"]] ? ISlotKeyMap<K>[T["Name"]][P] : never;
 /**
- * What a Scriptable under a device's name is checked against: the device's shapes, and a property
- * the marker lacks. The parameter is `B & CheckBindings<B, T>`, and the intersection with `B`'s
- * `IScriptable` makes an all-optional shape (a composite) one the marker satisfies (hunt HD-3)
+ * Whether key `X` fits slot `P` on action type `T` on some device. Its own alias: in the true
+ * branch of `X extends <the slot's keys>`, X stands for `X & <the slot's keys>`, and a message
+ * built from it there took tsc 0.8 s per refused key
  */
-type NotScriptable<T extends Enum.InputActionType, D extends Device> = BindingShape<T, D> & {
-	readonly "a device's binding takes its keys, not InputActions.Scriptable": never;
+type FitsSlot<X, T extends Enum.InputActionType, P> =
+	X extends SlotKeys<T, IAnyDeviceKeys, P> ? true : false;
+/**
+ * Why key `X` can't go in slot `P` of device `D`'s binding on action type `T`, as `KeyRuleProblem`
+ * says it at runtime: another device's key the slot takes, or a key the slot never takes
+ */
+type KeyProblem<X, T extends Enum.InputActionType, D extends Device, P extends string> =
+	X extends Enum.KeyCode
+		? FitsSlot<X, T, P> extends true
+			? `${X["Name"]} is a ${KeyDeviceOf<X>} key: a ${D} binding takes ${IDeviceKeysText[D]}`
+			: `${X["Name"]} is not allowed in ${P} on a ${T["Name"]} action`
+		: `${P} must be an Enum.KeyCode`;
+/** What is wrong with key `X` in slot `P` of device `D`'s binding, in words; never when nothing is */
+type KeySlotProblem<X, T extends Enum.InputActionType, D extends Device, P extends string> =
+	X extends undefined
+		? never
+		: X extends SlotKeys<T, IDeviceKeyMap[D], P>
+			? never
+			: KeyProblem<X, T, D, P>;
+/** A bare key or an object that isn't a binding */
+type NOT_A_BINDING = "a binding must be an Enum.KeyCode, an object or InputActions.Scriptable";
+/**
+ * What a Scriptable under a device's name is checked against: a sentence, which the marker is not.
+ * The parameter is `B & CheckBindings<B, T>`, and the device's shapes intersected with `B`'s
+ * `IScriptable` made the all-optional ones (a composite) shapes the marker satisfies (hunt HD-3)
+ */
+type NotScriptable<D extends Device> =
+	`${D} is a device: its bindings hold keys, not InputActions.Scriptable; name a Scriptable binding beside the devices`;
+/** The properties of the action type's bindings, any device's, `EnumType` and `Main` aside */
+type PropertyOf<T extends Enum.InputActionType> = Exclude<
+	AllKeys<IBindingObjectMap[T["Name"]]>,
+	"EnumType" | "Main"
+>;
+/**
+ * Why property `P` (holding `X`) isn't one of the action type's bindings', as the runtime says it;
+ * written beside the keys of a schema's binding (`whole`), a key or an object is likely another
+ * binding of the device, which goes in its namespace
+ */
+type UnknownProperty<P, T extends Enum.InputActionType, X, Whole extends boolean> = [Whole, X] extends [
+	true,
+	object,
+]
+	? `${P & string} is not a property of a ${T["Name"]} binding; several bindings of one device go in { Main: <binding>, ${P & string}: <binding> }`
+	: `${P & string} is not a property of a ${T["Name"]} binding`;
+/** Whether a property holds something: not when left out (undefined), nor a shape's `?: never` */
+type Holds<X> = [Exclude<X, undefined>] extends [never] ? false : true;
+/** Whether object binding `V` has a key in its `KeyCode` */
+type HasKeyCode<V> = V extends { KeyCode: Enum.KeyCode } ? true : false;
+/**
+ * What is wrong with property `P` of object binding `V` of device `D`, in words; never when nothing
+ * is. `Whole`: the object is the whole binding (a schema's), not a part `Set` merges in, so a
+ * `ResponseCurve` needs its `KeyCode` to be a thumbstick there
+ */
+type PropertyProblem<V, P extends keyof V, T extends Enum.InputActionType, D extends Device, Whole extends boolean> =
+	P extends "EnumType" | "Main"
+		? Holds<V[P]> extends true
+			? UnknownProperty<P, T, V[P], false>
+			: never
+		: P extends PropertyOf<T>
+			? P extends KeySlotName
+				?
+						| KeySlotProblem<V[P], T, D, P>
+						| (P extends CompositeSlotName
+								? [HasKeyCode<V>, Holds<V[P]>] extends [true, true]
+									? "KeyCode and composite directions can't share a binding"
+									: never
+								: never)
+				: P extends "ResponseCurve"
+					? [IDeviceKeyMap[D]["Stick"]] extends [never]
+						? `ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode, which a ${D} binding can't hold`
+						: [Whole, V] extends [true, { KeyCode: StickKey }] | [false, unknown]
+							? never
+							: "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode"
+					: never
+			: UnknownProperty<P, T, V[P], Whole>;
+/** Every problem of object binding `V`, in words; never when there is none */
+type ObjectProblems<V, T extends Enum.InputActionType, D extends Device, Whole extends boolean> = {
+	[P in keyof V]-?: PropertyProblem<V, P, T, D, Whole>;
+}[keyof V];
+/**
+ * What a value `X` that is refused is checked against: the sentence `M`. A number, a boolean or a
+ * string intersected with it would be `never` (two primitives), and take the whole binding with
+ * it: those are checked against an object with the sentence as its property's name
+ */
+type Sentence<M extends string, X> = X extends object ? M : { readonly [S in M]: never };
+/**
+ * An object binding with a problem: each property that has one checked against its sentence, the
+ * others against anything
+ */
+type ObjectSentences<V, T extends Enum.InputActionType, D extends Device, Whole extends boolean> = {
+	[P in keyof V]: [PropertyProblem<V, P, T, D, Whole>] extends [never]
+		? unknown
+		: Sentence<PropertyProblem<V, P, T, D, Whole>, V[P]>;
 };
 /**
  * What one form `V` of device `D`'s binding is checked against. It distributes over a union (a
  * value of `BindingShape<T, D>`, or a conditional between a bare key and an object), so each member
  * is checked as it is (hunt HD2-1). A key that fits gives back itself, never `unknown`, which would
- * swallow the other members' checks
+ * swallow the other members' checks. An object that fits one of the device's forms and has no
+ * property they lack gives back itself too; one that doesn't is checked property by property, each
+ * refused property against its sentence, and with none refused, against the device's forms (a
+ * `KeyCode` a form requires). The forms first: the sentences cost more, and most bindings fit
  */
 type CheckDeviceBinding<V, T extends Enum.InputActionType, D extends Device> = V extends IScriptable
-	? NotScriptable<T, D>
+	? NotScriptable<D>
 	: V extends EnumItem
 		? V extends BindingShape<T, D>
 			? V
-			: BindingShape<T, D>
-		: IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]] & {
-				[P in Exclude<keyof V, AllKeys<IBindingObjectMap[T["Name"]]>>]: never;
-			};
-/** What a reserved extra name is checked against: no value has this property */
-interface IReservedExtraName {
-	readonly "an extra binding can't be named Main, after a binding handle's member or a binding property": never;
-}
-/** What an extra name with a "/" (it would split the save's path) or none at all is checked against */
-interface IExtraNameText {
-	readonly 'an extra binding is named by a string of at least one character, without "/"': never;
-}
+			: V extends Enum.KeyCode
+				? KeyProblem<V, T, D, "KeyCode">
+				: NOT_A_BINDING
+		: V extends object
+			? V extends IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]
+				? [Exclude<keyof V, AllKeys<IBindingObjectMap[T["Name"]]>>] extends [never]
+					? V
+					: ObjectSentences<V, T, D, true>
+				: [ObjectProblems<V, T, D, true>] extends [never]
+					? IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]
+					: ObjectSentences<V, T, D, true>
+			: NOT_A_BINDING;
+/**
+ * Why a device's extra can't have name `E`, as `ExtraNameProblem` says it at runtime: a member of
+ * the binding handle the extras hang off, a binding's property (the namespace would read as a
+ * binding), the empty name or a "/" (it would split the save's path); never when it can
+ */
+type ExtraNameProblem<E> = E extends BindingHandleMember
+	? `${E} is a member of a binding handle, which the device's extras hang off (Bindings.<Device>.<Extra>): name the extra something else`
+	: E extends BindingPropertyName
+		? `${E} is a binding property, not an extra binding: { Main: <binding>, <Name>: <binding> } holds the device's bindings by names of your own`
+		: E extends ""
+			? "an extra binding's name must be a string of at least one character"
+			: E extends `${string}/${string}`
+				? `${E}: an extra binding's name can't contain /`
+				: never;
 /**
  * One binding of a device's namespace: as the device's binding (`CheckDeviceBinding`), or `{}`,
  * one with no keys
@@ -250,13 +422,11 @@ type CheckNamespaceBinding<V, T extends Enum.InputActionType, D extends Device> 
 type CheckNamespace<V, T extends Enum.InputActionType, D extends Device> = {
 	[E in keyof V]: E extends "Main"
 		? CheckNamespaceBinding<V[E], T, D>
-		: E extends ReservedExtraName
-			? IReservedExtraName
-			: E extends "" | `${string}/${string}`
-				? IExtraNameText
-				: E extends string
-					? CheckNamespaceBinding<V[E], T, D>
-					: IExtraNameText;
+		: E extends string
+			? [ExtraNameProblem<E>] extends [never]
+				? CheckNamespaceBinding<V[E], T, D>
+				: ExtraNameProblem<E>
+			: "an extra binding's name must be a string of at least one character";
 };
 /**
  * A device's value: a namespace (an object with `Main`, which no binding has: the shapes say
@@ -267,14 +437,18 @@ type CheckDeviceValue<V, T extends Enum.InputActionType, D extends Device> = V e
 }
 	? CheckNamespace<V, T, D>
 	: CheckDeviceBinding<V, T, D>;
+/** Why a binding with keys can't have name `K`, as `BindingNameProblem` says it at runtime */
+type NotADevice<K> =
+	`${K & string} is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable`;
 export type CheckBindings<B, T extends Enum.InputActionType> = {
-	// `string`: inference fell back to the constraint (a key the action type can't take), whose
-	// error says so; or computed names, which `Schema` checks at runtime
+	// `string`: computed names, which `Schema` checks at runtime
 	[K in keyof B]: string extends K
 		? unknown
 		: K extends Device
 			? CheckDeviceValue<B[K], T, K>
-			: IScriptable;
+			: B[K] extends IScriptable
+				? unknown
+				: NotADevice<K>;
 };
 
 // ---- values
@@ -350,9 +524,17 @@ export interface IContextSchema {
 	Actions: { [name: string]: IActionDefinition<Enum.InputActionType, unknown, boolean> };
 }
 
-/** Generic inference skips excess-property checks: a misspelt context option is rejected here */
+/**
+ * Generic inference skips excess-property checks: a misspelt context option is rejected here, with
+ * the runtime's sentence
+ */
 export type CheckContexts<S> = {
-	[C in keyof S]: { [P in Exclude<keyof S[C], keyof IContextSchema>]: never };
+	[C in keyof S]: {
+		[P in Exclude<keyof S[C], keyof IContextSchema>]: Sentence<
+			`unknown option ${P & string}; a context has ServerAuthority, Priority, Sink, Enabled and Actions`,
+			S[C][P]
+		>;
+	};
 };
 
 export interface IInputSchema<S extends Record<string, IContextSchema>> {
@@ -411,6 +593,15 @@ export interface IBindingHandle<T extends Enum.InputActionType, D extends Device
 	Extras(): IExtraBindings<IBindingHandle<T, D>>;
 	/** The current binding as plain data in the schema's shape (`{}` when unbound) */
 	Get(): BindingData<T, D>;
+	/**
+	 * The binding as text, for a menu or a hint: its `DisplayName` when it has one; else its
+	 * modifiers then its key, `"Ctrl + S"`, or its composite directions in reading order (Up, Left,
+	 * Down, Right, Forward, Backward), `"W / A / S / D"`; `""` when it has no key. A character key
+	 * reads as on the player's keyboard layout (`UserInputService:GetStringForKeyCode`), the others
+	 * by readable names (`"Enter"`, `"Left Click"`, `"Left Stick"`, `"A"` for ButtonA). For gamepad
+	 * icons, pass the keys of `Get()` to `UserInputService:GetImageForKeyCode`
+	 */
+	Describe(): string;
 	/**
 	 * Rebind. Same per-type rules as the schema, and the device's keys only, also checked at runtime.
 	 * Objects merge into the binding, so one may leave the key out (`{ PressedThreshold: 0.9 }`); a
@@ -539,6 +730,12 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	IsEnabled(): boolean;
 	GetPreferredBinding(): InputBinding | undefined;
 	/**
+	 * The keybind of `device` as text (`"Space"`, `"Ctrl + S"`, `"W / A / S / D"`): its main
+	 * binding's `Describe()`, `""` when that has no key. By default the device the player uses
+	 * (`InputActions.PreferredDevice()`)
+	 */
+	Describe(device?: Device): string;
+	/**
 	 * Points an InputActionLabel at this action, which then shows its keybind; at the swap to the
 	 * server's copy of a Server Authority context the label follows, while it still shows the
 	 * stand-in's action. A label is on one action at a time: the last `AttachLabel`, from any handle,
@@ -594,6 +791,63 @@ export interface IBoolActionHandle<B>
 	 * down holds it again only once pressed again
 	 */
 	AttachButton(button: GuiButton): () => void;
+	/**
+	 * Calls `callback` on a tap: a press released within `MaxDuration` (0.25 s). With
+	 * `WaitForDoubleTap`, only once `Window` (0.3 s) has passed after the release without a second
+	 * press, so a tap and an `OnDoubleTap` with the same `Window` exclude each other. Returns a
+	 * function that stops it; `Destroy` stops it too
+	 */
+	OnTap(callback: () => void, options?: ITapOptions): () => void;
+	/**
+	 * Calls `callback` on a double tap, at its second press: a press within `Window` (0.3 s) after
+	 * a tap (a press released within `MaxDuration`, 0.25 s). Returns a function that stops it
+	 */
+	OnDoubleTap(callback: () => void, options?: IDoubleTapOptions): () => void;
+	/**
+	 * Calls `callback` once a press has been held for `Duration`, while it is still held
+	 * (hold-to-interact, a charge). `Progress` gets 0 at the press, then the fraction held each
+	 * frame, and 1 as it completes; `Cancelled` runs, after `Progress(0)`, when the press ends
+	 * first. Returns a function that stops it
+	 */
+	OnHold(callback: () => void, options: IHoldOptions): () => void;
+	/**
+	 * Calls `callback` with the seconds held when a press held for at least `Duration` is released
+	 * (charge and release). Returns a function that stops it
+	 */
+	OnLongPress(callback: (heldFor: number) => void, options: ILongPressOptions): () => void;
+}
+
+/**
+ * The gestures' options: durations in seconds, positive and finite (anything else throws). A
+ * gesture starts with the next press, and a release that a reset makes (the context or the action
+ * disabled, the focus-loss reset, a rebind or a binding added while held, the Server Authority
+ * swap) ends it without completing it
+ */
+export interface ITapOptions {
+	/** The longest press that is a tap. Default 0.25 */
+	MaxDuration?: number;
+	/** Call back only once `Window` has passed after the tap without another press */
+	WaitForDoubleTap?: boolean;
+	/** With `WaitForDoubleTap`: the double-tap window, as `OnDoubleTap`'s. Default 0.3 */
+	Window?: number;
+}
+export interface IDoubleTapOptions {
+	/** Seconds from the first tap's release within which the second press counts. Default 0.3 */
+	Window?: number;
+	/** The longest press the first tap may be. Default 0.25 */
+	MaxDuration?: number;
+}
+export interface IHoldOptions {
+	/** Seconds held */
+	Duration: number;
+	/** Each frame while held, the fraction of `Duration` held (0 at the press, 1 as it completes) */
+	Progress?: (fraction: number) => void;
+	/** The press ended (or was reset) before `Duration` */
+	Cancelled?: () => void;
+}
+export interface ILongPressOptions {
+	/** The shortest press that is a long press, in seconds */
+	Duration: number;
 }
 
 /** Only on actions defined with TrackPrevious: true */
@@ -650,12 +904,52 @@ export interface ISkippedBinding {
 	Reason: string;
 }
 
+/** A device's binding handle of any action type: what `FindConflicts` takes and finds */
+export type AnyBindingHandle = IBindingHandle<Enum.InputActionType, Device>;
+
+/** A binding that shares a key with the one `FindConflicts` was given */
+export interface IBindingConflict {
+	/** The other binding's handle */
+	readonly Binding: AnyBindingHandle;
+	/** Its path: `Context/Action/Device`, or `Context/Action/Device/Extra` for an extra */
+	readonly Path: string;
+	/** The first key they share, in the given binding's order (its key or directions, then modifiers) */
+	readonly Key: Enum.KeyCode;
+	/** Every key they share */
+	readonly Keys: readonly Enum.KeyCode[];
+	/**
+	 * A key presses both with the same modifiers: every press of it presses both. Otherwise they
+	 * only overlap: a chord and its plain key (IAS presses both when the chord is pressed: a chord
+	 * doesn't block its plain key), two chords on one key, or a key that is the other's modifier
+	 */
+	readonly Identical: boolean;
+}
+/** Two bindings of one device that share a key: what `FindConflicts()` lists, each pair once */
+export interface IConflictPair {
+	readonly Bindings: readonly [AnyBindingHandle, AnyBindingHandle];
+	/** Their paths, the first before the second in sorted order */
+	readonly Paths: readonly [string, string];
+	/** The first key they share, in the first binding's order */
+	readonly Key: Enum.KeyCode;
+	readonly Keys: readonly Enum.KeyCode[];
+	readonly Identical: boolean;
+}
+
 export interface IBindingsOwner {
 	/** The rebinds (what differs from the defaults) as JSON */
 	ExportBindings(): string;
 	/** Resets to the defaults, then applies the saved rebinds. Never throws */
 	ImportBindings(json: string): IImportResult;
 	ResetBindings(): void;
+	/**
+	 * The other bindings of `binding`'s device (on the root handle, in every context; on a context
+	 * handle, in its own) that share a key with it, in any of their key slots, by path. A rebinding
+	 * menu calls it after a capture to warn, swap or clear the other. Unbound bindings conflict with
+	 * nothing; which contexts are enabled or sink plays no part
+	 */
+	FindConflicts(binding: AnyBindingHandle): IBindingConflict[];
+	/** Every pair of bindings of one device that share a key, each pair once, by path */
+	FindConflicts(): IConflictPair[];
 }
 
 export interface IContextHandle<C extends IContextSchema> extends IBindingsOwner {

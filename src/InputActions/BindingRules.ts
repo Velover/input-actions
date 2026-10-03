@@ -53,6 +53,7 @@ export const BINDING_HANDLE_MEMBERS = [
 	"Path",
 	"ActionType",
 	"Get",
+	"Describe",
 	"Set",
 	"Reset",
 	"Clear",
@@ -83,6 +84,10 @@ export const RESERVED_EXTRA_NAMES = [
 	...BINDING_PROPERTY_NAMES,
 ] as const;
 export type ReservedExtraName = (typeof RESERVED_EXTRA_NAMES)[number];
+/** A member of a device's binding handle: the extras hang off it by name */
+export type BindingHandleMember = (typeof BINDING_HANDLE_MEMBERS)[number];
+/** A binding's property (and `EnumType`): a namespace with one would read as a binding */
+export type BindingPropertyName = (typeof BINDING_PROPERTY_NAMES)[number];
 
 /**
  * Whether a device's binding in a schema is a namespace, `{ Main: <binding>, <Extra>: <binding> }`:

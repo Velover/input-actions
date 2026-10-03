@@ -19,6 +19,7 @@ import {
 	WriteKey,
 } from "../BindingState";
 import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
+import { DescribeBinding } from "../Describe";
 import { IRuntime, IsLive } from "../Internal";
 import { CapturableDevice, Device, EKeyGroup, GetKeyGroup } from "../KeyGroups";
 import { ClearHeldValue, GetEntry, SetHeldValue } from "../Registry";
@@ -83,6 +84,11 @@ export class BindingHandle {
 
 	Get() {
 		return GetBindingData(this.ActionType, this.Instance);
+	}
+
+	/** The binding as text (see `IBindingHandle.Describe`) */
+	Describe(): string {
+		return DescribeBinding(this.ActionType, this.Instance);
 	}
 
 	Set(spec: unknown) {

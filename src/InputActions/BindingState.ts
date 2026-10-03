@@ -10,7 +10,7 @@ import {
 	SavedProperty,
 	SavedValue,
 } from "./BindingRules";
-import { NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
+import { MarkReset, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import { EKeyGroup, GetKeyGroup, IsKeyCode } from "./KeyGroups";
 import { ClearHeldValue, GetEntry, GetHeldValue, IHeldValue } from "./Registry";
 
@@ -205,6 +205,11 @@ export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding
 		if (KEY_SLOTS.some((slot) => binding[slot] !== values[slot]))
 			states.set(action, HeldState(action));
 	}
+	// IAS resets an action whose keys change: noted before the writes, which run its listeners under
+	// Immediate signals
+	for (const [action, state] of states) {
+		if (state !== NEUTRAL_VALUES[action.Type.Name]) MarkReset(action);
+	}
 	const changed = new Set<InputBinding>();
 	const rebound = new Set<InputAction>();
 	for (const [binding, values, releasedThreshold] of writes) {
@@ -263,6 +268,9 @@ export function AddingBindings<T>(action: InputAction, add: () => T): T {
 	resets.set(action, pending);
 	pendingResets = resets;
 	const before = new Set(action.GetChildren());
+	// Noted before `add`, which runs the listeners under Immediate signals; taken back when it reset
+	// nothing
+	const unmark = MarkReset(action);
 	let result: T;
 	try {
 		result = add();
@@ -274,6 +282,7 @@ export function AddingBindings<T>(action: InputAction, add: () => T): T {
 		.GetChildren()
 		.some((child) => child.IsA("InputBinding") && !before.has(child));
 	if (added || pending.Reset) ReleaseAfterReset(action, state, ADD_RELEASE_NAME);
+	else unmark();
 	return result;
 }
 
