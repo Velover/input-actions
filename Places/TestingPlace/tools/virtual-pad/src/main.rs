@@ -2,18 +2,27 @@
 //!
 //! Roblox's VirtualInput can't send gamepad input, so this plugs a virtual Xbox 360 pad into
 //! Windows through the ViGEmBus driver and sets its state as the tests ask. It also injects touch
-//! (experimental). It listens on 127.0.0.1 only: `virtual-pad [--port 47110]`.
+//! (experimental). It listens on 127.0.0.1 only: `virtual-pad [--port 47110] [--allow-input]`.
+//!
+//! Pad input is off unless it was started with `--allow-input`: `/state` then refuses any state but
+//! the neutral one (403), so the pad can be plugged in and out but never pressed; touch injection
+//! (`/touch`, `/touch/init`) and `/window` with `front` are refused too. While Steam's
+//! "Enable Steam Input for Xbox controllers" is on, Steam turns the pad's buttons and sticks into
+//! keys and mouse input for the focused window, whatever it is; `scripts/virtual-pad.mjs` passes the
+//! flag only when `VIRTUAL_PAD_INPUT=1` is set.
 //!
 //! The API takes and returns JSON. A POST must say `Content-Type: application/json`, and every
 //! request's Host must be 127.0.0.1 or localhost: a web page can send neither, so the browser can't
 //! drive it. An error answers `{"error": "..."}` with a 4xx or 5xx status.
 //!
-//! - `GET /health`: `{"service": "virtual-pad", "bus": "ok" | why not, "connected": bool}`
+//! - `GET /health`: `{"service": "virtual-pad", "bus": "ok" | why not, "connected": bool,
+//!   "input": bool}`, `input` whether `/state` takes more than the neutral state (`--allow-input`)
 //! - `POST /connect`: plugs the pad in, and answers once XInput shows it at the neutral state
 //!   (nothing happens if it is in): `{"connected": true, "userIndex": 0..3 | null}`, its XInput
 //!   slot, null when XInput didn't show it within 2 s
 //! - `POST /disconnect`: unplugs it (nothing happens if it is out)
-//! - `POST /state`: sets the whole state; a field left out is neutral. 409 while unplugged.
+//! - `POST /state`: sets the whole state; a field left out is neutral. 409 while unplugged; 403 for
+//!   any state but the neutral one without `--allow-input`.
 //!   `{"buttons": ["A", "DPadUp"], "leftTrigger": 0..1, "rightTrigger": 0..1,
 //!   "leftStick": [x, y], "rightStick": [x, y]}`, the axes -1..1 with y up. The buttons: A, B,
 //!   X, Y, LB, RB, Back, Start, Guide, LeftThumb, RightThumb, DPadUp, DPadDown, DPadLeft,
@@ -75,11 +84,18 @@ const MAX_BODY: u64 = 64 * 1024;
 /// What a request answers: a JSON body, or a status with the reason
 pub type Reply = Result<Value, (u16, String)>;
 
+/// Why input is refused without `--allow-input`; the tests' `virtualPad()` says the same
+const INPUT_OFF: &str = "pad input is off: set VIRTUAL_PAD_INPUT=1 after turning off Steam Input \
+                         for Xbox controllers (the service runs without --allow-input, which also \
+                         keeps touch injection and bringing a window to the front off)";
+
 fn main() {
-    let port = match parse_port() {
-        Ok(port) => port,
+    let Args { port, allow_input } = match parse_args() {
+        Ok(args) => args,
         Err(why) => {
-            eprintln!("virtual-pad: {why}\nusage: virtual-pad [--port {DEFAULT_PORT}]");
+            eprintln!(
+                "virtual-pad: {why}\nusage: virtual-pad [--port {DEFAULT_PORT}] [--allow-input]"
+            );
             std::process::exit(2);
         }
     };
@@ -99,10 +115,14 @@ fn main() {
     if bus != "ok" {
         eprintln!("virtual-pad: {bus}; /connect will fail");
     }
-    println!("virtual-pad: listening on http://127.0.0.1:{port}");
+    println!(
+        "virtual-pad: listening on http://127.0.0.1:{port}, pad input {}",
+        if allow_input { "on" } else { "off" }
+    );
 
     let mut service = Service {
         port,
+        allow_input,
         bus,
         pad: Pad::default(),
         touch: Touch::default(),
@@ -130,11 +150,24 @@ fn main() {
     println!("virtual-pad: stopped");
 }
 
-/// `--port N` (or `--port=N`), or the default
-fn parse_port() -> Result<u16, String> {
+/// The command line: the port, and whether `/state` takes pad input
+struct Args {
+    port: u16,
+    allow_input: bool,
+}
+
+/// `--port N` (or `--port=N`, else the default) and `--allow-input`
+fn parse_args() -> Result<Args, String> {
     let mut args = std::env::args().skip(1);
-    let mut port = DEFAULT_PORT;
+    let mut parsed = Args {
+        port: DEFAULT_PORT,
+        allow_input: false,
+    };
     while let Some(arg) = args.next() {
+        if arg == "--allow-input" {
+            parsed.allow_input = true;
+            continue;
+        }
         let value = if arg == "--port" {
             args.next().ok_or("--port needs a value")?
         } else if let Some(value) = arg.strip_prefix("--port=") {
@@ -142,15 +175,17 @@ fn parse_port() -> Result<u16, String> {
         } else {
             return Err(format!("unknown argument {arg:?}"));
         };
-        port = value
+        parsed.port = value
             .parse()
             .map_err(|_| format!("{value:?} is not a port"))?;
     }
-    Ok(port)
+    Ok(parsed)
 }
 
 struct Service {
     port: u16,
+    /// Whether `/state` takes more than the neutral state (`--allow-input`)
+    allow_input: bool,
     /// "ok", or why ViGEmBus can't be reached, as found at startup
     bus: String,
     pad: Pad,
@@ -159,6 +194,16 @@ struct Service {
 }
 
 impl Service {
+    /// Input on the machine (pad input, touch injection, a window brought to the front) needs
+    /// `--allow-input`: it reaches whatever window is focused
+    fn check_input(&self) -> Result<(), (u16, String)> {
+        if self.allow_input {
+            Ok(())
+        } else {
+            Err((403, INPUT_OFF.into()))
+        }
+    }
+
     fn answer(&mut self, mut request: Request) {
         let reply = self.route(&mut request);
         let (status, body) = match reply {
@@ -205,20 +250,37 @@ impl Service {
                 "version": env!("CARGO_PKG_VERSION"),
                 "bus": self.bus,
                 "connected": self.pad.is_connected(),
+                "input": self.allow_input,
             })),
             (Method::Post, "/connect") => self.pad.connect(),
             (Method::Post, "/disconnect") => self.pad.disconnect(),
             (Method::Get, "/state") => Ok(self.pad.state()),
-            (Method::Post, "/state") => self.pad.set(parse::<PadState>(&body)?),
+            (Method::Post, "/state") => {
+                let state = parse::<PadState>(&body)?;
+                if !state.is_neutral() {
+                    self.check_input()?;
+                }
+                self.pad.set(state)
+            }
             (Method::Post, "/reset") => self.pad.reset(),
             (Method::Get, "/touch") => Ok(self.touch.status()),
-            (Method::Post, "/touch/init") => self.touch.init(),
+            (Method::Post, "/touch/init") => {
+                self.check_input()?;
+                self.touch.init()
+            }
             (Method::Post, "/touch") => {
+                self.check_input()?;
                 let contacts = parse_frame(parse(&body)?).map_err(|why| (400, why))?;
                 self.touch.apply(contacts)
             }
             (Method::Post, "/touch/reset") => self.touch.lift_all(),
-            (Method::Post, "/window") => self.windows.find(parse::<Find>(&body)?),
+            (Method::Post, "/window") => {
+                let find = parse::<Find>(&body)?;
+                if find.front() {
+                    self.check_input()?;
+                }
+                self.windows.find(find)
+            }
             (Method::Post, "/window/release") => self.windows.release(),
             (Method::Post, "/quit") => {
                 lifetime::request_stop("asked to quit");

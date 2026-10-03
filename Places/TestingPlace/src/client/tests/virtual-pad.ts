@@ -200,16 +200,25 @@ export class VirtualPad {
 	}
 }
 
+/** Why a test that presses the pad skips when the service has pad input off (the default) */
+export const PAD_INPUT_OFF =
+	"pad input is off: set VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers";
+
 /**
  * The virtual pad for the running test, or the reason there is none: the service isn't running
- * (a run without cargo, or a place run outside `bun run test`), Studio can't reach it, or
- * ViGEmBus isn't installed. A pad an earlier test left plugged in is unplugged first.
+ * (a run without cargo, or a place run outside `bun run test`), Studio can't reach it, ViGEmBus
+ * isn't installed, or, for a test that presses the pad, pad input is off. Pad input is opt-in
+ * (`VIRTUAL_PAD_INPUT=1`, which starts the service with `--allow-input`): while Steam's Xbox
+ * controller support is on, Steam turns the pad's buttons and sticks into keys and mouse input for
+ * whatever window is focused. A test that only plugs the pad in passes `{ Input: false }`. A pad an
+ * earlier test left plugged in is unplugged first.
  */
-export function virtualPad(): VirtualPad | string {
+export function virtualPad(options?: { Input?: boolean }): VirtualPad | string {
 	const reply = callVirtualPad("GET", "/health");
 	if (!reply.Ok) return `the virtual-pad service can't be reached: ${reply.Error}`;
-	const health = reply.Body as { bus?: string; connected?: boolean };
+	const health = reply.Body as { bus?: string; connected?: boolean; input?: boolean };
 	if (health.bus !== "ok") return `the virtual-pad service has no ViGEmBus: ${health.bus}`;
+	if (options?.Input !== false && health.input !== true) return PAD_INPUT_OFF;
 	if (health.connected === true) {
 		const count = UserInputService.GetConnectedGamepads().size();
 		callVirtualPad("POST", "/disconnect");

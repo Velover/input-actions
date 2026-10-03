@@ -26,6 +26,13 @@ pub struct Find {
     front: bool,
 }
 
+impl Find {
+    /// Whether the request brings the window to the front (a focus change: needs `--allow-input`)
+    pub fn front(&self) -> bool {
+        self.front
+    }
+}
+
 /// The window kept on top, as a number (a handle is a pointer)
 #[derive(Default)]
 pub struct Windows {

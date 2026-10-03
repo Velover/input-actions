@@ -7,6 +7,13 @@
 //
 // The service also stops by itself when this script's process ends (its stdin, a pipe from here,
 // closes; and it watches its parent), and unplugs its pad when it stops.
+//
+// Pad input is opt-in: the service refuses any pad state but the neutral one (and touch injection)
+// unless it is started with --allow-input, which this script passes only when the environment
+// variable VIRTUAL_PAD_INPUT=1 is set. While Steam's "Enable Steam Input for Xbox controllers" is
+// on, Steam turns the pad's buttons and sticks into keys and mouse input for whatever window is
+// focused: turn it off (or exit Steam) before setting it. Without it, the tests that press the pad
+// skip with that reason; plugging the pad in still works.
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +28,9 @@ const URL = `http://127.0.0.1:${VIRTUAL_PAD_PORT}`;
 /** How long the service may take to answer once started, and to stop once asked */
 const START_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 5_000;
+
+/** Whether this run lets the tests press the pad: VIRTUAL_PAD_INPUT=1 */
+const ALLOW_INPUT = process.env.VIRTUAL_PAD_INPUT === "1";
 
 /** The newest modification time among the crate's sources (Cargo.toml, Cargo.lock, src/) */
 function newestSource() {
@@ -72,7 +82,13 @@ export async function startVirtualPad() {
 	if (process.platform !== "win32") return undefined;
 	const running = await health();
 	if (running !== undefined) {
-		console.log(`using the virtual-pad service already running on ${URL}`);
+		const input = running.input === true ? "on" : "off";
+		console.log(`using the virtual-pad service already running on ${URL} (pad input ${input})`);
+		if (ALLOW_INPUT && running.input !== true) {
+			console.error(
+				"warning: VIRTUAL_PAD_INPUT=1, but the service already running has pad input off: stop it to let this run start one with --allow-input",
+			);
+		}
 		return { stop: async () => {} };
 	}
 	if (!build()) {
@@ -80,7 +96,9 @@ export async function startVirtualPad() {
 		return undefined;
 	}
 
-	const child = Bun.spawn([BINARY, "--port", String(VIRTUAL_PAD_PORT)], {
+	const args = [BINARY, "--port", String(VIRTUAL_PAD_PORT)];
+	if (ALLOW_INPUT) args.push("--allow-input");
+	const child = Bun.spawn(args, {
 		stdin: "pipe",
 		stdout: "ignore",
 		stderr: "inherit",
@@ -111,6 +129,8 @@ export async function startVirtualPad() {
 	if (answer.bus !== "ok") {
 		console.error(`warning: virtual-pad: ${answer.bus}: the gamepad tests will skip`);
 	}
-	console.log(`virtual-pad service on ${URL} (${CRATE})`);
+	console.log(
+		`virtual-pad service on ${URL} (${CRATE}), pad input ${ALLOW_INPUT ? "on" : "off (VIRTUAL_PAD_INPUT=1 turns it on)"}`,
+	);
 	return { stop };
 }

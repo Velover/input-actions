@@ -48,6 +48,15 @@ pub struct PadState {
 }
 
 impl PadState {
+    /// Whether nothing is held: no button, triggers released, sticks centred
+    pub fn is_neutral(&self) -> bool {
+        self.buttons.is_empty()
+            && self.left_trigger == 0.0
+            && self.right_trigger == 0.0
+            && self.left_stick == [0.0, 0.0]
+            && self.right_stick == [0.0, 0.0]
+    }
+
     /// The XInput report for this state, or why it isn't a valid state
     fn report(&self) -> Result<XGamepad, String> {
         let mut buttons = 0;
