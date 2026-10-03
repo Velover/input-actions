@@ -8,9 +8,11 @@ import {
 } from "@rbxts/services";
 import { EveryFrame } from "../Internal/EveryFrame";
 import { WarnIfNotServerAuthority } from "./AuthorityMode";
-import { CheckBindingKeys } from "./BindingRules";
+import { BindingNameProblem, CheckBindingKeys } from "./BindingRules";
 import {
 	ApplySpec,
+	FillPlaceholder,
+	IBindingValues,
 	ReadBinding,
 	SpecReleasedThreshold,
 	WriteBinding,
@@ -28,6 +30,7 @@ import {
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
+import type { Device } from "./KeyGroups";
 import {
 	AddUser,
 	ClaimCopy,
@@ -52,6 +55,7 @@ import {
 	ReservedSlotProblem,
 	SlotCollision,
 	WarnUnmentioned,
+	WithDevices,
 } from "./Tree";
 import type {
 	IActionDefinition,
@@ -128,6 +132,26 @@ function ResetIfHeld(action: InputAction) {
 	if (action.GetState() === NEUTRAL_VALUES[action.Type.Name]) return;
 	action.Enabled = false;
 	action.Enabled = true;
+}
+
+/**
+ * An action's binding names: the schema's, and the three devices', which every action has (a device
+ * the schema leaves out gets an unbound binding)
+ */
+function SlotsOf(definition: AnyDefinition): string[] {
+	return WithDevices(Entries(definition.Bindings as Record<string, unknown>).map(([slot]) => slot));
+}
+
+/**
+ * A schema that names a device whose binding another root handle made unbound (its schema left the
+ * device out) fills it: see `FillPlaceholder`
+ */
+function FillSpecInto(binding: InputBinding, spec: unknown) {
+	const defaults = GetEntry(binding)?.Defaults;
+	if (defaults === undefined) return;
+	const values: IBindingValues = { ...defaults };
+	ApplySpec(values, spec);
+	FillPlaceholder(binding, values, SpecReleasedThreshold(spec));
 }
 
 /** The template's action of that name, when it has one */
@@ -491,7 +515,7 @@ export class InputRuntime implements IRuntime {
 				WarnUnmentioned(child);
 				continue;
 			}
-			const slots = Entries(definition.Bindings as Record<string, unknown>).map(([slot]) => slot);
+			const slots = SlotsOf(definition);
 			for (const binding of child.GetChildren()) {
 				if (binding.IsA("InputBinding") && !MatchesSlot(child.Name, binding.Name, slots)) {
 					WarnUnmentioned(binding);
@@ -733,7 +757,7 @@ export class InputRuntime implements IRuntime {
 	) {
 		const path = JoinPath(contextHandle.Name, actionName);
 		// Schema refuses these; a schema made without it could still hold them
-		const slots = Entries(definition.Bindings as Record<string, unknown>).map(([slot]) => slot);
+		const slots = SlotsOf(definition);
 		const collision = SlotCollision(actionName, slots);
 		if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
 		let action = FindAction(context, actionName, definition.Type, path);
@@ -752,13 +776,15 @@ export class InputRuntime implements IRuntime {
 		}
 
 		const handle = new ActionHandle(this, action, actionName, definition.TrackPrevious);
-		for (const [slot, spec] of pairs(definition.Bindings as Record<string, unknown>)) {
+		// Every device has a binding, unbound when the schema leaves it out (spec undefined)
+		const specs = definition.Bindings as Record<string, unknown>;
+		for (const slot of slots) {
 			handle.Bindings[slot] = this.BuildBinding(
 				contextHandle,
 				action,
 				actionName,
 				slot,
-				spec,
+				specs[slot],
 				templateAction,
 			);
 		}
@@ -781,6 +807,11 @@ export class InputRuntime implements IRuntime {
 		if (handle.IsTracked()) this._tracked.push(handle);
 	}
 
+	/**
+	 * Gets or creates the binding of one slot.
+	 * @param spec the schema's binding; undefined for a device the schema leaves out, whose binding
+	 * is made unbound (a placeholder, which a later root handle's schema that names the device fills)
+	 */
 	private BuildBinding(
 		contextHandle: ContextHandle,
 		action: InputAction,
@@ -794,6 +825,8 @@ export class InputRuntime implements IRuntime {
 		const reserved = ReservedSlotProblem(actionName, slot);
 		if (reserved !== undefined) error(`InputActions.Create: ${path}: ${reserved}`, 0);
 		const scriptable = spec === SCRIPTABLE;
+		const nameProblem = BindingNameProblem(slot, scriptable);
+		if (nameProblem !== undefined) error(`InputActions.Create: ${path}: ${nameProblem}`, 0);
 		let binding = FindBinding(action, actionName, slot);
 		// Found: the designer's, or one another root handle on this folder made
 		if (binding !== undefined) this.Use(binding);
@@ -806,20 +839,22 @@ export class InputRuntime implements IRuntime {
 			binding = new Instance("InputBinding");
 			binding.Name = actionName + slot;
 			if (scriptable) binding.Type = Enum.InputBindingType.Scriptable;
-			else {
+			else if (spec !== undefined) {
 				const values = ReadBinding(binding);
 				ApplySpec(values, spec);
 				WriteBinding(binding, values, SpecReleasedThreshold(spec));
 			}
 			binding.Parent = action;
 			this.TrackCreated(binding);
+			if (spec === undefined) GetEntry(binding)!.Placeholder = true;
 		} else if (scriptable !== (binding.Type === Enum.InputBindingType.Scriptable)) {
 			warn(
 				`InputActions: ${path}: ${binding.GetFullName()} is ${binding.Type.Name}, but the schema declares ` +
 					`${scriptable ? "InputActions.Scriptable" : "a key binding"}; left as it is`,
 			);
 		} else if (!scriptable) {
-			const problem = CheckBindingKeys(action.Type.Name, binding);
+			if (spec !== undefined) FillSpecInto(binding, spec);
+			const problem = CheckBindingKeys(action.Type.Name, binding, slot as Device);
 			if (problem !== undefined)
 				warn(`InputActions: ${path}: ${binding.GetFullName()}: ${problem}; left as it is`);
 		}
@@ -827,10 +862,12 @@ export class InputRuntime implements IRuntime {
 		if (scriptable) {
 			return new ScriptableBindingHandle(this, binding, slot, NEUTRAL_VALUES[action.Type.Name]);
 		}
-		// Every root handle on this binding shares the defaults the first one took
+		// Every root handle on this binding shares the defaults the first one took. A key binding's
+		// slot is a device: BindingNameProblem refused any other name
 		const entry = GetEntry(binding)!;
 		entry.Defaults ??= ReadBinding(binding);
-		const handle = new BindingHandle(this, binding, path, action.Type.Name, slot, entry.Defaults);
+		const device = slot as Device;
+		const handle = new BindingHandle(this, binding, path, action.Type.Name, device, entry.Defaults);
 		this._bindings.push(handle);
 		contextHandle.BindingHandles.push(handle);
 		return handle;

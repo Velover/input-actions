@@ -1,4 +1,5 @@
 import { RunService } from "@rbxts/services";
+import { DEVICES } from "./KeyGroups";
 import { IsPackageMade } from "./Registry";
 
 // Name matching against an existing tree (design spec §4). A binding for slot `S` of action `A`
@@ -50,6 +51,16 @@ export function ReservedSlotProblem(actionName: string, slot: string): string | 
 		);
 	}
 	return undefined;
+}
+
+/**
+ * An action's binding names: the schema's, then the devices' it leaves out, since every action has
+ * the three device bindings (0.7.0)
+ */
+export function WithDevices(slots: readonly string[]): string[] {
+	const all = [...slots];
+	for (const device of DEVICES) if (!all.includes(device)) all.push(device);
+	return all;
 }
 
 /**

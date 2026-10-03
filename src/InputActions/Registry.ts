@@ -14,6 +14,11 @@ export interface ISharedEntry {
 	Created: boolean;
 	/** Bindings: the defaults `Reset` returns to, taken by the first user */
 	Defaults?: IBindingValues;
+	/**
+	 * Bindings the package made unbound for a device the schema left out: a later root handle whose
+	 * schema names that device fills it (`FillPlaceholder`)
+	 */
+	Placeholder?: boolean;
 	/** Server Authority templates disabled locally: the `Enabled` given back when the last user goes */
 	TemplateEnabled?: boolean;
 	/** Contexts: the enabled state every handle on it shares */

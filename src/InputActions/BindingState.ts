@@ -12,7 +12,7 @@ import {
 } from "./BindingRules";
 import { NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
 import { EKeyGroup, GetKeyGroup, IsKeyCode } from "./KeyGroups";
-import { ClearHeldValue, GetHeldValue, IHeldValue } from "./Registry";
+import { ClearHeldValue, GetEntry, GetHeldValue, IHeldValue } from "./Registry";
 
 /** Everything `Set` can change on a binding, and so everything `Reset` restores */
 export interface IBindingValues {
@@ -211,6 +211,31 @@ export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding
 		ReleaseOnServer(action, REBIND_RELEASE_NAME, state);
 	}
 	return changed;
+}
+
+/**
+ * A binding the package made unbound for a device its root handle's schema left out (a placeholder)
+ * takes the defaults another root handle's schema gives that device: `Create` twice on one folder,
+ * or a Server Authority swap onto bindings another handle made on the copy. Every handle on it
+ * shares the new defaults (they are the same table). A binding still as it was made gets them
+ * written; one a player rebound since keeps its keys. Does nothing to any other binding.
+ * @param releasedThreshold how the write treats `ReleasedThreshold` (see `EReleasedThreshold`)
+ */
+export function FillPlaceholder(
+	binding: InputBinding,
+	defaults: IBindingValues,
+	releasedThreshold = EReleasedThreshold.Read,
+) {
+	const entry = GetEntry(binding);
+	const current = entry?.Defaults;
+	if (entry === undefined || entry.Placeholder !== true || current === undefined) return;
+	entry.Placeholder = undefined;
+	const untouched = SameValues(ReadBinding(binding), current);
+	if (untouched) WriteBindings([[binding, defaults, releasedThreshold]]);
+	const filled = untouched ? ReadBinding(binding) : defaults;
+	const target = current as unknown as Record<string, unknown>;
+	for (const [name, value] of pairs(filled as unknown as Record<string, unknown>))
+		target[name] = value;
 }
 
 /** Unbinds: the KeyCode and every composite direction become `None`, and the modifiers when asked */

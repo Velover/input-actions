@@ -1,3 +1,4 @@
+import { UserInputService } from "@rbxts/services";
 import { IsServerAuthority as IsServerAuthorityImpl } from "./AuthorityMode";
 import { SanitizeBindings as SanitizeBindingsImpl } from "./BindingsJson";
 import * as Builders from "./Builders";
@@ -62,12 +63,35 @@ export namespace InputActions {
 		return SanitizeBindingsImpl(schema, json);
 	}
 
+	/**
+	 * Client: the device the player uses, as the binding name that holds its keys:
+	 * `UserInputService.PreferredInput`, with the TV remote (`MicroGamepad`) as `"Gamepad"`. Roblox
+	 * counts a gamepad as preferred as soon as one is plugged in, before any of its buttons is
+	 * pressed. A rebinding menu shows `action.Bindings[InputActions.PreferredDevice()]`, and has
+	 * nothing to capture on `"Touch"`.
+	 */
+	export function PreferredDevice(): Device {
+		const preferred = UserInputService.PreferredInput;
+		if (preferred === Enum.PreferredInput.Touch) return "Touch";
+		if (preferred === Enum.PreferredInput.Gamepad || preferred === Enum.PreferredInput.MicroGamepad)
+			return "Gamepad";
+		return "KeyboardAndMouse";
+	}
+
 	export namespace Presets {
 		/** Menu navigation: Navigate, Accept, Cancel, NextPage, PreviousPage and Scroll */
 		export const UiNavigation = UiNavigationPreset;
 		export type UiNavigationOptions = IUiNavigationOptions;
 		export type UiNavigationSchema = { Actions: UiNavigationActions } & UiNavigationOptions;
 	}
+
+	/**
+	 * A device, which names the binding that holds its keys: `"KeyboardAndMouse"`, `"Gamepad"` or
+	 * `"Touch"` (the `Enum.PreferredInput` names; the TV remote's keys are the Gamepad's)
+	 */
+	export type Device = Keys.Device;
+	/** The devices with keys to press, which captures listen to: `"KeyboardAndMouse"`, `"Gamepad"` */
+	export type CapturableDevice = Keys.CapturableDevice;
 
 	/** Any Bool action handle, for helpers written in user projects */
 	export type BoolAction = T.IBoolActionHandle<unknown>;
@@ -76,17 +100,35 @@ export namespace InputActions {
 		A,
 		unknown
 	>;
+	/**
+	 * Any Bool or Direction1D action handle: the ones with a one-field `Capture` and `CaptureChord`,
+	 * for a rebinding menu's helpers
+	 */
+	export type CaptureAction = T.IActionHandle<
+		Enum.InputActionType.Bool | Enum.InputActionType.Direction1D,
+		unknown
+	> &
+		T.IActionCapture;
 	/** The handle of an action definition */
 	export type ActionHandle<D> = T.ActionHandle<D>;
-	/** A binding handle with keys; on Bool and Direction1D actions it adds `CaptureChord` */
-	export type BindingHandle<A extends Enum.InputActionType> = T.BindingHandleOf<A>;
+	/**
+	 * The handle of device `D`'s binding of an `A` action: `Capture` on the keyboard-and-mouse and
+	 * gamepad ones (the default `D`), and on Bool and Direction1D actions `CaptureChord`; none on the
+	 * Touch one. With `D` = `Device` (any of the three), the part they share, whose `Set` takes any
+	 * device's keys (checked at runtime)
+	 */
+	export type BindingHandle<
+		A extends Enum.InputActionType,
+		D extends Device = CapturableDevice,
+	> = T.BindingHandleOf<A, D>;
 	/**
 	 * A binding handle with `CaptureChord`, for helpers generic over the action type (a
 	 * `BindingHandle<A>` of a generic `A` doesn't resolve to it)
 	 */
 	export type ChordBindingHandle<
 		A extends Enum.InputActionType.Bool | Enum.InputActionType.Direction1D,
-	> = T.IChordBindingHandle<A>;
+		D extends CapturableDevice = CapturableDevice,
+	> = T.IChordBindingHandle<A, D>;
 	export type ScriptableBindingHandle<A extends Enum.InputActionType> =
 		T.IScriptableBindingHandle<A>;
 	/** A context handle; Server Authority contexts add `IsLinkedToServer`, `LinkedToServer` and `WhenLinkedToServer` */
@@ -110,10 +152,16 @@ export namespace InputActions {
 
 	/** The value type of an action type: boolean, number, Vector2, Vector3 or Vector2 */
 	export type ActionValue<A extends Enum.InputActionType> = T.ActionValue<A>;
-	/** Every form a binding of this action type may take */
-	export type BindingShape<A extends Enum.InputActionType> = T.BindingShape<A>;
+	/** Every form a binding of this action type and device may take (any device's by default) */
+	export type BindingShape<
+		A extends Enum.InputActionType,
+		D extends Device = Device,
+	> = T.BindingShape<A, D>;
 	/** What `BindingHandle.Get` returns */
-	export type BindingData<A extends Enum.InputActionType> = T.BindingData<A>;
+	export type BindingData<
+		A extends Enum.InputActionType,
+		D extends Device = Device,
+	> = T.BindingData<A, D>;
 	export type CaptureSlot<A extends Enum.InputActionType> = T.CaptureSlot<A>;
 	export type CaptureOptions = T.ICaptureOptions;
 	/** What `CaptureChord` passes its callback */
@@ -140,4 +188,10 @@ export namespace InputActions {
 	export type Direction2DKey = Keys.Direction2DKey;
 	export type CompositeKey = Keys.CompositeKey;
 	export type ModifierKey = Keys.ModifierKey;
+	/** Every gamepad key: buttons, triggers, the D-pad, sticks and their directions, the TV remote's */
+	export type GamepadKey = Keys.GamepadKey;
+	/** `TouchPosition`, `TouchDelta`, `TouchPinch` */
+	export type TouchKey = Keys.TouchKey;
+	/** Every other key: the keyboard's, the mouse's, the trackpad's */
+	export type KeyboardAndMouseKey = Keys.KeyboardAndMouseKey;
 }

@@ -1,8 +1,18 @@
-import { EKeyGroup, GetKeyGroup, IsKeyCode } from "./KeyGroups";
+import {
+	DEVICE_KEYS_TEXT,
+	DEVICES,
+	Device,
+	EKeyGroup,
+	GetKeyDevice,
+	GetKeyGroup,
+	IsDevice,
+	IsKeyCode,
+} from "./KeyGroups";
 import type { BindingSlot } from "./Types";
 
 // The per-action-type binding rules of design spec §3, checked at runtime: schema bindings, Set,
-// Capture, ImportBindings, SanitizeBindings and adopted bindings all go through here.
+// Capture, ImportBindings, SanitizeBindings and adopted bindings all go through here. Since 0.7.0 a
+// binding is a device's (its name), and holds only that device's keys.
 
 export type ActionTypeName = Enum.InputActionType["Name"];
 
@@ -52,8 +62,17 @@ export function IsSlotOf(actionType: ActionTypeName, slot: string): slot is Bind
 	return IsCompositeSlot(slot) && COMPOSITES_OF[actionType].includes(slot);
 }
 
-/** Whether `key` may go in `slot` of a binding on this action type. `None` is never allowed here */
-export function IsKeyAllowed(actionType: ActionTypeName, slot: string, key: Enum.KeyCode): boolean {
+/**
+ * Whether `key` may go in `slot` of a binding on this action type. `None` is never allowed here.
+ * With `device`, the key must also be that device's (the binding's own)
+ */
+export function IsKeyAllowed(
+	actionType: ActionTypeName,
+	slot: string,
+	key: Enum.KeyCode,
+	device?: Device,
+): boolean {
+	if (device !== undefined && GetKeyDevice(key) !== device) return false;
 	if (!IsSlotOf(actionType, slot)) return false;
 	const group = GetKeyGroup(key);
 	if (group === EKeyGroup.Reserved || group === EKeyGroup.Deprecated) return false;
@@ -95,19 +114,69 @@ export function IsFiniteNumber(value: unknown): value is number {
 	return typeIs(value, "number") && value === value && math.abs(value) <= FLOAT_MAX;
 }
 
-function KeyProblem(actionType: ActionTypeName, slot: string, value: unknown): string | undefined {
+/** Why a key that the action type allows in a slot can't go in a binding of `device`, if it can't */
+function DeviceProblem(key: Enum.KeyCode, device: Device | undefined): string | undefined {
+	if (device === undefined) return undefined;
+	const owner = GetKeyDevice(key);
+	if (owner === device) return undefined;
+	return `${key.Name} is a ${owner} key: a ${device} binding takes ${DEVICE_KEYS_TEXT[device]}`;
+}
+
+/** Why `key` can't go in `slot` of a binding of `device` on this action type, if it can't */
+export function KeyRuleProblem(
+	actionType: ActionTypeName,
+	slot: string,
+	key: Enum.KeyCode,
+	device?: Device,
+): string | undefined {
+	if (!IsKeyAllowed(actionType, slot, key))
+		return `${key.Name} is not allowed in ${slot} on a ${actionType} action`;
+	return DeviceProblem(key, device);
+}
+
+function KeyProblem(
+	actionType: ActionTypeName,
+	slot: string,
+	value: unknown,
+	device: Device | undefined,
+): string | undefined {
 	if (!IsKeyCode(value)) return `${slot} must be an Enum.KeyCode`;
-	if (!IsKeyAllowed(actionType, slot, value))
-		return `${value.Name} is not allowed in ${slot} on a ${actionType} action`;
+	return KeyRuleProblem(actionType, slot, value, device);
+}
+
+/**
+ * Why a binding of an action can't have this name, if it can't: a binding with keys is a device's
+ * (`KeyboardAndMouse`, `Gamepad`, `Touch`, the names the Input Action Manager gives them too), and
+ * any other binding must be `InputActions.Scriptable`
+ */
+export function BindingNameProblem(slot: string, scriptable: boolean): string | undefined {
+	const devices = DEVICES.join(", ");
+	if (scriptable && IsDevice(slot)) {
+		return (
+			`${slot} is a device: its binding holds keys, not InputActions.Scriptable. Name a ` +
+			`Scriptable binding something else (the devices are ${devices})`
+		);
+	}
+	if (!scriptable && !IsDevice(slot)) {
+		return (
+			`"${slot}" is not a device: bindings with keys are named ${devices}; any other binding ` +
+			"must be InputActions.Scriptable"
+		);
+	}
 	return undefined;
 }
 
 /**
  * Checks a binding written by the user (a bare key or an object shape, as in the schema or `Set`).
  * Returns the problem, or undefined when the binding is valid.
+ * @param device the binding's device: its keys must be that device's
  */
-export function CheckBindingSpec(actionType: ActionTypeName, spec: unknown): string | undefined {
-	if (IsKeyCode(spec)) return KeyProblem(actionType, "KeyCode", spec);
+export function CheckBindingSpec(
+	actionType: ActionTypeName,
+	spec: unknown,
+	device?: Device,
+): string | undefined {
+	if (IsKeyCode(spec)) return KeyProblem(actionType, "KeyCode", spec, device);
 	if (!typeIs(spec, "table"))
 		return `a binding must be an Enum.KeyCode, an object or InputActions.Scriptable`;
 
@@ -118,7 +187,7 @@ export function CheckBindingSpec(actionType: ActionTypeName, spec: unknown): str
 			return `${tostring(name)} is not a property of a ${actionType} binding`;
 		}
 		if (IsSlotOf(actionType, name)) {
-			const problem = KeyProblem(actionType, name, value);
+			const problem = KeyProblem(actionType, name, value, device);
 			if (problem !== undefined) return problem;
 			if (name === "KeyCode") hasKeyCode = true;
 			else if (IsCompositeSlot(name)) hasComposite = true;
@@ -167,10 +236,12 @@ function CheckPropertyValue(name: string, value: unknown): string | undefined {
 /**
  * Checks the keys of an existing (adopted) binding. `None` slots are fine: an unbound binding is
  * legal at runtime. Returns the problem, or undefined.
+ * @param device the device the binding stands for: its keys must be that device's
  */
 export function CheckBindingKeys(
 	actionType: ActionTypeName,
 	binding: InputBinding,
+	device?: Device,
 ): string | undefined {
 	if (binding.Type === Enum.InputBindingType.Scriptable) return undefined;
 	let hasComposite = false;
@@ -179,8 +250,8 @@ export function CheckBindingKeys(
 		if (key === Enum.KeyCode.None) continue;
 		if (!IsSlotOf(actionType, slot))
 			return `${slot} = ${key.Name} is not used by a ${actionType} action`;
-		if (!IsKeyAllowed(actionType, slot, key))
-			return `${key.Name} is not allowed in ${slot} on a ${actionType} action`;
+		const problem = KeyRuleProblem(actionType, slot, key, device);
+		if (problem !== undefined) return problem;
 		if (IsCompositeSlot(slot)) hasComposite = true;
 	}
 	if (binding.KeyCode !== Enum.KeyCode.None && hasComposite) {
@@ -216,11 +287,13 @@ function DecodeNumbers(value: unknown, count: number): number[] | undefined {
  * type. Returns the decoded properties, or the reason (a string) the entry must be skipped.
  * @param defaultKeyCode the binding's default KeyCode, which an entry without one keeps: the
  * import starts from the defaults
+ * @param device the binding's device: its keys must be that device's
  */
 export function DecodeSavedEntry(
 	actionType: ActionTypeName,
 	entry: unknown,
 	defaultKeyCode: Enum.KeyCode = Enum.KeyCode.None,
+	device?: Device,
 ): Map<SavedProperty, SavedValue> | string {
 	if (!typeIs(entry, "table")) return "the entry is not an object";
 	const decoded = new Map<SavedProperty, SavedValue>();
@@ -243,6 +316,8 @@ export function DecodeSavedEntry(
 				if (!IsKeyAllowed(actionType, property, key)) {
 					return `${key.Name} is not allowed in ${property}`;
 				}
+				const problem = DeviceProblem(key, device);
+				if (problem !== undefined) return problem;
 				if (property === "KeyCode") hasKeyCode = true;
 				else if (IsCompositeSlot(property)) hasComposite = true;
 			}
@@ -265,7 +340,8 @@ export function DecodeSavedEntry(
 	if (hasKeyCode && hasComposite) return "KeyCode and composite directions can't share a binding";
 	if (decoded.has("ResponseCurve")) {
 		// The KeyCode the binding ends up with: a composite direction clears it
-		const keyCode = (decoded.get("KeyCode") as Enum.KeyCode | undefined) ??
+		const keyCode =
+			(decoded.get("KeyCode") as Enum.KeyCode | undefined) ??
 			(hasComposite ? Enum.KeyCode.None : defaultKeyCode);
 		if (GetKeyGroup(keyCode) !== EKeyGroup.Stick)
 			return "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode";

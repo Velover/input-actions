@@ -77,6 +77,133 @@ export type Direction2DKey = StickKey | Delta2DKey;
 export type CompositeKey = ButtonKey | AxisKey;
 export type ModifierKey = ButtonKey;
 
+// ---- devices (0.7.0): an action's key bindings are named after `Enum.PreferredInput`'s devices,
+// and each holds that device's keys only. The TV remote (`MicroGamepad`) has no binding of its own:
+// its keys are the Gamepad's.
+
+/** The devices, which name an action's key bindings (as the Input Action Manager names them) */
+export const DEVICES = ["KeyboardAndMouse", "Gamepad", "Touch"] as const;
+export type Device = (typeof DEVICES)[number];
+/** The devices whose keys can be pressed, which captures listen to: touch has no keys */
+export type CapturableDevice = Exclude<Device, "Touch">;
+
+/**
+ * Gamepad keys: buttons, triggers, the D-pad, sticks and their directions, and the TV remote's
+ * buttons. `ButtonStart` is a gamepad key, but reserved: never allowed in a binding.
+ */
+export const GAMEPAD_KEYS = [
+	Enum.KeyCode.ButtonA,
+	Enum.KeyCode.ButtonB,
+	Enum.KeyCode.ButtonX,
+	Enum.KeyCode.ButtonY,
+	Enum.KeyCode.ButtonL1,
+	Enum.KeyCode.ButtonR1,
+	Enum.KeyCode.ButtonL2,
+	Enum.KeyCode.ButtonR2,
+	Enum.KeyCode.ButtonL3,
+	Enum.KeyCode.ButtonR3,
+	Enum.KeyCode.ButtonStart,
+	Enum.KeyCode.ButtonSelect,
+	Enum.KeyCode.DPadLeft,
+	Enum.KeyCode.DPadRight,
+	Enum.KeyCode.DPadUp,
+	Enum.KeyCode.DPadDown,
+	Enum.KeyCode.Thumbstick1,
+	Enum.KeyCode.Thumbstick2,
+	Enum.KeyCode.Thumbstick1Up,
+	Enum.KeyCode.Thumbstick1Down,
+	Enum.KeyCode.Thumbstick1Left,
+	Enum.KeyCode.Thumbstick1Right,
+	Enum.KeyCode.Thumbstick2Up,
+	Enum.KeyCode.Thumbstick2Down,
+	Enum.KeyCode.Thumbstick2Left,
+	Enum.KeyCode.Thumbstick2Right,
+	Enum.KeyCode.ButtonCenter,
+	Enum.KeyCode.ButtonBack,
+	Enum.KeyCode.ButtonUp,
+	Enum.KeyCode.ButtonDown,
+	Enum.KeyCode.ButtonLeft,
+	Enum.KeyCode.ButtonRight,
+] as const;
+/**
+ * Touch keys: a tap or a finger's position, a drag, a pinch. `Enum.KeyCode.Touch` is the deprecated
+ * name of `TouchPosition`, the same item
+ */
+export const TOUCH_KEYS = [
+	Enum.KeyCode.TouchPosition,
+	Enum.KeyCode.TouchDelta,
+	Enum.KeyCode.TouchPinch,
+] as const;
+
+export type GamepadKey = (typeof GAMEPAD_KEYS)[number];
+export type TouchKey = (typeof TOUCH_KEYS)[number];
+/** Keyboard keys, mouse buttons, the wheel, mouse movement and position, trackpad gestures */
+export type KeyboardAndMouseKey = Exclude<Enum.KeyCode, GamepadKey | TouchKey>;
+
+/**
+ * The keys a binding of one device may hold, by what they go in. Derived from the groups above with
+ * Exclude/Extract once, here: never per binding (a mapped type over the KeyCode union runs tsc out
+ * of memory)
+ */
+export interface IDeviceKeys {
+	/** A Bool binding's `KeyCode` */
+	Bool: Enum.KeyCode;
+	/** A Direction1D binding's `KeyCode` */
+	Direction1D: Enum.KeyCode;
+	/** A Direction2D binding's `KeyCode`: a thumbstick */
+	Stick: Enum.KeyCode;
+	/** A Direction2D binding's `KeyCode`: a movement */
+	Delta2D: Enum.KeyCode;
+	/** A composite direction (`Up`, `Down`...) */
+	Composite: Enum.KeyCode;
+	/** `PrimaryModifier`, `SecondaryModifier` */
+	Modifier: Enum.KeyCode;
+	/** A ViewportPosition binding's `KeyCode` */
+	Position: Enum.KeyCode;
+}
+export interface IKeyboardAndMouseKeys extends IDeviceKeys {
+	Bool: Exclude<BoolKey, GamepadKey | TouchKey>;
+	Direction1D: Exclude<Direction1DKey, GamepadKey | TouchKey>;
+	Stick: never;
+	Delta2D: Exclude<Delta2DKey, TouchKey>;
+	Composite: Exclude<CompositeKey, GamepadKey>;
+	Modifier: Exclude<ModifierKey, GamepadKey>;
+	Position: Enum.KeyCode.MousePosition;
+}
+export interface IGamepadKeys extends IDeviceKeys {
+	Bool: Exclude<GamepadKey, ReservedKey | StickKey>;
+	Direction1D: Exclude<GamepadKey, ReservedKey | StickKey>;
+	Stick: StickKey;
+	Delta2D: never;
+	Composite: Exclude<GamepadKey, ReservedKey | StickKey>;
+	Modifier: Exclude<GamepadKey, ReservedKey | StickKey | AxisKey>;
+	Position: never;
+}
+export interface ITouchKeys extends IDeviceKeys {
+	Bool: Enum.KeyCode.TouchPosition;
+	Direction1D: Enum.KeyCode.TouchPinch;
+	Stick: never;
+	Delta2D: Enum.KeyCode.TouchDelta;
+	Composite: never;
+	Modifier: never;
+	Position: Enum.KeyCode.TouchPosition;
+}
+/** Any device's keys: the rules of the action type alone */
+export interface IAnyDeviceKeys extends IDeviceKeys {
+	Bool: BoolKey;
+	Direction1D: Direction1DKey;
+	Stick: StickKey;
+	Delta2D: Delta2DKey;
+	Composite: CompositeKey;
+	Modifier: ModifierKey;
+	Position: PositionKey;
+}
+export interface IDeviceKeyMap {
+	KeyboardAndMouse: IKeyboardAndMouseKeys;
+	Gamepad: IGamepadKeys;
+	Touch: ITouchKeys;
+}
+
 export const enum EKeyGroup {
 	Reserved,
 	Deprecated,
@@ -102,6 +229,10 @@ AddGroup(DELTA_1D_KEYS, EKeyGroup.Delta1D);
 AddGroup(DELTA_2D_KEYS, EKeyGroup.Delta2D);
 AddGroup(POSITION_KEYS, EKeyGroup.Position);
 
+const KEY_DEVICES = new Map<Enum.KeyCode, Device>();
+for (const key of GAMEPAD_KEYS) KEY_DEVICES.set(key, "Gamepad");
+for (const key of TOUCH_KEYS) KEY_DEVICES.set(key, "Touch");
+
 export function IsKeyCode(value: unknown): value is Enum.KeyCode {
 	return typeIs(value, "EnumItem") && value.EnumType === Enum.KeyCode;
 }
@@ -110,3 +241,23 @@ export function IsKeyCode(value: unknown): value is Enum.KeyCode {
 export function GetKeyGroup(key: Enum.KeyCode): EKeyGroup {
 	return KEY_GROUPS.get(key) ?? EKeyGroup.Button;
 }
+
+/**
+ * The device a key belongs to, from the key alone: a gamepad's or a touch screen's when listed above,
+ * else the keyboard and mouse's. Not from the input that carried it (VirtualInput sends gamepad
+ * KeyCodes as keyboard input) nor from `PreferredInput` (which a press switches)
+ */
+export function GetKeyDevice(key: Enum.KeyCode): Device {
+	return KEY_DEVICES.get(key) ?? "KeyboardAndMouse";
+}
+
+export function IsDevice(name: unknown): name is Device {
+	return (DEVICES as readonly defined[]).includes(name as defined);
+}
+
+/** What a device's binding takes, for messages */
+export const DEVICE_KEYS_TEXT: Record<Device, string> = {
+	KeyboardAndMouse: "keyboard and mouse keys",
+	Gamepad: "gamepad keys",
+	Touch: "touch keys (TouchPosition, TouchDelta, TouchPinch)",
+};

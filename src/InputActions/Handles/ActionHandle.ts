@@ -1,6 +1,9 @@
 import { RunService } from "@rbxts/services";
-import { CarryChanges, ReadBinding, WriteBindings } from "../BindingState";
+import { CarryChanges, FillPlaceholder, ReadBinding, WriteBindings } from "../BindingState";
+import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
 import { IRuntime, IsLive, IsServerAuthorityCopy, NEUTRAL_VALUES } from "../Internal";
+import { CapturableDevice, GetKeyDevice } from "../KeyGroups";
+import type { ICaptureOptions, IChord, IChordCaptureOptions } from "../Types";
 import {
 	ClearHeldValue,
 	GetEntry,
@@ -118,9 +121,12 @@ export function MoveBindings(
 		} else {
 			// Ours stays in the stand-in and goes with it. What it changed from its defaults (rebinds,
 			// an import) is written onto the one that stands for it, whose defaults every handle on it
-			// shares: the first handle's snapshot
-			const defaults = GetEntry(binding)?.Defaults;
+			// shares: the first handle's snapshot. One that handle made unbound, for a device its schema
+			// left out, takes ours first when our schema names the device
+			const source = GetEntry(binding);
+			const defaults = source?.Defaults;
 			if (defaults !== undefined && existing.Type === binding.Type) {
+				if (source?.Placeholder !== true) FillPlaceholder(existing, defaults);
 				GetEntry(existing)!.Defaults ??= defaults;
 				WriteBindings([CarryChanges(ReadBinding(binding), defaults, existing)]);
 			}
@@ -392,6 +398,87 @@ export class ActionHandle {
 
 	IsPressed() {
 		return this.Instance.GetState() === true;
+	}
+
+	/** The handle of a device's binding (every action has the three), when it is one with keys */
+	private DeviceBinding(device: CapturableDevice): BindingHandle | undefined {
+		const handle = this.Bindings[device];
+		return handle instanceof BindingHandle ? handle : undefined;
+	}
+
+	/** Bool and Direction1D actions only (the types hide it on the others) */
+	private CheckCapture(method: string) {
+		if (CHORD_TYPES.has(this.Type.Name)) return;
+		error(
+			`InputActions: ${this.Name}: ${method} on an action needs a Bool or Direction1D action, not ` +
+				`${this.Type.Name}; capture a slot of one of its bindings instead`,
+			3,
+		);
+	}
+
+	/**
+	 * Waits for the next key a keyboard-and-mouse or gamepad binding of this action can hold in its
+	 * `KeyCode`: the key's device picks the binding, which gets it (see `IActionCapture.Capture`).
+	 * Touch input is ignored, as is a key no binding of its device can take.
+	 */
+	Capture(
+		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,
+		options?: ICaptureOptions,
+	): () => void {
+		this.CheckCapture("Capture");
+		if (this._runtime.IsDestroyed()) return () => {};
+		const actionType = this.Type.Name;
+		return CaptureKey(
+			this._runtime,
+			(key) => {
+				const device = GetKeyDevice(key);
+				if (device === "Touch") return undefined;
+				const binding = this.DeviceBinding(device);
+				const captured = CapturedKey(actionType, "KeyCode", key, device);
+				if (binding === undefined || captured === undefined) return undefined;
+				return { Binding: binding, Slot: "KeyCode", Key: captured };
+			},
+			(target) => {
+				target.Binding.ApplyCapturedKey(target.Slot, target.Key);
+				callback(target.Key, target.Binding.Name as CapturableDevice);
+			},
+			options?.Cancel ?? [],
+		);
+	}
+
+	/**
+	 * Waits for a chord of the keyboard and mouse or of the gamepad, whichever's key goes down first,
+	 * and gives it to that device's binding (see `IActionCapture.CaptureChord`)
+	 */
+	CaptureChord(
+		callback: (chord: IChord | undefined, device: CapturableDevice | undefined) => void,
+		options?: IChordCaptureOptions,
+	): () => void {
+		this.CheckCapture("CaptureChord");
+		const timeout = options?.Timeout;
+		if (timeout !== undefined && !IsValidTimeout(timeout)) {
+			error(
+				`InputActions: ${this.Name}: CaptureChord's Timeout must be a positive number of seconds`,
+				2,
+			);
+		}
+		if (this._runtime.IsDestroyed()) return () => {};
+		const devices = new Array<CapturableDevice>();
+		for (const device of ["KeyboardAndMouse", "Gamepad"] as const) {
+			if (this.DeviceBinding(device) !== undefined) devices.push(device);
+		}
+		return CaptureChord(
+			this._runtime,
+			this.Type.Name,
+			devices,
+			(chord, device) => {
+				if (chord === undefined || device === undefined) return callback(undefined, undefined);
+				this.DeviceBinding(device)!.ApplyChord(chord);
+				callback(chord, device);
+			},
+			options?.Cancel ?? [],
+			timeout,
+		);
 	}
 
 	Tap() {

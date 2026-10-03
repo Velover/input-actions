@@ -28,9 +28,9 @@ function UiNavigationActions() {
 		Cancel: Bool({ KeyboardAndMouse: Enum.KeyCode.B, Gamepad: Enum.KeyCode.ButtonB }),
 		NextPage: Bool({ KeyboardAndMouse: Enum.KeyCode.E, Gamepad: Enum.KeyCode.ButtonR1 }),
 		PreviousPage: Bool({ KeyboardAndMouse: Enum.KeyCode.Q, Gamepad: Enum.KeyCode.ButtonL1 }),
+		// One binding per device (0.7.0): the wheel, not PageUp/PageDown, on the keyboard and mouse
 		Scroll: Direction1D({
-			Mouse: Enum.KeyCode.MouseWheel,
-			KeyboardAndMouse: { Up: Enum.KeyCode.PageUp, Down: Enum.KeyCode.PageDown },
+			KeyboardAndMouse: Enum.KeyCode.MouseWheel,
 			Gamepad: { Up: Enum.KeyCode.Thumbstick2Up, Down: Enum.KeyCode.Thumbstick2Down },
 		}),
 	};

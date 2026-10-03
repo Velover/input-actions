@@ -1,23 +1,16 @@
-import { CheckBindingSpec } from "./BindingRules";
+import { BindingNameProblem, CheckBindingSpec } from "./BindingRules";
 import { Entries } from "./Internal";
-import { ReservedSlotProblem, SlotCollision } from "./Tree";
+import { IsDevice } from "./KeyGroups";
+import { ReservedSlotProblem, SlotCollision, WithDevices } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
 	CheckContexts,
 	IActionDefinition,
 	IActionOptions,
-	IBoolBinding,
 	IContextSchema,
-	IDirection1DCompositeBinding,
-	IDirection1DKeyBinding,
-	IDirection2DCompositeBinding,
-	IDirection2DDeltaBinding,
-	IDirection2DStickBinding,
-	IDirection3DCompositeBinding,
 	IInputSchema,
 	IScriptable,
-	IViewportPositionBinding,
 } from "./Types";
 
 /** The marker of a binding driven only from code (`Fire`) */
@@ -62,7 +55,7 @@ export function Bool<
 	const B extends Record<string, BindingSpec<Enum.InputActionType.Bool>> = {},
 	const TP extends boolean = false,
 >(
-	bindings?: B & CheckBindings<B, IBoolBinding>,
+	bindings?: B & CheckBindings<B, Enum.InputActionType.Bool>,
 	options?: IActionOptions<TP>,
 ): IActionDefinition<Enum.InputActionType.Bool, B, TP> {
 	return Define(Enum.InputActionType.Bool, bindings, options) as never;
@@ -72,7 +65,7 @@ export function Direction1D<
 	const B extends Record<string, BindingSpec<Enum.InputActionType.Direction1D>> = {},
 	const TP extends boolean = false,
 >(
-	bindings?: B & CheckBindings<B, IDirection1DKeyBinding | IDirection1DCompositeBinding>,
+	bindings?: B & CheckBindings<B, Enum.InputActionType.Direction1D>,
 	options?: IActionOptions<TP>,
 ): IActionDefinition<Enum.InputActionType.Direction1D, B, TP> {
 	return Define(Enum.InputActionType.Direction1D, bindings, options) as never;
@@ -82,11 +75,7 @@ export function Direction2D<
 	const B extends Record<string, BindingSpec<Enum.InputActionType.Direction2D>> = {},
 	const TP extends boolean = false,
 >(
-	bindings?: B &
-		CheckBindings<
-			B,
-			IDirection2DStickBinding | IDirection2DDeltaBinding | IDirection2DCompositeBinding
-		>,
+	bindings?: B & CheckBindings<B, Enum.InputActionType.Direction2D>,
 	options?: IActionOptions<TP>,
 ): IActionDefinition<Enum.InputActionType.Direction2D, B, TP> {
 	return Define(Enum.InputActionType.Direction2D, bindings, options) as never;
@@ -96,7 +85,7 @@ export function Direction3D<
 	const B extends Record<string, BindingSpec<Enum.InputActionType.Direction3D>> = {},
 	const TP extends boolean = false,
 >(
-	bindings?: B & CheckBindings<B, IDirection3DCompositeBinding>,
+	bindings?: B & CheckBindings<B, Enum.InputActionType.Direction3D>,
 	options?: IActionOptions<TP>,
 ): IActionDefinition<Enum.InputActionType.Direction3D, B, TP> {
 	return Define(Enum.InputActionType.Direction3D, bindings, options) as never;
@@ -106,7 +95,7 @@ export function ViewportPosition<
 	const B extends Record<string, BindingSpec<Enum.InputActionType.ViewportPosition>> = {},
 	const TP extends boolean = false,
 >(
-	bindings?: B & CheckBindings<B, IViewportPositionBinding>,
+	bindings?: B & CheckBindings<B, Enum.InputActionType.ViewportPosition>,
 	options?: IActionOptions<TP>,
 ): IActionDefinition<Enum.InputActionType.ViewportPosition, B, TP> {
 	return Define(Enum.InputActionType.ViewportPosition, bindings, options) as never;
@@ -165,11 +154,13 @@ export function Schema<S extends Record<string, IContextSchema>>(
 					error(`${actionWhere}/${slot}: a binding name can't contain "/"`, 2);
 				const reserved = ReservedSlotProblem(actionName, slot);
 				if (reserved !== undefined) error(`${actionWhere}/${slot}: ${reserved}`, 2);
-				if (spec === SCRIPTABLE) continue;
-				const problem = CheckBindingSpec(action.Type.Name, spec);
+				const nameProblem = BindingNameProblem(slot, spec === SCRIPTABLE);
+				if (nameProblem !== undefined) error(`${actionWhere}/${slot}: ${nameProblem}`, 2);
+				if (spec === SCRIPTABLE || !IsDevice(slot)) continue;
+				const problem = CheckBindingSpec(action.Type.Name, spec, slot);
 				if (problem !== undefined) error(`${actionWhere}/${slot}: ${problem}`, 2);
 			}
-			const collision = SlotCollision(actionName, bindings.map(([slot]) => slot));
+			const collision = SlotCollision(actionName, WithDevices(bindings.map(([slot]) => slot)));
 			if (collision !== undefined) error(`${actionWhere}: ${collision}`, 2);
 		}
 	}

@@ -1,6 +1,6 @@
 {
   "name": "@rbxts/input-actions",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "A typed wrapper over Roblox's Input Action System for roblox-ts: schema-defined contexts, actions and bindings, rebinding with JSON saves, Server Authority, and mouse and raw-input utilities.",
   "main": "out/init.luau",
   "types": "out/index.d.ts",

@@ -10,7 +10,7 @@ import {
 import { SCRIPTABLE } from "./Builders";
 import type { BindingHandle } from "./Handles/BindingHandle";
 import { IRuntime, JoinPath } from "./Internal";
-import { IsKeyCode } from "./KeyGroups";
+import { DEVICES, IsDevice, IsKeyCode } from "./KeyGroups";
 import type { IContextSchema, IImportResult, IInputSchema } from "./Types";
 
 // Saved keybinds (design spec §7):
@@ -110,6 +110,21 @@ function DecodeSave(json: string): Record<string, unknown> | string {
 }
 
 /**
+ * Why a saved path matches no binding: another context's (a context handle's import), a binding not
+ * named after a device (a save holds only device bindings, since 0.7.0: a 0.6 save's `Mouse` or
+ * `Alternate` entry), or none at all
+ */
+function UnknownPathReason(path: unknown, context: string | undefined): string {
+	if (!typeIs(path, "string")) return "unknown path";
+	const [contextName, , slot, extra] = path.split("/");
+	if (context !== undefined && contextName !== context) return `not a binding of ${context}`;
+	if (slot !== undefined && extra === undefined && !IsDevice(slot)) {
+		return `${slot} is not a device: a save holds the ${DEVICES.join(", ")} bindings`;
+	}
+	return "unknown path";
+}
+
+/**
  * Starts from the defaults, then applies each valid entry. Never throws: a bad save applies
  * nothing, and a bad entry is skipped (its binding stays at its default).
  * @param context when set, only paths of this context are applied
@@ -143,12 +158,15 @@ export function ImportBindings(
 				result.Skipped.push({ Path: tostring(path), Reason: reason });
 			const handle = typeIs(path, "string") ? byPath.get(path) : undefined;
 			if (handle === undefined) {
-				const other =
-					context !== undefined && typeIs(path, "string") && path.split("/")[0] !== context;
-				skip(other ? `not a binding of ${context}` : "unknown path");
+				skip(UnknownPathReason(path, context));
 				continue;
 			}
-			const saved = DecodeSavedEntry(handle.ActionType, entry, handle.GetDefaults().KeyCode);
+			const saved = DecodeSavedEntry(
+				handle.ActionType,
+				entry,
+				handle.GetDefaults().KeyCode,
+				handle.Name,
+			);
 			if (typeIs(saved, "string")) {
 				skip(saved);
 				continue;
@@ -185,12 +203,13 @@ export function SanitizeBindings(
 	for (const [path, entry] of pairs(bindings)) {
 		if (!typeIs(path, "string")) continue;
 		const [contextName, actionName, slot, extra] = path.split("/");
-		if (extra !== undefined || slot === undefined) continue;
+		// Every action has the three device bindings, unbound when its schema leaves one out
+		if (extra !== undefined || slot === undefined || !IsDevice(slot)) continue;
 		const action = schema.Contexts[contextName]?.Actions[actionName];
-		const spec =
-			action !== undefined ? (action.Bindings as Record<string, unknown>)[slot] : undefined;
-		if (action === undefined || spec === undefined || spec === SCRIPTABLE) continue;
-		const values = DecodeSavedEntry(action.Type.Name, entry, SpecKeyCode(spec));
+		if (action === undefined) continue;
+		const spec = (action.Bindings as Record<string, unknown>)[slot];
+		if (spec === SCRIPTABLE) continue;
+		const values = DecodeSavedEntry(action.Type.Name, entry, SpecKeyCode(spec), slot);
 		if (typeIs(values, "string")) continue;
 		const cleanEntry: Record<string, unknown> = {};
 		for (const name of SAVED_PROPERTIES) {

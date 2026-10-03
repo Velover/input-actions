@@ -1,15 +1,13 @@
 import type {
-	BoolKey,
-	CompositeKey,
-	Delta2DKey,
-	Direction1DKey,
-	Direction2DKey,
-	ModifierKey,
-	PositionKey,
-	StickKey,
+	CapturableDevice,
+	Device,
+	IAnyDeviceKeys,
+	IDeviceKeyMap,
+	IDeviceKeys,
 } from "./KeyGroups";
 
-// ---- binding shapes (one input source per binding, as IAS enforces)
+// ---- binding shapes (one input source per binding, as IAS enforces). Each takes the keys of one
+// device (`K`, see KeyGroups' IDeviceKeys); the default takes any device's.
 
 export interface IBindingDisplay {
 	/** Stops bare enum items from structurally matching all-optional shapes (e.g. composites) */
@@ -18,34 +16,40 @@ export interface IBindingDisplay {
 	/** An image URI, e.g. `rbxassetid://...` */
 	DisplayImage?: string;
 }
-export interface IBindingModifiers extends IBindingDisplay {
-	PrimaryModifier?: ModifierKey;
-	SecondaryModifier?: ModifierKey;
+export interface IBindingModifiers<K extends IDeviceKeys = IAnyDeviceKeys> extends IBindingDisplay {
+	PrimaryModifier?: K["Modifier"];
+	SecondaryModifier?: K["Modifier"];
 }
 export interface IAxisShaping {
 	Scale?: number;
 	ClampMagnitudeToOne?: boolean;
 }
 
-export interface IBoolBinding extends IBindingModifiers {
-	KeyCode: BoolKey;
+export interface IBoolBinding<K extends IDeviceKeys = IAnyDeviceKeys> extends IBindingModifiers<K> {
+	KeyCode: K["Bool"];
 	PressedThreshold?: number;
 	ReleasedThreshold?: number;
 }
 
-export interface IDirection1DKeyBinding extends IBindingModifiers, IAxisShaping {
-	KeyCode: Direction1DKey;
+export interface IDirection1DKeyBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
+	KeyCode: K["Direction1D"];
 	Up?: never;
 	Down?: never;
 }
-export interface IDirection1DCompositeBinding extends IBindingModifiers, IAxisShaping {
+export interface IDirection1DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
 	KeyCode?: never;
-	Up?: CompositeKey;
-	Down?: CompositeKey;
+	Up?: K["Composite"];
+	Down?: K["Composite"];
 }
 
-export interface IDirection2DStickBinding extends IBindingModifiers, IAxisShaping {
-	KeyCode: StickKey;
+export interface IDirection2DStickBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
+	KeyCode: K["Stick"];
 	ResponseCurve?: number;
 	Vector2Scale?: Vector2;
 	Up?: never;
@@ -53,8 +57,10 @@ export interface IDirection2DStickBinding extends IBindingModifiers, IAxisShapin
 	Left?: never;
 	Right?: never;
 }
-export interface IDirection2DDeltaBinding extends IBindingModifiers, IAxisShaping {
-	KeyCode: Delta2DKey;
+export interface IDirection2DDeltaBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
+	KeyCode: K["Delta2D"];
 	ResponseCurve?: never;
 	Vector2Scale?: Vector2;
 	Up?: never;
@@ -62,49 +68,58 @@ export interface IDirection2DDeltaBinding extends IBindingModifiers, IAxisShapin
 	Left?: never;
 	Right?: never;
 }
-export interface IDirection2DCompositeBinding extends IBindingModifiers, IAxisShaping {
+export interface IDirection2DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
 	KeyCode?: never;
 	ResponseCurve?: never;
 	Vector2Scale?: Vector2;
-	Up?: CompositeKey;
-	Down?: CompositeKey;
-	Left?: CompositeKey;
-	Right?: CompositeKey;
+	Up?: K["Composite"];
+	Down?: K["Composite"];
+	Left?: K["Composite"];
+	Right?: K["Composite"];
 }
 
-export interface IDirection3DCompositeBinding extends IBindingModifiers, IAxisShaping {
-	Up?: CompositeKey;
-	Down?: CompositeKey;
-	Left?: CompositeKey;
-	Right?: CompositeKey;
-	Forward?: CompositeKey;
-	Backward?: CompositeKey;
+export interface IDirection3DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingModifiers<K>,
+		IAxisShaping {
+	Up?: K["Composite"];
+	Down?: K["Composite"];
+	Left?: K["Composite"];
+	Right?: K["Composite"];
+	Forward?: K["Composite"];
+	Backward?: K["Composite"];
 	Vector3Scale?: Vector3;
 }
 
-export interface IViewportPositionBinding extends IBindingDisplay {
-	KeyCode: PositionKey;
+export interface IViewportPositionBinding<K extends IDeviceKeys = IAnyDeviceKeys>
+	extends IBindingDisplay {
+	KeyCode: K["Position"];
 }
 
 /** The object forms of a binding, per action type */
-export interface IBindingObjectMap {
-	Bool: IBoolBinding;
-	Direction1D: IDirection1DKeyBinding | IDirection1DCompositeBinding;
-	Direction2D: IDirection2DStickBinding | IDirection2DDeltaBinding | IDirection2DCompositeBinding;
-	Direction3D: IDirection3DCompositeBinding;
-	ViewportPosition: IViewportPositionBinding;
+export interface IBindingObjectMap<K extends IDeviceKeys = IAnyDeviceKeys> {
+	Bool: IBoolBinding<K>;
+	Direction1D: IDirection1DKeyBinding<K> | IDirection1DCompositeBinding<K>;
+	Direction2D:
+		| IDirection2DStickBinding<K>
+		| IDirection2DDeltaBinding<K>
+		| IDirection2DCompositeBinding<K>;
+	Direction3D: IDirection3DCompositeBinding<K>;
+	ViewportPosition: IViewportPositionBinding<K>;
 }
 /** Every form a binding may take in a schema or in `Set`, per action type (a bare key is `{ KeyCode }`) */
-export interface IBindingShapeMap {
-	Bool: BoolKey | IBoolBinding;
-	Direction1D: Direction1DKey | IDirection1DKeyBinding | IDirection1DCompositeBinding;
+export interface IBindingShapeMap<K extends IDeviceKeys = IAnyDeviceKeys> {
+	Bool: K["Bool"] | IBoolBinding<K>;
+	Direction1D: K["Direction1D"] | IDirection1DKeyBinding<K> | IDirection1DCompositeBinding<K>;
 	Direction2D:
-		| Direction2DKey
-		| IDirection2DStickBinding
-		| IDirection2DDeltaBinding
-		| IDirection2DCompositeBinding;
-	Direction3D: IDirection3DCompositeBinding;
-	ViewportPosition: PositionKey | IViewportPositionBinding;
+		| K["Stick"]
+		| K["Delta2D"]
+		| IDirection2DStickBinding<K>
+		| IDirection2DDeltaBinding<K>
+		| IDirection2DCompositeBinding<K>;
+	Direction3D: IDirection3DCompositeBinding<K>;
+	ViewportPosition: K["Position"] | IViewportPositionBinding<K>;
 }
 
 /** The marker of a binding driven only from code: `InputActions.Scriptable` */
@@ -112,19 +127,44 @@ export interface IScriptable {
 	readonly _nominal_InputActionsScriptable: unique symbol;
 }
 
-export type BindingShape<T extends Enum.InputActionType> = IBindingShapeMap[T["Name"]];
-export type BindingSpec<T extends Enum.InputActionType> = BindingShape<T> | IScriptable;
+/**
+ * The forms a binding of device `D` may take (a union of devices: any of theirs, each binding with
+ * one device's keys)
+ */
+export type BindingShape<
+	T extends Enum.InputActionType,
+	D extends Device = Device,
+> = D extends Device ? IBindingShapeMap<IDeviceKeyMap[D]>[T["Name"]] : never;
+/** What the builders' records take before the device checks: any device's keys, or Scriptable */
+export type BindingSpec<T extends Enum.InputActionType> = IBindingShapeMap[T["Name"]] | IScriptable;
 type PartialEach<U> = U extends unknown ? Partial<U> : never;
 /** A binding's current value as plain data in the schema's shape. An unbound binding has no keys */
-export type BindingData<T extends Enum.InputActionType> = PartialEach<IBindingObjectMap[T["Name"]]>;
+export type BindingData<
+	T extends Enum.InputActionType,
+	D extends Device = Device,
+> = D extends Device ? PartialEach<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
 
-// Generic inference skips excess-property checks, so unknown properties are rejected here. Compares
-// against EnumItem, not the KeyCode union: a mapped type over the whole union runs tsc out of memory.
+// Generic inference skips excess-property checks, so unknown properties are rejected here. A binding
+// named after a device takes that device's keys (`BindingShape<T, D>`), any other name only
+// `InputActions.Scriptable` (design spec §3, 0.7.0). Compares a bare key against the device's key
+// union with a conditional, never a mapped type over the KeyCode union, which runs tsc out of memory.
 type AllKeys<U> = U extends unknown ? keyof U : never;
-export type CheckBindings<B, TShape> = {
-	[K in keyof B]: B[K] extends IScriptable | EnumItem
+export type CheckBindings<B, T extends Enum.InputActionType> = {
+	// `string`: inference fell back to the constraint (a key the action type can't take), whose
+	// error says so; or computed names, which `Schema` checks at runtime
+	[K in keyof B]: string extends K
 		? unknown
-		: { [P in Exclude<keyof B[K], AllKeys<TShape>>]: never };
+		: K extends Device
+			? B[K] extends IScriptable
+				? BindingShape<T, K>
+				: B[K] extends EnumItem
+					? B[K] extends BindingShape<T, K>
+						? unknown
+						: BindingShape<T, K>
+					: IBindingObjectMap<IDeviceKeyMap[K]>[T["Name"]] & {
+							[P in Exclude<keyof B[K], AllKeys<IBindingObjectMap[T["Name"]]>>]: never;
+						}
+			: IScriptable;
 };
 
 // ---- values
@@ -216,21 +256,41 @@ export interface ICaptureOptions {
 	Cancel?: Enum.KeyCode[];
 }
 
-export interface IBindingHandle<T extends Enum.InputActionType> {
+/**
+ * A device's binding of an action (`KeyboardAndMouse`, `Gamepad`, `Touch`): every action has the
+ * three, unbound when the schema leaves one out. `D` is the device; a union of devices is a handle
+ * any of theirs is assignable to, whose `Set` takes any of their keys (checked at runtime)
+ */
+export interface IBindingHandle<T extends Enum.InputActionType, D extends Device = Device> {
 	readonly Instance: InputBinding;
-	readonly Name: string;
-	/** The current binding as plain data in the schema's shape */
-	Get(): BindingData<T>;
-	/** Rebind. Same per-type rules as the schema, also checked at runtime. Objects merge into the binding */
-	Set(binding: BindingShape<T>): void;
-	/** Back to the binding right after `Create` */
+	/** The device: the binding's name in the schema */
+	readonly Name: D;
+	/** The current binding as plain data in the schema's shape (`{}` when unbound) */
+	Get(): BindingData<T, D>;
+	/**
+	 * Rebind. Same per-type rules as the schema, and the device's keys only, also checked at runtime.
+	 * Objects merge into the binding
+	 */
+	Set(binding: BindingShape<T, D>): void;
+	/** Back to the binding right after `Create` (unbound when the schema left the device out) */
 	Reset(): void;
 	/**
 	 * Unbinds: KeyCode, composite directions and modifiers become `None`. With a slot, clears only
 	 * that one (e.g. `"PrimaryModifier"` turns Ctrl+S into S)
 	 */
 	Clear(slot?: CaptureSlot<T>): void;
-	/** Waits for the next key legal for `slot`, applies it, then calls `callback`. Returns a cancel function */
+}
+/** A keyboard-and-mouse or gamepad binding, which can capture the device's next key */
+export interface ICaptureBindingHandle<
+	T extends Enum.InputActionType,
+	D extends CapturableDevice = CapturableDevice,
+> extends IBindingHandle<T, D> {
+	/**
+	 * Waits for the next key of this binding's device legal for `slot`, applies it, then calls
+	 * `callback`; other devices' keys are ignored (a `Cancel` key counts from any device). On the
+	 * gamepad a stick pushed past halfway counts as its direction (`Thumbstick1Up`...), and a
+	 * Direction2D `KeyCode` takes the whole stick. Returns a cancel function
+	 */
 	Capture(
 		slot: CaptureSlot<T>,
 		callback: (key: Enum.KeyCode) => void,
@@ -256,16 +316,23 @@ export interface IChordCaptureOptions extends ICaptureOptions {
 	Timeout?: number;
 }
 
-/** A binding of a Bool or Direction1D action, which can capture a chord as well as one key */
-export interface IChordBindingHandle<T extends Enum.InputActionType> extends IBindingHandle<T> {
+/**
+ * A keyboard-and-mouse or gamepad binding of a Bool or Direction1D action, which can capture a chord
+ * as well as one key
+ */
+export interface IChordBindingHandle<
+	T extends Enum.InputActionType,
+	D extends CapturableDevice = CapturableDevice,
+> extends ICaptureBindingHandle<T, D> {
 	/**
-	 * Waits for keys held together (up to three), and settles when the first of them comes up: the
-	 * last key down becomes `KeyCode`, the ones held before it `PrimaryModifier` and
-	 * `SecondaryModifier`, in the order they went down (one key alone clears the modifiers). Applies
-	 * it, then calls `callback` with it. A chord the binding can't hold is ignored, and the capture
-	 * waits for every key of it to come up before the next one counts. `callback` gets `undefined`
-	 * when the capture ends with nothing applied: a `Cancel` key, or a `Timeout` with no chord held.
-	 * Returns a function that stops the capture (then `callback` isn't called)
+	 * Waits for keys of this binding's device held together (up to three), and settles when the
+	 * first of them comes up: the last key down becomes `KeyCode`, the ones held before it
+	 * `PrimaryModifier` and `SecondaryModifier`, in the order they went down (one key alone clears
+	 * the modifiers). Other devices' keys are ignored. Applies it, then calls `callback` with it. A
+	 * chord the binding can't hold is ignored, and the capture waits for every key of it to come up
+	 * before the next one counts. `callback` gets `undefined` when the capture ends with nothing
+	 * applied: a `Cancel` key, or a `Timeout` with no chord held. Returns a function that stops the
+	 * capture (then `callback` isn't called)
 	 */
 	CaptureChord(
 		callback: (chord: IChord | undefined) => void,
@@ -273,20 +340,33 @@ export interface IChordBindingHandle<T extends Enum.InputActionType> extends IBi
 	): () => void;
 }
 
-/** The handle of a binding with keys: one that can capture chords on Bool and Direction1D actions */
-export type BindingHandleOf<T extends Enum.InputActionType> = T["Name"] extends ChordActionName
-	? IChordBindingHandle<T>
-	: IBindingHandle<T>;
+/**
+ * The handle of device `D`'s binding: the Touch one has no captures (touch has no keys to press),
+ * the others capture a key, and on Bool and Direction1D actions a chord. For a union of devices
+ * that includes Touch, the part they share. By default the keyboard-and-mouse or gamepad one
+ */
+export type BindingHandleOf<
+	T extends Enum.InputActionType,
+	D extends Device = CapturableDevice,
+> = "Touch" extends D
+	? IBindingHandle<T, D>
+	: T["Name"] extends ChordActionName
+		? IChordBindingHandle<T, Exclude<D, "Touch">>
+		: ICaptureBindingHandle<T, Exclude<D, "Touch">>;
 
 export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
 	readonly Instance: InputBinding;
 	readonly Name: string;
 	Fire(value: ActionValue<T>): void;
 }
+/**
+ * An action's bindings: the three devices' always (unbound when the schema leaves one out), and the
+ * Scriptable ones the schema names
+ */
 export type BindingHandles<T extends Enum.InputActionType, B> = {
-	readonly [K in keyof B]: B[K] extends IScriptable
-		? IScriptableBindingHandle<T>
-		: BindingHandleOf<T>;
+	readonly [K in Device]: BindingHandleOf<T, K>;
+} & {
+	readonly [K in Exclude<keyof B, Device>]: IScriptableBindingHandle<T>;
 };
 
 export interface IActionHandle<T extends Enum.InputActionType, B> {
@@ -316,7 +396,36 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	 */
 	AttachLabel(label: InputActionLabel): () => void;
 }
-export interface IBoolActionHandle<B> extends IActionHandle<Enum.InputActionType.Bool, B> {
+/**
+ * Bool and Direction1D actions: a rebinding menu's one field per action. The first key pressed
+ * picks the device, and goes into that device's binding's `KeyCode`
+ */
+export interface IActionCapture {
+	/**
+	 * Waits for the next key a keyboard-and-mouse or gamepad binding of this action can hold in its
+	 * `KeyCode`; that key's device picks the binding, which gets it (its composite directions give
+	 * way). Then calls `callback` with the key and the device. Touch input is ignored; a `Cancel`
+	 * key counts from any device. Returns a cancel function
+	 */
+	Capture(
+		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,
+		options?: ICaptureOptions,
+	): () => void;
+	/**
+	 * Waits for keys held together, as a binding's `CaptureChord` does: the first key that goes
+	 * down picks the device, and the other device's keys are ignored while any key of the chord is
+	 * held (no Shift + ButtonA). The chord goes into that device's binding. `callback` gets the
+	 * chord and the device, or `undefined` twice when the capture ends with nothing applied
+	 */
+	CaptureChord(
+		callback: (chord: IChord | undefined, device: CapturableDevice | undefined) => void,
+		options?: IChordCaptureOptions,
+	): () => void;
+}
+
+export interface IBoolActionHandle<B>
+	extends IActionHandle<Enum.InputActionType.Bool, B>,
+		IActionCapture {
 	readonly Pressed: RBXScriptSignal<() => void>;
 	readonly Released: RBXScriptSignal<() => void>;
 	IsPressed(): boolean;
@@ -346,7 +455,9 @@ export type ActionHandle<D> =
 	D extends IActionDefinition<infer T extends Enum.InputActionType, infer B, infer TP>
 		? [T] extends [Enum.InputActionType.Bool]
 			? IBoolActionHandle<B> & ([TP] extends [true] ? ITrackedBoolAction : unknown)
-			: IActionHandle<T, B> & ([TP] extends [true] ? ITrackedAction<T> : unknown)
+			: IActionHandle<T, B> &
+					([T] extends [Enum.InputActionType.Direction1D] ? IActionCapture : unknown) &
+					([TP] extends [true] ? ITrackedAction<T> : unknown)
 		: never;
 
 export interface IImportResult {
