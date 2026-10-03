@@ -900,15 +900,19 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   KeyCodes as keyboard input, which IAS's gamepad bindings don't take but the captures classify as
   the gamepad's (by KeyCode): the device-locked captures are tested that way.
 - **Gamepad: the virtual pad** (`tools/virtual-pad`, a Rust service that plugs a virtual Xbox 360
-  pad into Windows through ViGEmBus; `virtualPad()` in the tests). **Pad input is opt-in:** Steam's
-  Xbox controller support (on, on the author's PC) turns a pad's buttons and sticks into keys and
-  mouse input for whatever window is focused, so the service refuses any pad state but the neutral
-  one (and touch injection, and bringing a window to the front) unless it was started with
-  `--allow-input`, which `scripts/virtual-pad.mjs` passes only when `VIRTUAL_PAD_INPUT=1` is set.
-  `virtualPad()` then answers the reason ("pad input is off: set VIRTUAL_PAD_INPUT=1 after turning
-  off Steam Input for Xbox controllers") and the tests that press the pad `skip(reason)`. A test
-  that only plugs the pad in (`virtualPad({ Input: false })`: `PreferredDevice()` reads
-  `"Gamepad"` while it is in) runs by default.
+  pad into Windows through ViGEmBus; `virtualPad()` in the tests). **The pad is opt-in, plugging it
+  in included.** Every process on the machine sees a plugged-in pad (the user's Roblox Player too,
+  whose UI switches to gamepad mode), and Steam's Xbox controller support (on, on the author's PC)
+  turns a pad's buttons and sticks into keys and mouse input for whatever window is focused. So the
+  service refuses `/connect` unless started with `--allow-plug`, and any pad state but the neutral
+  one (and touch injection, and bringing a window to the front) unless started with
+  `--allow-input` (which implies `--allow-plug`). `scripts/virtual-pad.mjs` passes them only when
+  `VIRTUAL_PAD=1`, respectively `VIRTUAL_PAD_INPUT=1`, is set. `virtualPad()` then answers the
+  reason ("the virtual pad is off: set VIRTUAL_PAD=1 ...", "pad input is off: set
+  VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers") and the gamepad tests
+  `skip(reason)`. A test that only plugs the pad in (`virtualPad({ Input: false })`:
+  `PreferredDevice()` reads `"Gamepad"` while it is in) needs `VIRTUAL_PAD=1` alone. By default no
+  test plugs the pad in.
 - The server's sections run before the client's in one play session. For Server Authority,
   the server's sections can leave a `RemoteFunction` behind that the client's tests call to read
   server-side state.
@@ -937,7 +941,8 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   `Set` and imports by device, adopted bindings, placeholder filling, `PreferredBinding` with
   unbound bindings, `PreferredDevice`) and `device-capture` (device-locked binding captures and the
   one-field action capture with real keys and VirtualInput's gamepad KeyCodes; sticks and triggers
-  through the virtual pad, skipped unless pad input is on), and `tests/type-rules/devices-type-rules.ts`.
+  through the virtual pad, skipped unless pad input is on; the `PreferredDevice` test with the pad
+  plugged in skips unless `VIRTUAL_PAD=1`), and `tests/type-rules/devices-type-rules.ts`.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

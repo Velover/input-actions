@@ -103,16 +103,20 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   (`Connect`, `Disconnect`, `Press`, `Release`, `Tap`, `SetStick`, `SetTrigger`, `Reset`, by
   Roblox KeyCodes) or the reason there is none. What a test holds is released and the pad unplugged
   when the test ends, pass or fail.
-  - **Pad input is opt-in.** The service refuses any pad state but the neutral one (and touch
-    injection, and `/window` with `front`) unless it was started with `--allow-input`, which
-    `scripts/virtual-pad.mjs` passes only when the environment variable `VIRTUAL_PAD_INPUT=1` is
-    set: while Steam's "Enable Steam Input for Xbox controllers" is on, Steam turns the pad's
-    buttons and sticks into keys and mouse input for whatever window is focused. Turn that off (or
-    exit Steam) before setting it. Without it, `virtualPad()` answers "pad input is off: set
-    VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers" and the tests that press
-    the pad `skip` with it; `virtualPad({ Input: false })` still gives a test that only plugs the
-    pad in (no input) its pad. `/health` reports `input`. A service already running is used as it
-    is: with `VIRTUAL_PAD_INPUT=1` and a running service without the flag, the run warns.
+  - **The pad is opt-in, plugging it in included.** Every process on the machine sees a plugged-in
+    pad, the user's Roblox Player too, whose UI switches to gamepad mode; and while Steam's "Enable
+    Steam Input for Xbox controllers" is on, Steam turns the pad's buttons and sticks into keys and
+    mouse input for whatever window is focused. So the service refuses `/connect` unless it was
+    started with `--allow-plug`, and any pad state but the neutral one (and touch injection, and
+    `/window` with `front`) unless it was started with `--allow-input` (which implies
+    `--allow-plug`). `scripts/virtual-pad.mjs` passes `--allow-plug` only when the environment
+    variable `VIRTUAL_PAD=1` is set, and `--allow-input` only when `VIRTUAL_PAD_INPUT=1` is (turn
+    Steam Input for Xbox controllers off, or exit Steam, first). Without them `virtualPad()` answers
+    the reason ("the virtual pad is off: set VIRTUAL_PAD=1 ...", or "pad input is off: set
+    VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers") and the gamepad tests
+    `skip` with it; `virtualPad({ Input: false })` is for a test that only plugs the pad in, which
+    needs `VIRTUAL_PAD=1` alone. `/health` reports `plug` and `input`. A service already running is
+    used as it is: when it allows less than the variables ask for, the run warns.
   - Measured on 2026-10-03 (`default`, `ias`, `touch`):
     - plugging the pad in, with no input, fires `GamepadConnected` (Gamepad1) and switches
       `PreferredInput` to `Gamepad` within 0.3 s; every action without a gamepad binding then has no

@@ -2,22 +2,27 @@
 //!
 //! Roblox's VirtualInput can't send gamepad input, so this plugs a virtual Xbox 360 pad into
 //! Windows through the ViGEmBus driver and sets its state as the tests ask. It also injects touch
-//! (experimental). It listens on 127.0.0.1 only: `virtual-pad [--port 47110] [--allow-input]`.
+//! (experimental). It listens on 127.0.0.1 only:
+//! `virtual-pad [--port 47110] [--allow-plug] [--allow-input]`.
 //!
-//! Pad input is off unless it was started with `--allow-input`: `/state` then refuses any state but
-//! the neutral one (403), so the pad can be plugged in and out but never pressed; touch injection
+//! Both are off unless asked for. Without `--allow-plug`, `/connect` refuses (403): every process on
+//! the machine sees a plugged-in pad, the user's Roblox Player too, whose UI switches to gamepad
+//! mode. Without `--allow-input` (which implies `--allow-plug`), `/state` refuses any state but the
+//! neutral one (403), so the pad can be plugged in and out but never pressed; touch injection
 //! (`/touch`, `/touch/init`) and `/window` with `front` are refused too. While Steam's
 //! "Enable Steam Input for Xbox controllers" is on, Steam turns the pad's buttons and sticks into
-//! keys and mouse input for the focused window, whatever it is; `scripts/virtual-pad.mjs` passes the
-//! flag only when `VIRTUAL_PAD_INPUT=1` is set.
+//! keys and mouse input for the focused window, whatever it is. `scripts/virtual-pad.mjs` passes
+//! `--allow-plug` only when `VIRTUAL_PAD=1` is set, and `--allow-input` only when
+//! `VIRTUAL_PAD_INPUT=1` is.
 //!
 //! The API takes and returns JSON. A POST must say `Content-Type: application/json`, and every
 //! request's Host must be 127.0.0.1 or localhost: a web page can send neither, so the browser can't
 //! drive it. An error answers `{"error": "..."}` with a 4xx or 5xx status.
 //!
 //! - `GET /health`: `{"service": "virtual-pad", "bus": "ok" | why not, "connected": bool,
-//!   "input": bool}`, `input` whether `/state` takes more than the neutral state (`--allow-input`)
-//! - `POST /connect`: plugs the pad in, and answers once XInput shows it at the neutral state
+//!   "plug": bool, "input": bool}`: `plug` whether `/connect` plugs the pad in (`--allow-plug`),
+//!   `input` whether `/state` takes more than the neutral state (`--allow-input`)
+//! - `POST /connect`: 403 without `--allow-plug`; plugs the pad in, and answers once XInput shows it at the neutral state
 //!   (nothing happens if it is in): `{"connected": true, "userIndex": 0..3 | null}`, its XInput
 //!   slot, null when XInput didn't show it within 2 s
 //! - `POST /disconnect`: unplugs it (nothing happens if it is out)
@@ -89,12 +94,22 @@ const INPUT_OFF: &str = "pad input is off: set VIRTUAL_PAD_INPUT=1 after turning
                          for Xbox controllers (the service runs without --allow-input, which also \
                          keeps touch injection and bringing a window to the front off)";
 
+/// Why `/connect` is refused without `--allow-plug`; the tests' `virtualPad()` says the same
+const PLUG_OFF: &str = "the virtual pad is off: set VIRTUAL_PAD=1 to let tests plug it in (every \
+                        process sees a plugged-in pad, a Roblox Player's UI switches to gamepad \
+                        mode; the service runs without --allow-plug)";
+
 fn main() {
-    let Args { port, allow_input } = match parse_args() {
+    let Args {
+        port,
+        allow_plug,
+        allow_input,
+    } = match parse_args() {
         Ok(args) => args,
         Err(why) => {
             eprintln!(
-                "virtual-pad: {why}\nusage: virtual-pad [--port {DEFAULT_PORT}] [--allow-input]"
+                "virtual-pad: {why}\nusage: virtual-pad [--port {DEFAULT_PORT}] [--allow-plug] \
+                 [--allow-input]"
             );
             std::process::exit(2);
         }
@@ -115,13 +130,16 @@ fn main() {
     if bus != "ok" {
         eprintln!("virtual-pad: {bus}; /connect will fail");
     }
+    let on = |allowed: bool| if allowed { "on" } else { "off" };
     println!(
-        "virtual-pad: listening on http://127.0.0.1:{port}, pad input {}",
-        if allow_input { "on" } else { "off" }
+        "virtual-pad: listening on http://127.0.0.1:{port}, plugging in {}, pad input {}",
+        on(allow_plug),
+        on(allow_input)
     );
 
     let mut service = Service {
         port,
+        allow_plug,
         allow_input,
         bus,
         pad: Pad::default(),
@@ -150,21 +168,30 @@ fn main() {
     println!("virtual-pad: stopped");
 }
 
-/// The command line: the port, and whether `/state` takes pad input
+/// The command line: the port, whether `/connect` plugs the pad in, and whether `/state` takes pad
+/// input
 struct Args {
     port: u16,
+    allow_plug: bool,
     allow_input: bool,
 }
 
-/// `--port N` (or `--port=N`, else the default) and `--allow-input`
+/// `--port N` (or `--port=N`, else the default), `--allow-plug` and `--allow-input` (which implies
+/// `--allow-plug`: a pad that can be pressed can be plugged in)
 fn parse_args() -> Result<Args, String> {
     let mut args = std::env::args().skip(1);
     let mut parsed = Args {
         port: DEFAULT_PORT,
+        allow_plug: false,
         allow_input: false,
     };
     while let Some(arg) = args.next() {
+        if arg == "--allow-plug" {
+            parsed.allow_plug = true;
+            continue;
+        }
         if arg == "--allow-input" {
+            parsed.allow_plug = true;
             parsed.allow_input = true;
             continue;
         }
@@ -184,6 +211,8 @@ fn parse_args() -> Result<Args, String> {
 
 struct Service {
     port: u16,
+    /// Whether `/connect` plugs the pad in (`--allow-plug`, or `--allow-input`)
+    allow_plug: bool,
     /// Whether `/state` takes more than the neutral state (`--allow-input`)
     allow_input: bool,
     /// "ok", or why ViGEmBus can't be reached, as found at startup
@@ -250,9 +279,15 @@ impl Service {
                 "version": env!("CARGO_PKG_VERSION"),
                 "bus": self.bus,
                 "connected": self.pad.is_connected(),
+                "plug": self.allow_plug,
                 "input": self.allow_input,
             })),
-            (Method::Post, "/connect") => self.pad.connect(),
+            (Method::Post, "/connect") => {
+                if !self.allow_plug {
+                    return Err((403, PLUG_OFF.into()));
+                }
+                self.pad.connect()
+            }
             (Method::Post, "/disconnect") => self.pad.disconnect(),
             (Method::Get, "/state") => Ok(self.pad.state()),
             (Method::Post, "/state") => {

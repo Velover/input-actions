@@ -323,7 +323,8 @@ export class DevicesTests implements OnStart {
 			});
 
 			// Measured with the virtual pad (2026-10-03): plugging a pad in, with no input, switches
-			// PreferredInput to Gamepad within 0.3 s, and unplugging switches back. No pad input here
+			// PreferredInput to Gamepad within 0.3 s, and unplugging switches back. No pad input here,
+			// but plugging in is opt-in too (VIRTUAL_PAD=1): every process sees the pad
 			test("PreferredDevice reads Gamepad while a pad is plugged in, and the keyboard's again once it is out", () => {
 				if (getProject() === "touch")
 					return skip("under the simulated phone PreferredInput stays Touch");

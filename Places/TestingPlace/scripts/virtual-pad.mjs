@@ -8,12 +8,16 @@
 // The service also stops by itself when this script's process ends (its stdin, a pipe from here,
 // closes; and it watches its parent), and unplugs its pad when it stops.
 //
-// Pad input is opt-in: the service refuses any pad state but the neutral one (and touch injection)
-// unless it is started with --allow-input, which this script passes only when the environment
-// variable VIRTUAL_PAD_INPUT=1 is set. While Steam's "Enable Steam Input for Xbox controllers" is
-// on, Steam turns the pad's buttons and sticks into keys and mouse input for whatever window is
-// focused: turn it off (or exit Steam) before setting it. Without it, the tests that press the pad
-// skip with that reason; plugging the pad in still works.
+// The pad is opt-in, in two steps:
+// - plugging it in: the service refuses /connect unless started with --allow-plug, which this
+//   script passes only when VIRTUAL_PAD=1 is set. Every process sees a plugged-in pad, the user's
+//   Roblox Player too, whose UI switches to gamepad mode;
+// - pressing it: the service refuses any pad state but the neutral one (and touch injection)
+//   unless started with --allow-input, which this script passes only when VIRTUAL_PAD_INPUT=1 is
+//   set (it implies VIRTUAL_PAD=1). While Steam's "Enable Steam Input for Xbox controllers" is on,
+//   Steam turns the pad's buttons and sticks into keys and mouse input for whatever window is
+//   focused: turn it off (or exit Steam) before setting it.
+// Without them, the gamepad tests skip with the reason.
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -31,6 +35,15 @@ const STOP_TIMEOUT_MS = 5_000;
 
 /** Whether this run lets the tests press the pad: VIRTUAL_PAD_INPUT=1 */
 const ALLOW_INPUT = process.env.VIRTUAL_PAD_INPUT === "1";
+/** Whether this run lets the tests plug the pad in: VIRTUAL_PAD=1, or VIRTUAL_PAD_INPUT=1 */
+const ALLOW_PLUG = ALLOW_INPUT || process.env.VIRTUAL_PAD === "1";
+
+/** What the service lets the tests do, for the run's log */
+function describeAllowed(plug, input) {
+	if (input) return "plugging in and pad input on";
+	if (plug) return "plugging in on, pad input off (VIRTUAL_PAD_INPUT=1 turns it on)";
+	return "the pad off (VIRTUAL_PAD=1 lets tests plug it in, VIRTUAL_PAD_INPUT=1 also press it)";
+}
 
 /** The newest modification time among the crate's sources (Cargo.toml, Cargo.lock, src/) */
 function newestSource() {
@@ -82,11 +95,11 @@ export async function startVirtualPad() {
 	if (process.platform !== "win32") return undefined;
 	const running = await health();
 	if (running !== undefined) {
-		const input = running.input === true ? "on" : "off";
-		console.log(`using the virtual-pad service already running on ${URL} (pad input ${input})`);
-		if (ALLOW_INPUT && running.input !== true) {
+		const allowed = describeAllowed(running.plug === true, running.input === true);
+		console.log(`using the virtual-pad service already running on ${URL} (${allowed})`);
+		if ((ALLOW_INPUT && running.input !== true) || (ALLOW_PLUG && running.plug !== true)) {
 			console.error(
-				"warning: VIRTUAL_PAD_INPUT=1, but the service already running has pad input off: stop it to let this run start one with --allow-input",
+				"warning: the service already running allows less than VIRTUAL_PAD/VIRTUAL_PAD_INPUT ask for: stop it to let this run start one",
 			);
 		}
 		return { stop: async () => {} };
@@ -98,6 +111,7 @@ export async function startVirtualPad() {
 
 	const args = [BINARY, "--port", String(VIRTUAL_PAD_PORT)];
 	if (ALLOW_INPUT) args.push("--allow-input");
+	else if (ALLOW_PLUG) args.push("--allow-plug");
 	const child = Bun.spawn(args, {
 		stdin: "pipe",
 		stdout: "ignore",
@@ -130,7 +144,7 @@ export async function startVirtualPad() {
 		console.error(`warning: virtual-pad: ${answer.bus}: the gamepad tests will skip`);
 	}
 	console.log(
-		`virtual-pad service on ${URL} (${CRATE}), pad input ${ALLOW_INPUT ? "on" : "off (VIRTUAL_PAD_INPUT=1 turns it on)"}`,
+		`virtual-pad service on ${URL} (${CRATE}), ${describeAllowed(ALLOW_PLUG, ALLOW_INPUT)}`,
 	);
 	return { stop };
 }
