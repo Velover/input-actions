@@ -288,7 +288,7 @@ export class SharedHandlesTests implements OnStart {
 				jump.Fire(true);
 				expectTrue(jump.GetState());
 				jump.Fire(false);
-				expectEqual(bindingsOf(jump.Instance).size(), 3, "two slots and JumpScript");
+				expectEqual(bindingsOf(jump.Instance).size(), 4, "the three device slots and JumpScript");
 			});
 
 			test("after Destroy the handles change nothing and leave nothing behind", () => {
@@ -330,7 +330,7 @@ export class SharedHandlesTests implements OnStart {
 				const detach = jump.AttachButton(button);
 				expectDefined(jump.Instance.FindFirstChild("JumpUIButton1"));
 				detach();
-				expectEqual(bindingsOf(jump.Instance).size(), 2, "the two slots");
+				expectEqual(bindingsOf(jump.Instance).size(), 3, "the three device slots");
 				input.Destroy();
 				// the button outlives the handle: destroying it now must not touch anything
 				button.Destroy();
@@ -370,10 +370,23 @@ export class SharedHandlesTests implements OnStart {
 				const poke = copy.FindFirstChild("Poke")!;
 				const names = bindingsOf(poke).map((binding) => binding.Name);
 				names.sort();
-				expectArrayEqual(names, ["PokeKeyboardAndMouse", "PokeUIButton1", "PokeUIButton2"]);
+				expectArrayEqual(names, [
+					"PokeGamepad",
+					"PokeKeyboardAndMouse",
+					"PokeTouch",
+					"PokeUIButton1",
+					"PokeUIButton2",
+				]);
 				const keys = second.SharedCopy.Actions.Poke.Bindings.KeyboardAndMouse;
-				expectEqual(keys.Instance, first.SharedCopy.Actions.Poke.Bindings.KeyboardAndMouse.Instance);
-				expectEqual(bindingsOf(copy.FindFirstChild("Move")!).size(), 1, "one MoveVirtual");
+				expectEqual(
+					keys.Instance,
+					first.SharedCopy.Actions.Poke.Bindings.KeyboardAndMouse.Instance,
+				);
+				expectEqual(
+					bindingsOf(copy.FindFirstChild("Move")!).size(),
+					4,
+					"one MoveVirtual beside the device bindings",
+				);
 				const move = second.SharedCopy.Actions.Move;
 				eventually(() => move.GetState() === new Vector2(1, 0), "the held stick carried over");
 
@@ -399,7 +412,7 @@ export class SharedHandlesTests implements OnStart {
 				).GetSharedState();
 				expectEqual(state.Handles.size(), 1, "handles on Gameplay's state");
 				const jump = first.Gameplay.Actions.Jump;
-				expectEqual(bindingsOf(jump.Instance).size(), 2, "Jump's two slots");
+				expectEqual(bindingsOf(jump.Instance).size(), 3, "Jump's three device slots");
 				jump.Fire(true);
 				expectTrue(jump.GetState());
 				jump.Fire(false);
@@ -408,8 +421,12 @@ export class SharedHandlesTests implements OnStart {
 			test("two schemas on one folder don't warn about each other's contexts", () => {
 				const warnings = recordWarnings();
 				const folder = newFolder();
-				const first = InputActions.Schema({ SharedFirst: { Actions: { Poke: InputActions.Bool() } } });
-				const second = InputActions.Schema({ SharedSecond: { Actions: { Poke: InputActions.Bool() } } });
+				const first = InputActions.Schema({
+					SharedFirst: { Actions: { Poke: InputActions.Bool() } },
+				});
+				const second = InputActions.Schema({
+					SharedSecond: { Actions: { Poke: InputActions.Bool() } },
+				});
 				const firstInput = InputActions.Create(first, { Folder: folder });
 				defer(() => firstInput.Destroy());
 				const secondInput = InputActions.Create(second, { Folder: folder });
@@ -457,7 +474,11 @@ export class SharedHandlesTests implements OnStart {
 				keeper.Gameplay.Actions.Move.Bindings.Virtual.Fire(new Vector2(1, 0));
 				holder.Destroy();
 				frames(3);
-				expectEqual(keeper.Gameplay.Actions.Move.GetState(), new Vector2(1, 0), "the keeper's stick");
+				expectEqual(
+					keeper.Gameplay.Actions.Move.GetState(),
+					new Vector2(1, 0),
+					"the keeper's stick",
+				);
 				expectEqual(
 					holder.Gameplay.Actions.Move.Instance.FindFirstChild("MoveScript"),
 					undefined,
@@ -504,7 +525,11 @@ export class SharedHandlesTests implements OnStart {
 				holder.Destroy();
 				frames(3);
 				const jump = keeper.Gameplay.Actions.Jump;
-				expectEqual(jump.Instance.FindFirstChild("JumpUIButton1"), undefined, "the button's binding");
+				expectEqual(
+					jump.Instance.FindFirstChild("JumpUIButton1"),
+					undefined,
+					"the button's binding",
+				);
 				expectTrue(jump.IsPressed(), "the keeper's press");
 				jump.Fire(false);
 				expectFalse(jump.IsPressed());
@@ -560,7 +585,10 @@ export class SharedHandlesTests implements OnStart {
 				const poke = second.SharedStandIn.Actions.Poke;
 				const keys = poke.Bindings.KeyboardAndMouse.Instance;
 				first.Destroy();
-				expectTrue(standIn.Parent !== undefined, "the stand-in stays while the second handle uses it");
+				expectTrue(
+					standIn.Parent !== undefined,
+					"the stand-in stays while the second handle uses it",
+				);
 				expectEqual(keys.Parent, poke.Instance, "and so does its binding");
 				poke.Fire(true);
 				expectTrue(poke.GetState());

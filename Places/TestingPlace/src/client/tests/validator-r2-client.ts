@@ -224,7 +224,9 @@ export class ValidatorR2ClientTests implements OnStart {
 				let schema: InputActions.InputSchema<Record<string, InputActions.ContextSchema>>;
 				try {
 					schema = InputActions.Schema({
-						R2Collide: { Actions: { Dash: InputActions.Bool({ Script: K.X }) } },
+						R2Collide: {
+							Actions: { Dash: InputActions.Bool({ Script: InputActions.Scriptable }) },
+						},
 					}) as never;
 				} catch {
 					return; // refused by Schema: fine
@@ -247,7 +249,9 @@ export class ValidatorR2ClientTests implements OnStart {
 				// Round 3: Schema refuses the slot name (R2-F4), which settles this case too
 				const makeSchema = () =>
 					InputActions.Schema({
-						R2Collide2: { Actions: { Dash: InputActions.Bool({ Script: K.X }) } },
+						R2Collide2: {
+							Actions: { Dash: InputActions.Bool({ Script: InputActions.Scriptable }) },
+						},
 					});
 				let schema: ReturnType<typeof makeSchema>;
 				try {

@@ -271,8 +271,10 @@ export class CaptureChordTests implements OnStart {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const zoom = createTestInput().Gameplay.Actions.Zoom;
-				// DPadUp/DPadDown, a composite
-				const keys = zoom.Bindings.Gamepad;
+				// PageUp/PageDown, a composite on the keyboard (the gamepad's DPadUp/DPadDown composite
+				// takes gamepad keys only)
+				const keys = zoom.Bindings.KeyboardAndMouse;
+				keys.Set({ Up: K.PageUp, Down: K.PageDown });
 				const outcomes = new Array<Outcome>();
 				keys.CaptureChord((chord) => outcomes.push({ chord }));
 				hold(real, [K.LeftControl, K.K]);
@@ -294,8 +296,8 @@ export class CaptureChordTests implements OnStart {
 				const actions = createTestInput().Gameplay.Actions;
 				const bindings: unknown[] = [
 					actions.Move.Bindings.KeyboardAndMouse,
-					actions.Fly.Bindings.Keyboard,
-					actions.Aim.Bindings.Pointer,
+					actions.Fly.Bindings.KeyboardAndMouse,
+					actions.Aim.Bindings.KeyboardAndMouse,
 				];
 				for (const binding of bindings) {
 					const untyped = binding as { CaptureChord: (callback: () => void) => () => void };

@@ -58,10 +58,10 @@ export class PresetTests implements OnStart {
 				expectEqual(actions.NextPage.Bindings.Gamepad, Enum.KeyCode.ButtonR1);
 				expectEqual(actions.PreviousPage.Bindings.KeyboardAndMouse, Enum.KeyCode.Q);
 				expectEqual(actions.PreviousPage.Bindings.Gamepad, Enum.KeyCode.ButtonL1);
+				// one binding per device (0.7.0): the wheel, without PageUp/PageDown
 				const scroll = actions.Scroll.Bindings;
-				expectEqual(scroll.Mouse, Enum.KeyCode.MouseWheel);
-				expectEqual(scroll.KeyboardAndMouse.Up, Enum.KeyCode.PageUp);
-				expectEqual(scroll.KeyboardAndMouse.Down, Enum.KeyCode.PageDown);
+				expectArrayEqual(sortedKeys(scroll), ["Gamepad", "KeyboardAndMouse"]);
+				expectEqual(scroll.KeyboardAndMouse, Enum.KeyCode.MouseWheel);
 				expectEqual(scroll.Gamepad.Up, Enum.KeyCode.Thumbstick2Up);
 				expectEqual(scroll.Gamepad.Down, Enum.KeyCode.Thumbstick2Down);
 			});

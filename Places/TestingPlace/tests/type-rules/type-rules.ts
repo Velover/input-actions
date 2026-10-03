@@ -10,13 +10,16 @@ const Schema = InputActions.Schema({
 		Priority: 2000,
 		Sink: true,
 		Actions: {
-			Jump: InputActions.Bool({ Keyboard: Enum.KeyCode.Space, Gamepad: Enum.KeyCode.ButtonA }),
+			Jump: InputActions.Bool({
+				KeyboardAndMouse: Enum.KeyCode.Space,
+				Gamepad: Enum.KeyCode.ButtonA,
+			}),
 			Fire: InputActions.Bool({
-				Mouse: Enum.KeyCode.MouseLeftButton,
+				KeyboardAndMouse: Enum.KeyCode.MouseLeftButton,
 				Gamepad: { KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.6 },
 			}),
 			Move: InputActions.Direction2D({
-				Keyboard: {
+				KeyboardAndMouse: {
 					Up: Enum.KeyCode.W,
 					Down: Enum.KeyCode.S,
 					Left: Enum.KeyCode.A,
@@ -26,15 +29,15 @@ const Schema = InputActions.Schema({
 				Virtual: InputActions.Scriptable,
 			}),
 			Look: InputActions.Direction2D({
-				Mouse: { KeyCode: Enum.KeyCode.MouseDelta, Scale: 0.01 },
+				KeyboardAndMouse: { KeyCode: Enum.KeyCode.MouseDelta, Scale: 0.01 },
 				Gamepad: Enum.KeyCode.Thumbstick2,
 			}),
 			Zoom: InputActions.Direction1D({
-				Mouse: Enum.KeyCode.MouseWheel,
+				KeyboardAndMouse: Enum.KeyCode.MouseWheel,
 				Gamepad: { Up: Enum.KeyCode.DPadUp, Down: Enum.KeyCode.DPadDown },
 			}),
 			Fly: InputActions.Direction3D({
-				Keyboard: {
+				KeyboardAndMouse: {
 					Forward: Enum.KeyCode.W,
 					Backward: Enum.KeyCode.S,
 					Left: Enum.KeyCode.A,
@@ -43,12 +46,12 @@ const Schema = InputActions.Schema({
 					Down: Enum.KeyCode.LeftControl,
 				},
 			}),
-			Aim: InputActions.ViewportPosition({ Pointer: Enum.KeyCode.MousePosition }),
+			Aim: InputActions.ViewportPosition({ KeyboardAndMouse: Enum.KeyCode.MousePosition }),
 			QuickSave: InputActions.Bool({
-				Keyboard: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
+				KeyboardAndMouse: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
 			}),
 			Dash: InputActions.Bool(),
-			Crouch: InputActions.Bool({ Keyboard: Enum.KeyCode.C }, { TrackPrevious: true }),
+			Crouch: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.C }, { TrackPrevious: true }),
 			Steer: InputActions.Direction1D({ Gamepad: Enum.KeyCode.ButtonR2 }, { TrackPrevious: true }),
 		},
 	},
@@ -79,18 +82,18 @@ export function TypeRules() {
 	const scroll: number = Input.Ui.Actions.Scroll.GetState();
 	Move.StateChanged.Connect((value: Vector2) => value.Magnitude);
 	Jump.Pressed.Connect(() => {});
-	Jump.Bindings.Keyboard.Set(Enum.KeyCode.F);
-	Move.Bindings.Keyboard.Set({ Up: Enum.KeyCode.Up, Down: Enum.KeyCode.Down });
+	Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
+	Move.Bindings.KeyboardAndMouse.Set({ Up: Enum.KeyCode.Up, Down: Enum.KeyCode.Down });
 	Move.Bindings.Virtual.Fire(new Vector2(0, 1));
 	Move.Fire(Vector2.zero);
 	Dash.Fire(true);
-	Jump.Bindings.Keyboard.Capture("KeyCode", (key: Enum.KeyCode) => key, {
+	Jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key: Enum.KeyCode) => key, {
 		Cancel: [Enum.KeyCode.Backspace],
 	});
-	Move.Bindings.Keyboard.Capture("Left", () => {});
-	Jump.Bindings.Keyboard.Clear();
-	Jump.Bindings.Keyboard.Clear("PrimaryModifier"); // Ctrl+Space becomes Space
-	Move.Bindings.Keyboard.Clear("Up");
+	Move.Bindings.KeyboardAndMouse.Capture("Left", () => {});
+	Jump.Bindings.KeyboardAndMouse.Clear();
+	Jump.Bindings.KeyboardAndMouse.Clear("PrimaryModifier"); // Ctrl+Space becomes Space
+	Move.Bindings.KeyboardAndMouse.Clear("Up");
 	const release: () => void = Input.Ui.Request(true);
 	const linked: boolean = Input.Gameplay.IsLinkedToServer(); // a Server Authority context
 	Input.Gameplay.LinkedToServer.Connect(() => {});
@@ -109,63 +112,63 @@ export function TypeRules() {
 	// ---- things that must NOT compile
 
 	// @ts-expect-error mouse movement can't drive a Bool action
-	InputActions.Bool({ Mouse: Enum.KeyCode.MouseDelta });
+	InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.MouseDelta });
 	// @ts-expect-error mouse wheel can't drive a Bool action
-	InputActions.Bool({ Mouse: Enum.KeyCode.MouseWheel });
+	InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.MouseWheel });
 	// @ts-expect-error a thumbstick is 2D, not Bool
 	InputActions.Bool({ Gamepad: Enum.KeyCode.Thumbstick1 });
 	// @ts-expect-error Escape is reserved by Roblox
-	InputActions.Bool({ Keyboard: Enum.KeyCode.Escape });
+	InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.Escape });
 	// @ts-expect-error deprecated KeyCode
-	InputActions.Bool({ Mouse: Enum.KeyCode.MouseX });
+	InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.MouseX });
 	// @ts-expect-error None can't be written in a schema
-	InputActions.Bool({ Keyboard: Enum.KeyCode.None });
+	InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.None });
 	// @ts-expect-error a plain key can't drive a Direction2D KeyCode (use Up/Down/Left/Right)
-	InputActions.Direction2D({ Keyboard: Enum.KeyCode.W });
+	InputActions.Direction2D({ KeyboardAndMouse: Enum.KeyCode.W });
 	// @ts-expect-error mouse position can't be a direction
-	InputActions.Direction2D({ Mouse: Enum.KeyCode.MousePosition });
+	InputActions.Direction2D({ KeyboardAndMouse: Enum.KeyCode.MousePosition });
 	// @ts-expect-error mouse delta can't be a composite direction
-	InputActions.Direction2D({ Mouse: { Up: Enum.KeyCode.MouseDelta } });
+	InputActions.Direction2D({ KeyboardAndMouse: { Up: Enum.KeyCode.MouseDelta } });
 	// @ts-expect-error KeyCode and composite directions can't share a binding
-	InputActions.Direction2D({ Gamepad: { KeyCode: Enum.KeyCode.Thumbstick1, Up: Enum.KeyCode.W } });
+	InputActions.Direction2D({ Gamepad: { KeyCode: K.Thumbstick1, Up: K.DPadUp } });
 	// @ts-expect-error ResponseCurve only applies to thumbsticks
-	InputActions.Direction2D({ Mouse: { KeyCode: Enum.KeyCode.MouseDelta, ResponseCurve: 2 } });
+	InputActions.Direction2D({ KeyboardAndMouse: { KeyCode: K.MouseDelta, ResponseCurve: 2 } });
 	// @ts-expect-error Left/Right aren't valid on Direction1D
-	InputActions.Direction1D({ Keyboard: { Up: Enum.KeyCode.W, Left: Enum.KeyCode.A } });
+	InputActions.Direction1D({ KeyboardAndMouse: { Up: Enum.KeyCode.W, Left: Enum.KeyCode.A } });
 	// @ts-expect-error thresholds only exist on Bool bindings
 	InputActions.Direction1D({ Gamepad: { KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.5 } });
 	// @ts-expect-error Direction3D takes composites only
 	InputActions.Direction3D({ Gamepad: Enum.KeyCode.Thumbstick1 });
 	// @ts-expect-error ViewportPosition only takes MousePosition/TouchPosition
-	InputActions.ViewportPosition({ Mouse: Enum.KeyCode.MouseDelta });
+	InputActions.ViewportPosition({ KeyboardAndMouse: Enum.KeyCode.MouseDelta });
 	// @ts-expect-error ViewportPosition bindings have no modifiers
-	InputActions.ViewportPosition({ Mouse: { KeyCode: K.MousePosition, PrimaryModifier: K.E } });
+	InputActions.ViewportPosition({ Touch: { KeyCode: K.TouchPosition, PrimaryModifier: K.E } });
 	// @ts-expect-error a mouse delta can't be a modifier
-	InputActions.Bool({ Keyboard: { KeyCode: K.E, PrimaryModifier: K.MouseDelta } });
+	InputActions.Bool({ KeyboardAndMouse: { KeyCode: K.E, PrimaryModifier: K.MouseDelta } });
 	// @ts-expect-error UIButton never appears in the schema (AttachButton adds it at runtime)
-	InputActions.Bool({ Touch: { KeyCode: Enum.KeyCode.E, UIButton: new Instance("TextButton") } });
+	InputActions.Bool({ KeyboardAndMouse: { KeyCode: K.E, UIButton: new Instance("TextButton") } });
 	// @ts-expect-error an unknown property is rejected
-	InputActions.Bool({ Keyboard: { KeyCode: Enum.KeyCode.E, Sensitivity: 2 } });
+	InputActions.Bool({ KeyboardAndMouse: { KeyCode: Enum.KeyCode.E, Sensitivity: 2 } });
 	// @ts-expect-error rebinding follows the same rules
-	Jump.Bindings.Keyboard.Set(Enum.KeyCode.MouseDelta);
+	Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.MouseDelta);
 	// @ts-expect-error rebinding a Direction2D binding to a plain key
-	Look.Bindings.Mouse.Set(Enum.KeyCode.E);
+	Look.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.E);
 	// @ts-expect-error a Scriptable binding has no Set
 	Move.Bindings.Virtual.Set(Enum.KeyCode.Thumbstick1);
 	// @ts-expect-error a key binding has no Fire
-	Move.Bindings.Keyboard.Fire(Vector2.zero);
+	Move.Bindings.KeyboardAndMouse.Fire(Vector2.zero);
 	// @ts-expect-error Fire takes the action's value type
 	Jump.Fire(0.5);
 	// @ts-expect-error Fire takes the action's value type
 	Move.Bindings.Virtual.Fire(true);
 	// @ts-expect-error Capture only takes the slots of the action type
-	Jump.Bindings.Keyboard.Capture("Up", () => {});
+	Jump.Bindings.KeyboardAndMouse.Capture("Up", () => {});
 	// @ts-expect-error Clear only takes the slots of the action type
-	Jump.Bindings.Keyboard.Clear("Up");
+	Jump.Bindings.KeyboardAndMouse.Clear("Up");
 	// @ts-expect-error a Scriptable binding has nothing to clear
 	Move.Bindings.Virtual.Clear();
 	// @ts-expect-error unknown binding names are compile errors
-	Jump.Bindings.Touch.Set(Enum.KeyCode.E);
+	Jump.Bindings.Mouse.Set(Enum.KeyCode.E);
 	// @ts-expect-error unknown action names are compile errors
 	Input.Gameplay.Actions.Sprint.GetState();
 	// @ts-expect-error unknown context names are compile errors

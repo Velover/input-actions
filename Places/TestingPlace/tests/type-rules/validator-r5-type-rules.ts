@@ -7,15 +7,18 @@ const K = Enum.KeyCode;
 const R5 = InputActions.Schema({
 	Play: {
 		Actions: {
-			Jump: InputActions.Bool({ Keys: K.Space, Pad: { KeyCode: K.ButtonR2, PressedThreshold: 0.4 } }),
-			Fly: InputActions.Direction3D({ Keys: { Up: K.E, Forward: K.W } }),
-			Aim: InputActions.ViewportPosition({ Pointer: K.MousePosition, Virtual: InputActions.Scriptable }),
-			Zoom: InputActions.Direction1D({ Wheel: K.MouseWheel }, { TrackPrevious: true }),
-			Look: InputActions.Direction2D({ Stick: K.Thumbstick2 }),
+			Jump: InputActions.Bool({
+				KeyboardAndMouse: K.Space,
+				Gamepad: { KeyCode: K.ButtonR2, PressedThreshold: 0.4 },
+			}),
+			Fly: InputActions.Direction3D({ KeyboardAndMouse: { Up: K.E, Forward: K.W } }),
+			Aim: InputActions.ViewportPosition({ KeyboardAndMouse: K.MousePosition, Virtual: InputActions.Scriptable }),
+			Zoom: InputActions.Direction1D({ KeyboardAndMouse: K.MouseWheel }, { TrackPrevious: true }),
+			Look: InputActions.Direction2D({ Gamepad: K.Thumbstick2 }),
 		},
 	},
-	Local: { ServerAuthority: false, Actions: { Wave: InputActions.Bool({ Keys: K.G }) } },
-	Shared: { ServerAuthority: true, Actions: { Nod: InputActions.Bool({ Keys: K.N }) } },
+	Local: { ServerAuthority: false, Actions: { Wave: InputActions.Bool({ KeyboardAndMouse: K.G }) } },
+	Shared: { ServerAuthority: true, Actions: { Nod: InputActions.Bool({ KeyboardAndMouse: K.N }) } },
 	Menu: InputActions.Presets.UiNavigation({ Priority: 3000 }),
 });
 
@@ -26,27 +29,27 @@ export function ValidatorR5TypeRules() {
 	const { Jump, Fly, Aim, Zoom, Look } = Input.Play.Actions;
 
 	// ---- what must compile, with the types it must have
-	Aim.Bindings.Pointer.Set(K.TouchPosition);
+	Aim.Bindings.Touch.Set(K.TouchPosition);
 	Aim.Bindings.Virtual.Fire(new Vector2(10, 20));
-	Fly.Bindings.Keys.Set({ Forward: K.Thumbstick1Up, Backward: K.ButtonL2 });
-	Jump.Bindings.Pad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.3, ReleasedThreshold: 0.1 });
-	Jump.Bindings.Keys.Set({ KeyCode: K.E, PrimaryModifier: K.LeftShift, DisplayName: "Jump" });
+	Fly.Bindings.Gamepad.Set({ Forward: K.Thumbstick1Up, Backward: K.ButtonL2 });
+	Jump.Bindings.Gamepad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.3, ReleasedThreshold: 0.1 });
+	Jump.Bindings.KeyboardAndMouse.Set({ KeyCode: K.E, PrimaryModifier: K.LeftShift, DisplayName: "Jump" });
 	const zoomBefore: number = Zoom.GetPrevious();
 	const menu: InputActions.ContextHandle<InputActions.Presets.UiNavigationSchema> = Input.Menu;
 	const linked: boolean = Input.Shared.IsLinkedToServer();
 	const nod: boolean = server.Shared.Actions.Nod.GetState();
 	const jump: InputActions.ActionHandle<typeof R5.Contexts.Play.Actions.Jump> = Jump;
-	const lookData: Vector2 | undefined = Look.Bindings.Stick.Get().Vector2Scale;
+	const lookData: Vector2 | undefined = Look.Bindings.Gamepad.Get().Vector2Scale;
 
 	// ---- things that must NOT compile
 	// @ts-expect-error a bare key is not a Direction3D binding (six composites only)
-	InputActions.Direction3D({ K: K.W });
+	InputActions.Direction3D({ KeyboardAndMouse: K.W });
 	// @ts-expect-error Set with a bare key on a Direction3D binding
-	Fly.Bindings.Keys.Set(K.W);
+	Fly.Bindings.KeyboardAndMouse.Set(K.W);
 	// @ts-expect-error a ViewportPosition binding has no modifier slot to clear
-	Aim.Bindings.Pointer.Clear("PrimaryModifier");
+	Aim.Bindings.KeyboardAndMouse.Clear("PrimaryModifier");
 	// @ts-expect-error a Direction1D binding has no Left slot to clear
-	Zoom.Bindings.Wheel.Clear("Left");
+	Zoom.Bindings.KeyboardAndMouse.Clear("Left");
 	// @ts-expect-error StateChanged passes the action's value type
 	Jump.StateChanged.Connect((value: number) => value);
 	// @ts-expect-error the server's StateChanged passes the action's value type too
@@ -54,51 +57,51 @@ export function ValidatorR5TypeRules() {
 	// @ts-expect-error a ViewportPosition action fires a Vector2
 	Aim.Fire(new Vector3());
 	// @ts-expect-error a ViewportPosition binding has no Scale
-	Aim.Bindings.Pointer.Set({ KeyCode: K.MousePosition, Scale: 2 });
+	Aim.Bindings.KeyboardAndMouse.Set({ KeyCode: K.MousePosition, Scale: 2 });
 	// @ts-expect-error a Bool binding has no Scale, in Set either
-	Jump.Bindings.Keys.Set({ KeyCode: K.E, Scale: 2 });
+	Jump.Bindings.KeyboardAndMouse.Set({ KeyCode: K.E, Scale: 2 });
 	// @ts-expect-error EnabledChanged passes a boolean
 	Input.Play.EnabledChanged.Connect((value: number) => value);
 	// @ts-expect-error Request takes a boolean
 	Input.Play.Request("yes");
 	// @ts-expect-error a builder's DisplayName is a string
-	InputActions.Bool({ K: K.E }, { DisplayName: 5 });
+	InputActions.Bool({ KeyboardAndMouse: K.E }, { DisplayName: 5 });
 	// @ts-expect-error a builder's Enabled is a boolean
-	InputActions.Bool({ K: K.E }, { Enabled: "no" });
+	InputActions.Bool({ KeyboardAndMouse: K.E }, { Enabled: "no" });
 	// @ts-expect-error Capture's callback takes the key
-	Jump.Bindings.Keys.Capture("KeyCode", (key: string) => key);
+	Jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key: string) => key);
 	// @ts-expect-error a Direction3D action is not a Bool action
 	const notBool: InputActions.BoolAction = Fly;
-	// @ts-expect-error the preset's actions have only its own slots
-	Input.Menu.Actions.Scroll.Bindings.Touch.Set(K.MouseWheel);
+	// @ts-expect-error the preset's actions have only the device slots (no Mouse since 0.7.0)
+	Input.Menu.Actions.Scroll.Bindings.Mouse.Set(K.MouseWheel);
 	// @ts-expect-error a Vector3 is not a Vector2Scale
-	InputActions.Direction2D({ K: { KeyCode: K.Thumbstick1, Vector2Scale: new Vector3() } });
+	InputActions.Direction2D({ Gamepad: { KeyCode: K.Thumbstick1, Vector2Scale: new Vector3() } });
 	// @ts-expect-error a ViewportPosition binding takes no composite
-	InputActions.ViewportPosition({ K: { Up: K.W } });
+	InputActions.ViewportPosition({ KeyboardAndMouse: { Up: K.W } });
 	// @ts-expect-error a Direction1D binding has no Vector3Scale
-	InputActions.Direction1D({ K: { KeyCode: K.MouseWheel, Vector3Scale: new Vector3() } });
+	InputActions.Direction1D({ KeyboardAndMouse: { KeyCode: K.MouseWheel, Vector3Scale: new Vector3() } });
 	// @ts-expect-error a Bool binding has no ResponseCurve
-	InputActions.Bool({ K: { KeyCode: K.ButtonR2, ResponseCurve: 2 } });
+	InputActions.Bool({ Gamepad: { KeyCode: K.ButtonR2, ResponseCurve: 2 } });
 	// @ts-expect-error Tap only exists on Bool actions, tracked or not
 	Zoom.Tap();
 	// @ts-expect-error a stick is not a composite key
-	InputActions.Direction1D({ K: { Up: K.Thumbstick1 } });
+	InputActions.Direction1D({ Gamepad: { Up: K.Thumbstick1 } });
 	// @ts-expect-error a wheel is not a composite key
-	InputActions.Direction2D({ K: { Up: K.MouseWheel } });
+	InputActions.Direction2D({ KeyboardAndMouse: { Up: K.MouseWheel } });
 	// @ts-expect-error a reserved key is not a modifier
-	InputActions.Bool({ K: { KeyCode: K.E, SecondaryModifier: K.Escape } });
+	InputActions.Bool({ KeyboardAndMouse: { KeyCode: K.E, SecondaryModifier: K.Escape } });
 	// @ts-expect-error ButtonStart is reserved
-	InputActions.Bool({ K: K.ButtonStart });
+	InputActions.Bool({ Gamepad: K.ButtonStart });
 	// @ts-expect-error Print is reserved
-	InputActions.Bool({ K: K.Print });
+	InputActions.Bool({ KeyboardAndMouse: K.Print });
 	// @ts-expect-error F11 is reserved, in a composite too
-	InputActions.Direction2D({ K: { Up: K.F11 } });
+	InputActions.Direction2D({ KeyboardAndMouse: { Up: K.F11 } });
 	// @ts-expect-error a deprecated key is not a modifier
-	InputActions.Bool({ K: { KeyCode: K.E, PrimaryModifier: K.MouseNoButton } });
+	InputActions.Bool({ KeyboardAndMouse: { KeyCode: K.E, PrimaryModifier: K.MouseNoButton } });
 	// @ts-expect-error Set cannot write None into a modifier
-	Jump.Bindings.Keys.Set({ KeyCode: K.E, PrimaryModifier: K.None });
+	Jump.Bindings.KeyboardAndMouse.Set({ KeyCode: K.E, PrimaryModifier: K.None });
 	// @ts-expect-error Unknown is None
-	Jump.Bindings.Keys.Set(K.Unknown);
+	Jump.Bindings.KeyboardAndMouse.Set(K.Unknown);
 	// @ts-expect-error Create's Timeout is a number
 	InputActions.Create(R5, { Timeout: "10" });
 	// @ts-expect-error Create's ResetOnFocusLoss is a boolean

@@ -6,8 +6,8 @@ import { InputActions } from "@rbxts/input-actions";
 const K = Enum.KeyCode;
 
 const HL2 = InputActions.Schema({
-	Play: { ServerAuthority: true, Actions: { Jump: InputActions.Bool({ Keys: K.Space }) } },
-	Menu: { Actions: { Open: InputActions.Bool({ Keys: K.M }) } },
+	Play: { ServerAuthority: true, Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }) } },
+	Menu: { Actions: { Open: InputActions.Bool({ KeyboardAndMouse: K.M }) } },
 });
 
 export function HunterLabel2TypeRules() {

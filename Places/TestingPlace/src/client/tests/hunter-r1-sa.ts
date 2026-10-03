@@ -159,7 +159,9 @@ export class HunterR1SaTests implements OnStart {
 				const schema = InputActions.Schema({
 					HunterTrack: {
 						ServerAuthority: true,
-						Actions: { Crouch: InputActions.Bool({ Key: K.C }, { TrackPrevious: true }) },
+						Actions: {
+							Crouch: InputActions.Bool({ KeyboardAndMouse: K.C }, { TrackPrevious: true }),
+						},
 					},
 				});
 				const input = InputActions.Create(schema, {

@@ -29,9 +29,11 @@ export class PresetRuntimeTests implements OnStart {
 				expectEqual(navigate.GetState(), new Vector2(0, -1));
 
 				const scroll = ui.Actions.Scroll;
-				expectEqual(scroll.Bindings.Mouse.Instance.KeyCode, Enum.KeyCode.MouseWheel);
-				expectEqual(scroll.Bindings.KeyboardAndMouse.Instance.Up, Enum.KeyCode.PageUp);
+				expectEqual(scroll.Bindings.KeyboardAndMouse.Instance.KeyCode, Enum.KeyCode.MouseWheel);
 				expectEqual(scroll.Bindings.Gamepad.Instance.Down, Enum.KeyCode.Thumbstick2Down);
+				// every action has a Touch binding: the preset leaves it unbound
+				expectEqual(scroll.Bindings.Touch.Instance.Name, "ScrollTouch");
+				expectEqual(scroll.Bindings.Touch.Instance.KeyCode, Enum.KeyCode.None);
 				scroll.Fire(1);
 				expectEqual(scroll.GetState(), 1);
 

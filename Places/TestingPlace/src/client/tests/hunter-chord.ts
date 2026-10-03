@@ -473,7 +473,7 @@ export class HunterChordTests implements OnStart {
 				expectEqual(keys.Instance.PrimaryModifier, K.None);
 			});
 
-			test("Bool: a key then a click (a tap on a phone) records the click as the KeyCode", () => {
+			test("Bool: a key then a click records the click as the KeyCode (a tap on a phone: ignored)", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const keys = createTestInput().Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
@@ -485,15 +485,21 @@ export class HunterChordTests implements OnStart {
 				real.MouseDown(emptyPoint());
 				frames(3);
 				real.MouseUp();
+				// a tap is touch's, which a keyboard-and-mouse binding never captures (0.7.0): on the
+				// phone Ctrl alone settles the chord once it comes up
+				const touch = getProject() === "touch";
+				if (touch) {
+					staysSilent(outcomes, "a tap is no key of the keyboard's chord", real);
+					real.Release(K.LeftControl);
+				}
 				eventually(() => outcomes.size() === 1, `the callback${real.FocusNote()}`);
 				real.ReleaseAll();
 				const chord = expectDefined(outcomes[0].chord, "a chord");
-				const touch = UserInputService.PreferredInput === Enum.PreferredInput.Touch;
-				expectEqual(chord.KeyCode, touch ? K.TouchPosition : K.MouseLeftButton);
-				expectEqual(chord.PrimaryModifier, K.LeftControl);
+				expectEqual(chord.KeyCode, touch ? K.LeftControl : K.MouseLeftButton);
+				expectEqual(chord.PrimaryModifier, touch ? undefined : K.LeftControl);
 			});
 
-			test("Bool: a click alone (a tap on a phone) records one key", () => {
+			test("Bool: a click alone records one key; a tap on a phone is ignored", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const keys = createTestInput().Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
@@ -502,17 +508,21 @@ export class HunterChordTests implements OnStart {
 				real.MouseDown(emptyPoint());
 				frames(3);
 				real.MouseUp();
+				if (getProject() === "touch") {
+					// touch has no keys to press (0.7.0): the keyboard and mouse's binding ignores it
+					staysSilent(outcomes, "a tap", real);
+					expectEqual(keys.Instance.KeyCode, K.Space);
+					return;
+				}
 				eventually(() => outcomes.size() === 1, `the callback${real.FocusNote()}`);
-				const touch = UserInputService.PreferredInput === Enum.PreferredInput.Touch;
-				expectEqual(
-					describe(outcomes[0].chord),
-					touch ? "-+-+TouchPosition" : "-+-+MouseLeftButton",
-				);
+				expectEqual(describe(outcomes[0].chord), "-+-+MouseLeftButton");
 			});
 
 			test("Bool: a captured Ctrl+click is a chord in IAS: a plain click doesn't press it", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
+				if (getProject() === "touch")
+					return skip("a tap is never captured (0.7.0): there is no Ctrl+tap chord to press");
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const jump = input.Gameplay.Actions.Jump;
 				const keys = jump.Bindings.KeyboardAndMouse;
@@ -553,7 +563,7 @@ export class HunterChordTests implements OnStart {
 			test("Direction1D: a click alone is refused; the next key counts once it is up", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
-				const keys = createTestInput().Gameplay.Actions.Zoom.Bindings.Mouse;
+				const keys = createTestInput().Gameplay.Actions.Zoom.Bindings.KeyboardAndMouse;
 				const outcomes = new Array<Outcome>();
 				keys.CaptureChord((chord) => outcomes.push({ chord }));
 				real.MouseDown(emptyPoint());
@@ -807,9 +817,10 @@ export class HunterChordTests implements OnStart {
 				const zoom = input.Gameplay.Actions.Zoom.Bindings.Gamepad;
 				const quick = input.Gameplay.Actions.QuickSave.Bindings.KeyboardAndMouse;
 				const outcomes = new Array<Outcome>();
+				// the Gamepad binding takes gamepad keys (VirtualInput sends their KeyCodes as keys)
 				zoom.CaptureChord((chord) => outcomes.push({ chord }));
-				hold(real, [K.LeftControl, K.K]);
-				real.Release(K.K);
+				hold(real, [K.ButtonL1, K.ButtonX]);
+				real.Release(K.ButtonX);
 				eventually(() => outcomes.size() === 1, `zoom's chord${real.FocusNote()}`);
 				real.ReleaseAll();
 				quick.CaptureChord((chord) => outcomes.push({ chord }));
@@ -821,8 +832,8 @@ export class HunterChordTests implements OnStart {
 				expectEqual(quick.Instance.PrimaryModifier, K.LeftControl);
 				const result = input.ImportBindings(save);
 				expectEqual(result.Skipped.size(), 0, save);
-				expectEqual(zoom.Instance.KeyCode, K.K);
-				expectEqual(zoom.Instance.PrimaryModifier, K.LeftControl);
+				expectEqual(zoom.Instance.KeyCode, K.ButtonX);
+				expectEqual(zoom.Instance.PrimaryModifier, K.ButtonL1);
 				expectEqual(zoom.Instance.Up, K.None);
 				expectEqual(zoom.Instance.Down, K.None);
 				expectEqual(quick.Instance.KeyCode, K.J);

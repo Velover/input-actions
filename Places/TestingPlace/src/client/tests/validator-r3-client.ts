@@ -118,18 +118,20 @@ export class ValidatorR3ClientTests implements OnStart {
 
 			test("an imported Scale beyond the float range still exports and imports cleanly", () => {
 				const input = createTestInput();
-				const result = input.ImportBindings(save({ "Gameplay/Look/Mouse": { Scale: 1e39 } }));
+				const result = input.ImportBindings(
+					save({ "Gameplay/Look/KeyboardAndMouse": { Scale: 1e39 } }),
+				);
 				if (result.Applied.size() === 0) return; // skipped as not finite: fine
-				expectExportRoundTrips(input, "Gameplay/Look/Mouse");
+				expectExportRoundTrips(input, "Gameplay/Look/KeyboardAndMouse");
 			});
 
 			test("an imported Vector2Scale beyond the float range still exports and imports cleanly", () => {
 				const input = createTestInput();
 				const result = input.ImportBindings(
-					save({ "Gameplay/Look/Mouse": { Vector2Scale: [1e39, 1] } }),
+					save({ "Gameplay/Look/KeyboardAndMouse": { Vector2Scale: [1e39, 1] } }),
 				);
 				if (result.Applied.size() === 0) return; // skipped as not finite: fine
-				expectExportRoundTrips(input, "Gameplay/Look/Mouse");
+				expectExportRoundTrips(input, "Gameplay/Look/KeyboardAndMouse");
 			});
 
 			test("a PressedThreshold beyond the float range, cleaned by SanitizeBindings, imports and exports cleanly", () => {
@@ -146,10 +148,10 @@ export class ValidatorR3ClientTests implements OnStart {
 
 			test("Set with a Scale beyond the float range throws, or exports cleanly", () => {
 				const input = createTestInput();
-				const look = input.Gameplay.Actions.Look.Bindings.Mouse;
+				const look = input.Gameplay.Actions.Look.Bindings.KeyboardAndMouse;
 				const [ok] = pcall(() => look.Set({ KeyCode: K.MouseDelta, Scale: 1e39 }));
 				if (!ok) return; // refused: fine
-				expectExportRoundTrips(input, "Gameplay/Look/Mouse");
+				expectExportRoundTrips(input, "Gameplay/Look/KeyboardAndMouse");
 			});
 
 			// ---- slot names: `S` and `<Action>S` on one action (design spec section 4)
@@ -159,7 +161,12 @@ export class ValidatorR3ClientTests implements OnStart {
 				try {
 					schema = InputActions.Schema({
 						R3Slots: {
-							Actions: { Jump: InputActions.Bool({ Pad: K.ButtonA, JumpPad: K.ButtonB }) },
+							Actions: {
+								Jump: InputActions.Bool({
+									Gamepad: K.ButtonA,
+									JumpGamepad: InputActions.Scriptable,
+								}),
+							},
 						},
 					}) as never;
 				} catch {
@@ -173,15 +180,30 @@ export class ValidatorR3ClientTests implements OnStart {
 				const first = InputActions.Create(schema, { Folder: folder }) as unknown as AnyHandle;
 				defer(() => first.Destroy());
 				const bindings = first.R3Slots.Actions.Jump.Bindings;
-				expectTrue(bindings.Pad.Instance !== bindings.JumpPad.Instance, "one binding per slot");
-				expectEqual(bindings.Pad.Instance.KeyCode, K.ButtonA, "Pad's key");
-				expectEqual(bindings.JumpPad.Instance.KeyCode, K.ButtonB, "JumpPad's key");
+				expectTrue(
+					bindings.Gamepad.Instance !== bindings.JumpGamepad.Instance,
+					"one binding per slot",
+				);
+				expectEqual(bindings.Gamepad.Instance.KeyCode, K.ButtonA, "Gamepad's key");
+				expectEqual(
+					bindings.JumpGamepad.Instance.Type,
+					Enum.InputBindingType.Scriptable,
+					"JumpGamepad's type",
+				);
 
 				const second = InputActions.Create(schema, { Folder: folder }) as unknown as AnyHandle;
 				defer(() => second.Destroy());
 				const again = second.R3Slots.Actions.Jump.Bindings;
-				expectEqual(again.Pad.Instance, bindings.Pad.Instance, "the second handle's Pad");
-				expectEqual(again.JumpPad.Instance, bindings.JumpPad.Instance, "the second handle's JumpPad");
+				expectEqual(
+					again.Gamepad.Instance,
+					bindings.Gamepad.Instance,
+					"the second handle's Gamepad",
+				);
+				expectEqual(
+					again.JumpGamepad.Instance,
+					bindings.JumpGamepad.Instance,
+					"the second handle's JumpGamepad",
+				);
 			});
 
 			// ---- what Destroy lets go of on a shared action (design spec section 4)
@@ -341,8 +363,16 @@ export class ValidatorR3ClientTests implements OnStart {
 				const input = createTestInput();
 				const result = input.ImportBindings(save({ "Gameplay/Jump/KeyboardAndMouse": {} }));
 				expectArrayEqual(describeSkipped(result), []);
-				expectEqual(input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Instance.KeyCode, K.Space);
-				for (const json of ['{"Version":1,"Bindings":null}', '{"Version":"1","Bindings":{}}', "null", '""']) {
+				expectEqual(
+					input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Instance.KeyCode,
+					K.Space,
+				);
+				for (const json of [
+					'{"Version":1,"Bindings":null}',
+					'{"Version":"1","Bindings":{}}',
+					"null",
+					'""',
+				]) {
 					const odd = input.ImportBindings(json);
 					expectArrayEqual(odd.Applied, [], json);
 					expectEqual(odd.Skipped.size(), 1, json);

@@ -173,7 +173,8 @@ export class ServerAuthorityClientTests implements OnStart {
 					second.SaGameplay.Actions.Jump.Bindings.Gamepad.Instance,
 					first.SaGameplay.Actions.Jump.Bindings.Gamepad.Instance,
 				);
-				expectEqual(first.SaGameplay.Actions.Jump.Instance.GetChildren().size(), 2);
+				// the three device bindings, once
+				expectEqual(first.SaGameplay.Actions.Jump.Instance.GetChildren().size(), 3);
 			});
 
 			test("before the server's copy arrives, a stand-in works; then everything moves to it", () => {

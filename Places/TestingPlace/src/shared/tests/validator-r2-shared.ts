@@ -33,7 +33,7 @@ export class ValidatorR2SharedTests implements OnStart {
 				const json = save({
 					"Gameplay/Jump/KeyboardAndMouse": { KeyCode: "F", PrimaryModifier: "LeftShift" },
 					"Gameplay/Move/Gamepad": { KeyCode: "Thumbstick1", ResponseCurve: 3 },
-					"Gameplay/Look/Mouse": { Scale: 0.05, Vector2Scale: [1, 1] },
+					"Gameplay/Look/KeyboardAndMouse": { Scale: 0.05, Vector2Scale: [1, 1] },
 					"Gameplay/Zoom/Gamepad": { Up: "Unknown" },
 					"Gameplay/Jump/Nope": { KeyCode: "F" },
 				});
@@ -65,11 +65,11 @@ export class ValidatorR2SharedTests implements OnStart {
 				const clean = sanitize(
 					save({
 						"Gameplay/Jump/KeyboardAndMouse": { KeyCode: 32 },
-						"Gameplay/Look/Mouse": { Scale: "2" },
+						"Gameplay/Look/KeyboardAndMouse": { Scale: "2" },
 						"Gameplay/Look/Gamepad": { Vector2Scale: [1] },
-						"Gameplay/Fly/Keyboard": { Vector3Scale: [1, 2, "3"] },
-						"Gameplay/Zoom/Mouse": { PressedThreshold: 0.5 },
-						"Gameplay/Fire/Mouse": ["KeyCode", "F"],
+						"Gameplay/Fly/KeyboardAndMouse": { Vector3Scale: [1, 2, "3"] },
+						"Gameplay/Zoom/KeyboardAndMouse": { PressedThreshold: 0.5 },
+						"Gameplay/Fire/KeyboardAndMouse": ["KeyCode", "F"],
 					}),
 				);
 				const kept = new Array<string>();
@@ -78,7 +78,10 @@ export class ValidatorR2SharedTests implements OnStart {
 			});
 
 			test("SanitizeBindings of an array of bindings gives an empty save", () => {
-				const clean = InputActions.SanitizeBindings(TEST_SCHEMA, '{"Version":1,"Bindings":[{"KeyCode":"F"}]}');
+				const clean = InputActions.SanitizeBindings(
+					TEST_SCHEMA,
+					'{"Version":1,"Bindings":[{"KeyCode":"F"}]}',
+				);
 				expectEqual(clean, '{"Version":1,"Bindings":{}}');
 			});
 
@@ -94,7 +97,9 @@ export class ValidatorR2SharedTests implements OnStart {
 					InputActions.Schema({
 						Bad: {
 							Actions: {
-								Jump: InputActions.Bool({ K: "Space" as unknown as Enum.KeyCode.Space }),
+								Jump: InputActions.Bool({
+									KeyboardAndMouse: "Space" as unknown as Enum.KeyCode.Space,
+								}),
 							},
 						},
 					}),

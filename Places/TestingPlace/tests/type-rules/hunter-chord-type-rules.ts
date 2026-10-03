@@ -10,9 +10,9 @@ type Dir2DType = Enum.InputActionType.Direction2D;
 const HUNT = InputActions.Schema({
 	Play: {
 		Actions: {
-			Jump: InputActions.Bool({ Keys: K.Space, Virtual: InputActions.Scriptable }),
-			Throttle: InputActions.Direction1D({ Keys: { Up: K.E, Down: K.Q } }),
-			Move: InputActions.Direction2D({ Keys: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
+			Jump: InputActions.Bool({ KeyboardAndMouse: K.Space, Virtual: InputActions.Scriptable }),
+			Throttle: InputActions.Direction1D({ KeyboardAndMouse: { Up: K.E, Down: K.Q } }),
+			Move: InputActions.Direction2D({ KeyboardAndMouse: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
 		},
 	},
 });
@@ -55,31 +55,31 @@ function rebindChordTyped<A extends BoolType | Dir1DType>(
 export function HunterChordTypeRules() {
 	const { Jump, Throttle, Move } = InputActions.Create(HUNT).Play.Actions;
 
-	resetAll([Jump.Bindings.Keys]);
-	resetAll([Move.Bindings.Keys]);
-	rebindChord(Jump.Bindings.Keys);
-	rebindChord(Throttle.Bindings.Keys);
-	rebindChordTyped(Jump.Bindings.Keys);
-	rebindChordTyped(Throttle.Bindings.Keys);
+	resetAll([Jump.Bindings.KeyboardAndMouse]);
+	resetAll([Move.Bindings.KeyboardAndMouse]);
+	rebindChord(Jump.Bindings.KeyboardAndMouse);
+	rebindChord(Throttle.Bindings.KeyboardAndMouse);
+	rebindChordTyped(Jump.Bindings.KeyboardAndMouse);
+	rebindChordTyped(Throttle.Bindings.KeyboardAndMouse);
 	// @ts-expect-error a Direction2D handle is no ChordBindingHandle
-	rebindChordTyped(Move.Bindings.Keys);
+	rebindChordTyped(Move.Bindings.KeyboardAndMouse);
 
 	// a union of the chord types keeps CaptureChord
-	const either: InputActions.BindingHandle<BoolType | Dir1DType> = Jump.Bindings.Keys;
+	const either: InputActions.BindingHandle<BoolType | Dir1DType> = Jump.Bindings.KeyboardAndMouse;
 	either.CaptureChord(() => {});
 	// any binding handle: a list of mixed ones
 	const all: InputActions.BindingHandle<Enum.InputActionType>[] = [
-		Jump.Bindings.Keys,
-		Throttle.Bindings.Keys,
-		Move.Bindings.Keys,
+		Jump.Bindings.KeyboardAndMouse,
+		Throttle.Bindings.KeyboardAndMouse,
+		Move.Bindings.KeyboardAndMouse,
 	];
 	// a union with a type that has no chord: no CaptureChord
-	const mixed: InputActions.BindingHandle<BoolType | Dir2DType> = Jump.Bindings.Keys;
+	const mixed: InputActions.BindingHandle<BoolType | Dir2DType> = Jump.Bindings.KeyboardAndMouse;
 	// @ts-expect-error Direction2D is among the types: no CaptureChord
 	mixed.CaptureChord(() => {});
 	// Cancel keys from a readonly list
 	const cancel = [K.Backspace] as const;
-	Jump.Bindings.Keys.CaptureChord(() => {}, { Cancel: [...cancel], Timeout: 2 });
+	Jump.Bindings.KeyboardAndMouse.CaptureChord(() => {}, { Cancel: [...cancel], Timeout: 2 });
 
 	return [all, widen, captureKey];
 }

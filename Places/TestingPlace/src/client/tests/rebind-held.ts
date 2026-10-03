@@ -37,7 +37,10 @@ function server(...args: unknown[]): unknown {
 	return remote.InvokeServer(...args) as unknown;
 }
 
-/** Two schemas on one Move: the second gives it a composite (T/G/F/H) the first lacks */
+/**
+ * Two schemas on one Move: the second gives it a composite (T/G/F/H) the first lacks, which fills
+ * the first's unbound KeyboardAndMouse binding (0.7.0: every action has the device bindings)
+ */
 const MOVE_SHARED_SMALL = InputActions.Schema({
 	HeldShared: {
 		Priority: 2000,
@@ -50,7 +53,7 @@ const MOVE_SHARED_BIG = InputActions.Schema({
 		Actions: {
 			Move: InputActions.Direction2D({
 				Virtual: InputActions.Scriptable,
-				Keys: { Up: K.T, Down: K.G, Left: K.F, Right: K.H },
+				KeyboardAndMouse: { Up: K.T, Down: K.G, Left: K.F, Right: K.H },
 			}),
 		},
 	},
@@ -260,9 +263,11 @@ export class RebindHeldTests implements OnStart {
 			});
 
 			// The same on an action another root handle still uses (hunt HL3-2, the Bool form is in
-			// hunter-label-3): the composite only the destroyed root handle had goes, and a pair on
-			// MoveScript lets go of what it held
-			test("Destroy while a real key holds a shared Direction2D action through a composite only that root handle has: at rest", () => {
+			// hunter-label-3). Since 0.7.0 no key binding goes with one root handle alone: every root
+			// handle on the action has its three device bindings, and the second's composite filled
+			// the first's unbound KeyboardAndMouse binding. So the binding stays, with the second's
+			// keys as both handles' defaults, and the key holds Move until it comes up
+			test("Destroy while a real key holds a shared Direction2D action through the composite a later schema filled: held until the key is up", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const folder = newFolder();
@@ -278,23 +283,33 @@ export class RebindHeldTests implements OnStart {
 				defer(() => second.Destroy());
 				const move = first.HeldShared.Actions.Move;
 				expectEqual(second.HeldShared.Actions.Move.Instance, move.Instance, "one shared Move");
-				const keys = second.HeldShared.Actions.Move.Bindings.Keys.Instance;
+				const keys = second.HeldShared.Actions.Move.Bindings.KeyboardAndMouse.Instance;
+				expectEqual(keys, move.Bindings.KeyboardAndMouse.Instance, "one binding for both");
+				expectEqual(keys.Up, K.T, "the second schema filled the first's unbound binding");
 				real.Press(K.T);
 				eventually(
 					() => move.GetState() === new Vector2(0, 1),
 					`T moves Move up${real.FocusNote()}`,
 				);
 				second.Destroy();
-				expectEqual(keys.Parent, undefined, "the composite only the second had went");
-				eventually(
-					() => move.GetState() === Vector2.zero,
-					`Move at rest after the second's Destroy (reads ${move.GetState()})${real.FocusNote()}`,
+				expectEqual(keys.Parent, move.Instance, "the first root handle still uses the binding");
+				frames(3);
+				expectEqual(
+					move.GetState(),
+					new Vector2(0, 1),
+					`T still holds Move after the second's Destroy${real.FocusNote()}`,
 				);
 				real.Release(K.T);
+				eventually(
+					() => move.GetState() === Vector2.zero,
+					`at rest once T is up${real.FocusNote()}`,
+				);
 				expectTrue(
 					staysFalse(() => move.GetState() !== Vector2.zero),
 					`Move after T came up: ${move.GetState()}`,
 				);
+				move.Bindings.KeyboardAndMouse.Reset();
+				expectEqual(keys.Up, K.T, "the defaults are the second schema's, which filled it");
 				move.Fire(new Vector2(1, 0));
 				eventually(() => move.GetState() === new Vector2(1, 0), "the first's Fire still drives it");
 				move.Fire(Vector2.zero);

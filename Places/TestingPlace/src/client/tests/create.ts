@@ -109,7 +109,11 @@ export class CreateTests implements OnStart {
 					Enum.KeyCode.Space,
 				);
 				expectEqual(child(jump, "JumpGamepad", "InputBinding").KeyCode, Enum.KeyCode.ButtonA);
-				expectEqual(bindingsOf(jump).size(), 2);
+				// every action has the three device bindings: Touch, which the schema leaves out, unbound
+				const jumpTouch = child(jump, "JumpTouch", "InputBinding");
+				expectEqual(jumpTouch.KeyCode, Enum.KeyCode.None);
+				expectEqual(jumpTouch.Type, Enum.InputBindingType.Automatic);
+				expectEqual(bindingsOf(jump).size(), 3);
 
 				const move = child(gameplay, "Move", "InputAction");
 				expectEqual(move.Type, Enum.InputActionType.Direction2D);
@@ -126,7 +130,11 @@ export class CreateTests implements OnStart {
 				expectEqual(virtual.Type, Enum.InputBindingType.Scriptable);
 				expectEqual(keys.Type, Enum.InputBindingType.Automatic);
 
-				const look = child(child(gameplay, "Look", "InputAction"), "LookMouse", "InputBinding");
+				const look = child(
+					child(gameplay, "Look", "InputAction"),
+					"LookKeyboardAndMouse",
+					"InputBinding",
+				);
 				expectEqual(look.KeyCode, Enum.KeyCode.MouseDelta);
 				expectTrue(nearlyEqual(look.Scale, 0.02));
 				expectEqual(look.Vector2Scale, new Vector2(1, -1));
@@ -140,13 +148,24 @@ export class CreateTests implements OnStart {
 				);
 				expectEqual(save.KeyCode, Enum.KeyCode.S);
 				expectEqual(save.PrimaryModifier, Enum.KeyCode.LeftControl);
-				const fly = child(child(gameplay, "Fly", "InputAction"), "FlyKeyboard", "InputBinding");
+				const fly = child(
+					child(gameplay, "Fly", "InputAction"),
+					"FlyKeyboardAndMouse",
+					"InputBinding",
+				);
 				expectEqual(fly.Forward, Enum.KeyCode.W);
 				expectEqual(fly.Down, Enum.KeyCode.LeftControl);
 
+				// no bindings in the schema: the three device bindings, unbound
 				const dash = child(gameplay, "Dash", "InputAction");
 				expectEqual(dash.DisplayName, "Dash");
-				expectEqual(bindingsOf(dash).size(), 0);
+				const dashBindings = bindingsOf(dash).map((binding) => binding.Name);
+				dashBindings.sort();
+				expectEqual(dashBindings.join(","), "DashGamepad,DashKeyboardAndMouse,DashTouch");
+				for (const binding of bindingsOf(dash) as InputBinding[]) {
+					expectEqual(binding.KeyCode, Enum.KeyCode.None, binding.Name);
+					expectEqual(binding.Up, Enum.KeyCode.None, binding.Name);
+				}
 			});
 
 			test("handles name their instances", () => {
@@ -182,8 +201,10 @@ export class CreateTests implements OnStart {
 					input.Gameplay.Actions.Jump.Bindings.Gamepad.Instance.KeyCode,
 					Enum.KeyCode.ButtonX,
 				);
-				// nothing created beside the adopted bindings; the stray one is left alone
-				expectEqual(bindingsOf(jump).size(), 3);
+				// nothing created beside the adopted bindings but the Touch one the folder lacked, unbound;
+				// the stray one is left alone
+				expectEqual(bindingsOf(jump).size(), 4);
+				expectEqual(child(jump, "JumpTouch", "InputBinding").KeyCode, Enum.KeyCode.None);
 				expectEqual(child(jump, "InputBinding", "InputBinding").KeyCode, Enum.KeyCode.J);
 
 				const move = input.Gameplay.Actions.Move;
@@ -254,17 +275,20 @@ export class CreateTests implements OnStart {
 
 			test("slots S and <Action>S in a schema made without Schema throw, leaving nothing", () => {
 				const folder = newFolder();
+				// DashTouch would be both this Scriptable slot and the Touch binding every action has
 				const schema = {
 					Contexts: {
 						Gameplay: {
 							Actions: {
-								Jump: InputActions.Bool({ JumpPad: Enum.KeyCode.ButtonB }),
-								Dash: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA, DashPad: Enum.KeyCode.ButtonB }),
+								Jump: InputActions.Bool({ Gamepad: Enum.KeyCode.ButtonB }),
+								Dash: InputActions.Bool({ DashTouch: InputActions.Scriptable }),
 							},
 						},
 					},
 				};
-				const message = expectThrows(() => InputActions.Create(schema as never, { Folder: folder }));
+				const message = expectThrows(() =>
+					InputActions.Create(schema as never, { Folder: folder }),
+				);
 				expectTrue(message.find("Gameplay/Dash", 1, true)[0] !== undefined, message);
 				expectEqual(folder.GetChildren().size(), 0);
 			});
@@ -291,7 +315,8 @@ export class CreateTests implements OnStart {
 				);
 				first.Gameplay.Actions.Dash.Fire(true);
 				second.Gameplay.Actions.Dash.Fire(false);
-				expectEqual(bindingsOf(first.Gameplay.Actions.Dash.Instance).size(), 1);
+				// the three device bindings and one DashScript
+				expectEqual(bindingsOf(first.Gameplay.Actions.Dash.Instance).size(), 4);
 			});
 
 			test("Destroy removes what it created and keeps what it adopted", () => {
@@ -309,6 +334,7 @@ export class CreateTests implements OnStart {
 				expectEqual(jump.Parent, gameplay);
 				expectDefined(jump.FindFirstChild("JumpKeyboardAndMouse"));
 				expectDefined(jump.FindFirstChild("InputBinding"));
+				expectEqual(jump.FindFirstChild("JumpTouch"), undefined, "the Touch binding it made");
 				expectEqual(gameplay.FindFirstChild("Look"), undefined);
 				expectEqual(gameplay.FindFirstChild("Dash"), undefined);
 				expectEqual(folder.FindFirstChild("Menu"), undefined);

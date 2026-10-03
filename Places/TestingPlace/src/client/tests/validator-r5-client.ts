@@ -360,8 +360,8 @@ export class ValidatorR5ClientTests implements OnStart {
 			test("a save whose Bindings nest right at the limit still imports", () => {
 				const input = createTestInput();
 				const json = save({
-					"Gameplay/Look/Mouse": { Vector2Scale: [2, -2] },
-					"Gameplay/Fly/Keyboard": { Vector3Scale: [1, 2, 3] },
+					"Gameplay/Look/KeyboardAndMouse": { Vector2Scale: [2, -2] },
+					"Gameplay/Fly/KeyboardAndMouse": { Vector3Scale: [1, 2, 3] },
 				});
 				const result = input.ImportBindings(json);
 				expectArrayEqual(describeSkipped(result), [], json);

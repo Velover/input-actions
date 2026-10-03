@@ -92,13 +92,14 @@ export class ActionTests implements OnStart {
 
 			test("Fire creates one <Action>Script binding on first use", () => {
 				const dash = createTestInput().Gameplay.Actions.Dash;
-				expectEqual(dash.Instance.GetChildren().size(), 0);
+				// the three device bindings every action has, unbound here
+				expectEqual(dash.Instance.GetChildren().size(), 3);
 				dash.Fire(true);
 				dash.Fire(false);
 				dash.Fire(true);
-				const children = dash.Instance.GetChildren();
+				const children = dash.Instance.GetChildren().filter((child) => child.Name === "DashScript");
 				expectEqual(children.size(), 1);
-				expectEqual(children[0].Name, "DashScript");
+				expectEqual(dash.Instance.GetChildren().size(), 4);
 				expectEqual((children[0] as InputBinding).Type, Enum.InputBindingType.Scriptable);
 			});
 

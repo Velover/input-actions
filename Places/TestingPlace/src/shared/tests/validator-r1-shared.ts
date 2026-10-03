@@ -22,8 +22,8 @@ export class ValidatorR1SharedTests implements OnStart {
 		defineTests("validator-r1-shared", () => {
 			test("SanitizeBindings drops a ResponseCurve on a binding that is not a thumbstick", () => {
 				// Set refuses it (ResponseCurve is Stick only, spec section 3); a clean save must not carry it
-				const clean = sanitize({ "Gameplay/Look/Mouse": { ResponseCurve: 2 } });
-				expectEqual(clean.Bindings["Gameplay/Look/Mouse"], undefined);
+				const clean = sanitize({ "Gameplay/Look/KeyboardAndMouse": { ResponseCurve: 2 } });
+				expectEqual(clean.Bindings["Gameplay/Look/KeyboardAndMouse"], undefined);
 			});
 
 			test("SanitizeBindings keeps a cleared modifier", () => {

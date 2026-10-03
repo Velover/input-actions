@@ -139,15 +139,15 @@ function fakeCopy(folderName: string, contextName: string, actions: string[]) {
 const SWAP_SMALL = InputActions.Schema({
 	HunterR4Swap: {
 		ServerAuthority: true,
-		Actions: { Fire: InputActions.Bool({ Pad: K.ButtonR2 }) },
+		Actions: { Fire: InputActions.Bool({ Gamepad: K.ButtonR2 }) },
 	},
 });
 const SWAP_FULL = InputActions.Schema({
 	HunterR4Swap: {
 		ServerAuthority: true,
 		Actions: {
-			Fire: InputActions.Bool({ Pad: K.ButtonR2 }),
-			Extra: InputActions.Bool({ Key: K.K }),
+			Fire: InputActions.Bool({ Gamepad: K.ButtonR2 }),
+			Extra: InputActions.Bool({ KeyboardAndMouse: K.K }),
 		},
 	},
 });
@@ -384,7 +384,7 @@ export class HunterR4RealTests implements OnStart {
 				});
 				defer(() => small.Destroy());
 				expectTrue(small.HunterR4Swap.IsLinkedToServer(), "the second handle found the copy");
-				const smallPad = small.HunterR4Swap.Actions.Fire.Bindings.Pad;
+				const smallPad = small.HunterR4Swap.Actions.Fire.Bindings.Gamepad;
 				smallPad.Set({ KeyCode: K.ButtonR2, ReleasedThreshold: 0.45 });
 				smallPad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.3 });
 				expectTrue(
@@ -392,7 +392,7 @@ export class HunterR4RealTests implements OnStart {
 					`stored 0.45 reads ${smallPad.Instance.ReleasedThreshold} under 0.3`,
 				);
 				// the stand-in's handle tunes only PressedThreshold
-				full.HunterR4Swap.Actions.Fire.Bindings.Pad.Set({
+				full.HunterR4Swap.Actions.Fire.Bindings.Gamepad.Set({
 					KeyCode: K.ButtonR2,
 					PressedThreshold: 0.4,
 				});
@@ -400,7 +400,7 @@ export class HunterR4RealTests implements OnStart {
 				extra.Name = "Extra";
 				extra.Parent = context;
 				eventually(() => full.HunterR4Swap.IsLinkedToServer(), "the swap once Extra is there");
-				const fullPad = full.HunterR4Swap.Actions.Fire.Bindings.Pad;
+				const fullPad = full.HunterR4Swap.Actions.Fire.Bindings.Gamepad;
 				expectEqual(fullPad.Instance, smallPad.Instance, "one binding for both handles");
 				expectTrue(
 					nearlyEqual(fullPad.Instance.PressedThreshold, 0.4),

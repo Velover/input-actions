@@ -13,7 +13,14 @@ import {
 import { InputActions } from "@rbxts/input-actions";
 import { HttpService, Players, ReplicatedStorage } from "@rbxts/services";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
-import { countSignal, createTestInput, frames, nearlyEqual, newFolder, recordWarnings } from "./helpers";
+import {
+	countSignal,
+	createTestInput,
+	frames,
+	nearlyEqual,
+	newFolder,
+	recordWarnings,
+} from "./helpers";
 
 // Validator round 4: adversarial client tests (binding properties IAS clamps, hostile saves, and
 // the Server Authority stand-in when its root handle goes before the server's copy arrives).
@@ -76,7 +83,9 @@ function standInCopy(folderName: string) {
 
 /** A save as sorted `path.property=value` lines, whatever order JSONEncode wrote the keys in */
 function canonical(json: string) {
-	const decoded = HttpService.JSONDecode(json) as { Bindings: Record<string, Record<string, unknown>> };
+	const decoded = HttpService.JSONDecode(json) as {
+		Bindings: Record<string, Record<string, unknown>>;
+	};
 	const lines = new Array<string>();
 	for (const [path, entry] of pairs(decoded.Bindings)) {
 		for (const [name, value] of pairs(entry)) {
@@ -119,7 +128,10 @@ export class ValidatorR4ClientTests implements OnStart {
 				expectTrue(nearlyEqual(pad.Instance.ReleasedThreshold, 0.9), "ReleasedThreshold 0.9");
 				const high = input.ExportBindings();
 				pad.Reset();
-				expectTrue(nearlyEqual(pad.Instance.ReleasedThreshold, 0.2), "Reset from above the defaults");
+				expectTrue(
+					nearlyEqual(pad.Instance.ReleasedThreshold, 0.2),
+					"Reset from above the defaults",
+				);
 
 				for (const json of [low, high]) {
 					const result = input.ImportBindings(json);
@@ -157,10 +169,10 @@ export class ValidatorR4ClientTests implements OnStart {
 					'{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":{"Name":"F"}}}}',
 					'{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":true}}}',
 					'{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"1":"F"}}}',
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Vector2Scale":[1,null,2]}}}',
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Vector2Scale":{"X":1,"Y":2}}}}',
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Scale":"2"}}}',
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Scale":1e999}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Vector2Scale":[1,null,2]}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Vector2Scale":{"X":1,"Y":2}}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Scale":"2"}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Scale":1e999}}}',
 					'{"Version":1,"Bindings":{"__index":{"KeyCode":"F"},"Gameplay/Jump/KeyboardAndMouse/":{}}}',
 					'{"Version":1,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":"F\\u0000"}}}',
 					'{"Version":1e0,"Bindings":{"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":"MouseLeftButton"}}}',
@@ -190,11 +202,11 @@ export class ValidatorR4ClientTests implements OnStart {
 					"Gameplay/Move/Gamepad": { ResponseCurve: 3, Scale: 0.5 },
 					"Gameplay/Move/KeyboardAndMouse": { Up: "Up", KeyCode: "Thumbstick1" },
 					"Gameplay/Move/Virtual": { KeyCode: "F" },
-					"Gameplay/Look/Mouse": { Vector2Scale: [2, -2], Scale: 0.123456789 },
+					"Gameplay/Look/KeyboardAndMouse": { Vector2Scale: [2, -2], Scale: 0.123456789 },
 					"Gameplay/Zoom/Gamepad": { Up: "Unknown", Down: "DPadLeft" },
-					"Gameplay/Fly/Keyboard": { Forward: "I", Vector3Scale: [1, 2, 3] },
-					"Gameplay/Aim/Pointer": { KeyCode: "TouchPosition" },
-					"Ui/Scroll/Mouse": { KeyCode: "TrackpadPinch" },
+					"Gameplay/Fly/KeyboardAndMouse": { Forward: "I", Vector3Scale: [1, 2, 3] },
+					"Gameplay/Aim/Touch": { KeyCode: "TouchPosition" },
+					"Ui/Scroll/KeyboardAndMouse": { KeyCode: "TrackpadPinch" },
 					"Nope/Jump/KeyboardAndMouse": { KeyCode: "F" },
 				});
 				const clean = InputActions.SanitizeBindings(TEST_SCHEMA, messy);
@@ -257,7 +269,11 @@ export class ValidatorR4ClientTests implements OnStart {
 				expectEqual(second.R4StandIn.Instance, copy);
 				frames(3);
 				expectEqual(linked.count, 1, "LinkedToServer fires once");
-				expectEqual(bindingCount(copy), 3, "PokeKeyboardAndMouse, PokeScript and MoveVirtual, once each");
+				expectEqual(
+					bindingCount(copy),
+					8,
+					"each action's three device bindings, PokeScript and MoveVirtual, once each",
+				);
 				poke.Fire(false);
 			});
 

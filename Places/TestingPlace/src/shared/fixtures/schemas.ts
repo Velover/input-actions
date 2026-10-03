@@ -11,7 +11,7 @@ export const TEST_SCHEMA = InputActions.Schema({
 				Gamepad: Enum.KeyCode.ButtonA,
 			}),
 			Fire: InputActions.Bool({
-				Mouse: Enum.KeyCode.MouseLeftButton,
+				KeyboardAndMouse: Enum.KeyCode.MouseLeftButton,
 				Gamepad: { KeyCode: Enum.KeyCode.ButtonR2, PressedThreshold: 0.6 },
 			}),
 			Move: InputActions.Direction2D({
@@ -25,15 +25,19 @@ export const TEST_SCHEMA = InputActions.Schema({
 				Virtual: InputActions.Scriptable,
 			}),
 			Look: InputActions.Direction2D({
-				Mouse: { KeyCode: Enum.KeyCode.MouseDelta, Scale: 0.02, Vector2Scale: new Vector2(1, -1) },
+				KeyboardAndMouse: {
+					KeyCode: Enum.KeyCode.MouseDelta,
+					Scale: 0.02,
+					Vector2Scale: new Vector2(1, -1),
+				},
 				Gamepad: Enum.KeyCode.Thumbstick2,
 			}),
 			Zoom: InputActions.Direction1D({
-				Mouse: Enum.KeyCode.MouseWheel,
+				KeyboardAndMouse: Enum.KeyCode.MouseWheel,
 				Gamepad: { Up: Enum.KeyCode.DPadUp, Down: Enum.KeyCode.DPadDown },
 			}),
 			Fly: InputActions.Direction3D({
-				Keyboard: {
+				KeyboardAndMouse: {
 					Forward: Enum.KeyCode.W,
 					Backward: Enum.KeyCode.S,
 					Left: Enum.KeyCode.A,
@@ -42,7 +46,7 @@ export const TEST_SCHEMA = InputActions.Schema({
 					Down: Enum.KeyCode.LeftControl,
 				},
 			}),
-			Aim: InputActions.ViewportPosition({ Pointer: Enum.KeyCode.MousePosition }),
+			Aim: InputActions.ViewportPosition({ KeyboardAndMouse: Enum.KeyCode.MousePosition }),
 			QuickSave: InputActions.Bool({
 				KeyboardAndMouse: { KeyCode: Enum.KeyCode.S, PrimaryModifier: Enum.KeyCode.LeftControl },
 			}),

@@ -14,10 +14,11 @@ import {
 import { InputActions } from "@rbxts/input-actions";
 import { RoundFloat } from "@rbxts/input-actions/out/InputActions/BindingState";
 import {
-	DecideCapture,
-	ECaptureDecision,
+	CapturedKey,
+	ClassifyCaptureInput,
+	ECaptureInput,
 	KeyFromInput,
-} from "@rbxts/input-actions/out/InputActions/Handles/BindingHandle";
+} from "@rbxts/input-actions/out/InputActions/Capture";
 import { createTestInput, frame, nearlyEqual, newFolder, recordSignal } from "./helpers";
 
 function sortedKeys(record: object) {
@@ -45,7 +46,7 @@ export class RebindingTests implements OnStart {
 
 			test("Set with an object merges into the binding", () => {
 				const input = createTestInput();
-				const look = input.Gameplay.Actions.Look.Bindings.Mouse;
+				const look = input.Gameplay.Actions.Look.Bindings.KeyboardAndMouse;
 				look.Set({ KeyCode: Enum.KeyCode.TrackpadPan, Scale: 0.5 });
 				expectEqual(look.Instance.KeyCode, Enum.KeyCode.TrackpadPan);
 				expectEqual(look.Instance.Scale, 0.5);
@@ -92,7 +93,7 @@ export class RebindingTests implements OnStart {
 				expectThrows(() => untypedSet(jump, { KeyCode: Enum.KeyCode.E, Scale: 2 }));
 				expectThrows(() => untypedSet(jump, "E"));
 				expectThrows(() =>
-					untypedSet(actions.Look.Bindings.Mouse, {
+					untypedSet(actions.Look.Bindings.KeyboardAndMouse, {
 						KeyCode: Enum.KeyCode.MouseDelta,
 						ResponseCurve: 2,
 					}),
@@ -103,7 +104,9 @@ export class RebindingTests implements OnStart {
 						Up: Enum.KeyCode.W,
 					}),
 				);
-				expectThrows(() => untypedSet(actions.Fly.Bindings.Keyboard, Enum.KeyCode.Thumbstick1));
+				expectThrows(() =>
+					untypedSet(actions.Fly.Bindings.KeyboardAndMouse, Enum.KeyCode.Thumbstick1),
+				);
 				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.Space);
 			});
 
@@ -114,7 +117,7 @@ export class RebindingTests implements OnStart {
 				jump.Reset();
 				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.Space);
 
-				const look = actions.Look.Bindings.Mouse;
+				const look = actions.Look.Bindings.KeyboardAndMouse;
 				look.Set({
 					KeyCode: Enum.KeyCode.MouseDelta,
 					Scale: 3,
@@ -218,7 +221,7 @@ export class RebindingTests implements OnStart {
 					Hidden: {
 						Actions: {
 							Fire: InputActions.Bool({
-								Pad: {
+								Gamepad: {
 									KeyCode: Enum.KeyCode.ButtonR2,
 									PressedThreshold: 0.125,
 									ReleasedThreshold: 0.125,
@@ -229,7 +232,7 @@ export class RebindingTests implements OnStart {
 				});
 				const input = InputActions.Create(schema, { Folder: newFolder() });
 				defer(() => input.Destroy());
-				const hidden = input.Hidden.Actions.Fire.Bindings.Pad.Instance;
+				const hidden = input.Hidden.Actions.Fire.Bindings.Gamepad.Instance;
 				hidden.PressedThreshold = 0.5;
 				expectEqual(
 					RoundFloat(hidden.ReleasedThreshold),
@@ -318,7 +321,7 @@ export class RebindingTests implements OnStart {
 				expectArrayEqual(sortedKeys(stick), ["KeyCode", "ResponseCurve"]);
 				expectEqual(stick.ResponseCurve, 2);
 
-				const look = actions.Look.Bindings.Mouse.Get();
+				const look = actions.Look.Bindings.KeyboardAndMouse.Get();
 				expectArrayEqual(sortedKeys(look), ["KeyCode", "Scale", "Vector2Scale"]);
 				expectEqual(look.Scale, 0.02);
 				expectEqual(look.Vector2Scale, new Vector2(1, -1));
@@ -327,7 +330,7 @@ export class RebindingTests implements OnStart {
 				expectEqual(save.PrimaryModifier, Enum.KeyCode.LeftControl);
 
 				// what Get returns can be set back
-				actions.Look.Bindings.Mouse.Set({
+				actions.Look.Bindings.KeyboardAndMouse.Set({
 					KeyCode: Enum.KeyCode.MouseDelta,
 					Scale: 0.02,
 					Vector2Scale: new Vector2(1, -1),
@@ -367,35 +370,36 @@ export class RebindingTests implements OnStart {
 						() => {},
 					),
 				);
-				expectNoThrow(() => actions.Fly.Bindings.Keyboard.Capture("Forward", () => {})());
+				expectNoThrow(() => actions.Fly.Bindings.KeyboardAndMouse.Capture("Forward", () => {})());
 			});
 
 			test("Capture takes only keys legal for the slot; cancel keys stop it", () => {
-				expectEqual(DecideCapture("Bool", "KeyCode", Enum.KeyCode.F, []), ECaptureDecision.Accept);
+				const K = Enum.KeyCode;
+				expectEqual(CapturedKey("Bool", "KeyCode", K.F), K.F);
+				expectEqual(CapturedKey("Bool", "KeyCode", K.MouseLeftButton), K.MouseLeftButton);
+				expectEqual(CapturedKey("Bool", "KeyCode", K.Escape), undefined);
+				expectEqual(CapturedKey("Direction2D", "KeyCode", K.W), undefined);
+				expectEqual(CapturedKey("Direction2D", "Up", K.W), K.W);
+				expectEqual(CapturedKey("Bool", "PrimaryModifier", K.ButtonR2), undefined);
+				// the binding's device only (0.7.0)
+				expectEqual(CapturedKey("Bool", "KeyCode", K.ButtonA, "KeyboardAndMouse"), undefined);
+				expectEqual(CapturedKey("Bool", "KeyCode", K.ButtonA, "Gamepad"), K.ButtonA);
+				expectEqual(CapturedKey("Bool", "KeyCode", K.F, "Gamepad"), undefined);
+				expectEqual(CapturedKey("Bool", "KeyCode", K.TouchPosition, "KeyboardAndMouse"), undefined);
+				// a stick's direction: itself where the slot takes it, else the whole stick
+				expectEqual(CapturedKey("Bool", "KeyCode", K.Thumbstick1Up, "Gamepad"), K.Thumbstick1Up);
 				expectEqual(
-					DecideCapture("Bool", "KeyCode", Enum.KeyCode.MouseLeftButton, []),
-					ECaptureDecision.Accept,
+					CapturedKey("Direction2D", "KeyCode", K.Thumbstick2Left, "Gamepad"),
+					K.Thumbstick2,
 				);
 				expectEqual(
-					DecideCapture("Bool", "KeyCode", Enum.KeyCode.Escape, []),
-					ECaptureDecision.Ignore,
+					CapturedKey("Direction2D", "Up", K.Thumbstick2Left, "Gamepad"),
+					K.Thumbstick2Left,
 				);
-				expectEqual(
-					DecideCapture("Direction2D", "KeyCode", Enum.KeyCode.W, []),
-					ECaptureDecision.Ignore,
-				);
-				expectEqual(
-					DecideCapture("Direction2D", "Up", Enum.KeyCode.W, []),
-					ECaptureDecision.Accept,
-				);
-				expectEqual(
-					DecideCapture("Bool", "PrimaryModifier", Enum.KeyCode.ButtonR2, []),
-					ECaptureDecision.Ignore,
-				);
-				expectEqual(
-					DecideCapture("Bool", "KeyCode", Enum.KeyCode.Backspace, [Enum.KeyCode.Backspace]),
-					ECaptureDecision.Cancel,
-				);
+				expectEqual(ClassifyCaptureInput(K.Backspace, false, [K.Backspace]), ECaptureInput.Cancel);
+				// a Cancel key counts from any device
+				expectEqual(ClassifyCaptureInput(K.ButtonB, false, [K.ButtonB]), ECaptureInput.Cancel);
+				expectEqual(ClassifyCaptureInput(K.F, false, [K.Backspace]), ECaptureInput.Count);
 				// mouse buttons and touch come in as input types
 				expectEqual(
 					KeyFromInput(Enum.KeyCode.Unknown, Enum.UserInputType.MouseButton1),

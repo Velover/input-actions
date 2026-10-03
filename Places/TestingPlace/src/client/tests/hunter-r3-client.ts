@@ -10,7 +10,7 @@ const TRIGGER_SCHEMA = InputActions.Schema({
 	HunterTrigger: {
 		Actions: {
 			Fire: InputActions.Bool({
-				Pad: { KeyCode: K.ButtonR2, PressedThreshold: 0.9, ReleasedThreshold: 0.6 },
+				Gamepad: { KeyCode: K.ButtonR2, PressedThreshold: 0.9, ReleasedThreshold: 0.6 },
 			}),
 		},
 	},
@@ -57,7 +57,7 @@ export class HunterR3ClientTests implements OnStart {
 		defineTests("hunter-r3", () => {
 			test("thresholds: Reset brings the defaults back after ReleasedThreshold was raised and PressedThreshold lowered", () => {
 				const input = createTrigger();
-				const pad = input.HunterTrigger.Actions.Fire.Bindings.Pad;
+				const pad = input.HunterTrigger.Actions.Fire.Bindings.Gamepad;
 				expectTrue(atDefaults(pad.Instance), `the defaults: ${reads(pad.Instance)}`);
 				tuneDown(pad);
 				const tuned = reads(pad.Instance);
@@ -68,14 +68,14 @@ export class HunterR3ClientTests implements OnStart {
 				);
 				const save = input.ExportBindings();
 				expectTrue(
-					save.find("HunterTrigger/Fire/Pad", 1, true)[0] === undefined,
+					save.find("HunterTrigger/Fire/Gamepad", 1, true)[0] === undefined,
 					`the export after Reset holds no change: ${save}`,
 				);
 			});
 
 			test("thresholds: ResetBindings and an import of an empty save bring the defaults back too", () => {
 				const input = createTrigger();
-				const pad = input.HunterTrigger.Actions.Fire.Bindings.Pad;
+				const pad = input.HunterTrigger.Actions.Fire.Bindings.Gamepad;
 				tuneDown(pad);
 				input.ResetBindings();
 				const afterResetBindings = reads(pad.Instance);
@@ -88,7 +88,7 @@ export class HunterR3ClientTests implements OnStart {
 			});
 
 			test("thresholds: Set with both thresholds gives the binding what the spec says", () => {
-				const pad = createTrigger().HunterTrigger.Actions.Fire.Bindings.Pad;
+				const pad = createTrigger().HunterTrigger.Actions.Fire.Bindings.Gamepad;
 				tuneDown(pad);
 				pad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.9, ReleasedThreshold: 0.6 });
 				const got = pad.Get() as { ReleasedThreshold?: number };
@@ -102,10 +102,10 @@ export class HunterR3ClientTests implements OnStart {
 				const source = createTrigger();
 				const exported = source.ExportBindings();
 				const input = createTrigger();
-				const pad = input.HunterTrigger.Actions.Fire.Bindings.Pad;
+				const pad = input.HunterTrigger.Actions.Fire.Bindings.Gamepad;
 				tuneDown(pad);
 				// A save of other values: the target is the defaults plus a changed PressedThreshold
-				const sourcePad = source.HunterTrigger.Actions.Fire.Bindings.Pad;
+				const sourcePad = source.HunterTrigger.Actions.Fire.Bindings.Gamepad;
 				sourcePad.Set({ KeyCode: K.ButtonR2, PressedThreshold: 0.95 });
 				const save = source.ExportBindings();
 				const result = input.ImportBindings(save);
@@ -122,7 +122,7 @@ export class HunterR3ClientTests implements OnStart {
 				const action = new Instance("InputAction");
 				action.Name = "Fire";
 				const binding = new Instance("InputBinding");
-				binding.Name = "FirePad";
+				binding.Name = "FireGamepad";
 				binding.KeyCode = K.ButtonR2;
 				binding.PressedThreshold = 0.9;
 				binding.ReleasedThreshold = 0.6;
@@ -131,7 +131,7 @@ export class HunterR3ClientTests implements OnStart {
 				context.Parent = folder;
 
 				const first = InputActions.Create(TRIGGER_SCHEMA, { Folder: folder });
-				tuneDown(first.HunterTrigger.Actions.Fire.Bindings.Pad);
+				tuneDown(first.HunterTrigger.Actions.Fire.Bindings.Gamepad);
 				first.Destroy();
 				expectTrue(
 					atDefaults(binding),

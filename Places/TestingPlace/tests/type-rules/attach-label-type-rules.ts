@@ -8,12 +8,12 @@ const LABELS = InputActions.Schema({
 	Play: {
 		ServerAuthority: true,
 		Actions: {
-			Jump: InputActions.Bool({ Keys: K.Space }),
-			Move: InputActions.Direction2D({ Keys: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
-			Aim: InputActions.ViewportPosition({ Pointer: K.MousePosition }),
+			Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }),
+			Move: InputActions.Direction2D({ KeyboardAndMouse: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
+			Aim: InputActions.ViewportPosition({ KeyboardAndMouse: K.MousePosition }),
 		},
 	},
-	Menu: { Actions: { Open: InputActions.Bool({ Keys: K.M }) } },
+	Menu: { Actions: { Open: InputActions.Bool({ KeyboardAndMouse: K.M }) } },
 });
 
 export function AttachLabelTypeRules() {

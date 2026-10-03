@@ -92,8 +92,10 @@ export class HunterR2RealTests implements OnStart {
 
 			// ---- Capture into another binding of a held action
 
-			// Capture applies the key as it goes down: the new key then holds the action (as the docs
-			// say, the captured key does what it is bound to while pressed). Nothing may stick after.
+			// Capture applies the key as it goes down, a change to the action's keys while Space holds
+			// it. Nothing may stick after. The Gamepad binding takes gamepad keys only (0.7.0): a
+			// gamepad KeyCode as VirtualInput sends it (as a key, which IAS's gamepad binding doesn't
+			// take, so the new key can't be seen holding Jump here)
 			test("Capture into another binding of a held action: nothing sticks after both keys come up", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
@@ -104,24 +106,26 @@ export class HunterR2RealTests implements OnStart {
 				eventually(() => jump.IsPressed(), "Space");
 				const captured = new Array<Enum.KeyCode>();
 				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
-				real.Press(K.G);
-				eventually(() => captured.size() === 1, "G captured");
-				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.G);
+				real.Tap(K.G);
+				expectEqual(captured.size(), 0, "G is the keyboard's: the Gamepad binding ignores it");
+				real.Press(K.ButtonX);
+				eventually(() => captured.size() === 1, "ButtonX captured");
+				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.ButtonX);
 				frames(4);
 				const afterCapture = `${jump.IsPressed()} P${pressed.count} R${released.count}`;
-				real.Release(K.G);
+				real.Release(K.ButtonX);
 				frames(4);
-				const afterG = `${jump.IsPressed()} P${pressed.count} R${released.count}`;
+				const afterX = `${jump.IsPressed()} P${pressed.count} R${released.count}`;
 				real.Release(K.Space);
 				frames(4);
 				const afterSpace = `${jump.IsPressed()} P${pressed.count} R${released.count}`;
 				expectTrue(
 					staysFalse(() => jump.IsPressed()),
-					`after the capture: ${afterCapture}; G up: ${afterG}; Space up: ${afterSpace}`,
+					`after the capture: ${afterCapture}; ButtonX up: ${afterX}; Space up: ${afterSpace}`,
 				);
-				real.Press(K.G);
-				eventually(() => jump.IsPressed(), "G presses Jump");
-				real.Release(K.G);
+				real.Press(K.Space);
+				eventually(() => jump.IsPressed(), "Space presses Jump again");
+				real.Release(K.Space);
 				eventually(() => !jump.IsPressed(), "released");
 			});
 
@@ -188,13 +192,16 @@ export class HunterR2RealTests implements OnStart {
 				else expectEqual(left, new Vector2(-1, 0), "Left");
 			});
 
-			// docs/Advanced.md, IAS behaviours: "its PageUp/PageDown keys and stick hold at most 1 while held"
-			test("docs: Scroll's PageUp and PageDown hold 1 and -1 while held", () => {
+			// docs/Advanced.md, IAS behaviours: a composite's keys "hold at most 1 while held". Since
+			// 0.7.0 the preset's keyboard-and-mouse Scroll is the wheel (one binding per device):
+			// PageUp/PageDown as a composite of that binding
+			test("docs: Scroll's PageUp and PageDown (a composite) hold 1 and -1 while held", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const input = createTestInput();
 				input.Ui.SetEnabled(true);
 				const scroll = input.Ui.Actions.Scroll;
+				scroll.Bindings.KeyboardAndMouse.Set({ Up: K.PageUp, Down: K.PageDown });
 				real.Press(K.PageUp);
 				eventually(() => scroll.GetState() !== 0, "PageUp");
 				frames(4);

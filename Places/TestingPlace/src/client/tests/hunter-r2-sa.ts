@@ -382,17 +382,22 @@ export class HunterR2SaTests implements OnStart {
 				);
 			});
 
-			test("server's copy: Capture takes the key that holds Jump through its other binding; after it comes up both rest", () => {
+			// Since 0.7.0 a binding holds its device's keys only, so the key holding Jump through its
+			// keyboard binding can't be captured into the Gamepad one: the capture takes a gamepad
+			// KeyCode (as VirtualInput sends it) while F holds Jump, a change to the keys of a held action
+			test("server's copy: Capture into the other binding while a key holds Jump; after it comes up both rest", () => {
 				if (getProject() !== "authority") return skip("the authority project only");
 				settleServerAfter();
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				const captured = new Array<Enum.KeyCode>();
-				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
 				real.Press(K.F);
-				eventually(() => captured.size() === 1, "F captured");
-				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.F);
+				eventually(() => serverJump() === true, "F holds Jump", 5);
+				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				real.Tap(K.ButtonX);
+				eventually(() => captured.size() === 1, "ButtonX captured");
+				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.ButtonX);
 				frames(10);
 				const whileDown = both(jump);
 				real.Release(K.F);

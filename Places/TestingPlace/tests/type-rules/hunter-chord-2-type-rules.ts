@@ -10,9 +10,9 @@ type Dir2DType = Enum.InputActionType.Direction2D;
 const HUNT2 = InputActions.Schema({
 	Play: {
 		Actions: {
-			Jump: InputActions.Bool({ Keys: K.Space, Virtual: InputActions.Scriptable }),
-			Throttle: InputActions.Direction1D({ Keys: { Up: K.E, Down: K.Q } }),
-			Move: InputActions.Direction2D({ Keys: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
+			Jump: InputActions.Bool({ KeyboardAndMouse: K.Space, Virtual: InputActions.Scriptable }),
+			Throttle: InputActions.Direction1D({ KeyboardAndMouse: { Up: K.E, Down: K.Q } }),
+			Move: InputActions.Direction2D({ KeyboardAndMouse: { Up: K.W, Down: K.S, Left: K.A, Right: K.D } }),
 		},
 	},
 });
@@ -53,19 +53,19 @@ type NoChordAny = InputActions.ChordBindingHandle<Enum.InputActionType>;
 export function HunterChord2TypeRules() {
 	const { Jump, Throttle, Move } = InputActions.Create(HUNT2).Play.Actions;
 
-	rebindPanel(Jump.Bindings.Keys);
-	rebindPanel(Throttle.Bindings.Keys);
-	handOn(Jump.Bindings.Keys);
-	handOn(Throttle.Bindings.Keys);
+	rebindPanel(Jump.Bindings.KeyboardAndMouse);
+	rebindPanel(Throttle.Bindings.KeyboardAndMouse);
+	handOn(Jump.Bindings.KeyboardAndMouse);
+	handOn(Throttle.Bindings.KeyboardAndMouse);
 	// @ts-expect-error a Scriptable binding is no chord handle
 	rebindPanel(Jump.Bindings.Virtual);
 	// @ts-expect-error nor is a Direction2D one
-	rebindPanel(Move.Bindings.Keys);
+	rebindPanel(Move.Bindings.KeyboardAndMouse);
 
 	// a concrete handle is the chord handle of its type, both ways
-	const jumpKeys: InputActions.ChordBindingHandle<BoolType> = Jump.Bindings.Keys;
+	const jumpKeys: InputActions.ChordBindingHandle<BoolType> = Jump.Bindings.KeyboardAndMouse;
 	const backAgain: InputActions.BindingHandle<BoolType> = jumpKeys;
-	const throttleKeys: InputActions.ChordBindingHandle<Dir1DType> = Throttle.Bindings.Keys;
+	const throttleKeys: InputActions.ChordBindingHandle<Dir1DType> = Throttle.Bindings.KeyboardAndMouse;
 	// a list over both chord types
 	const panel: InputActions.ChordBindingHandle<BoolType | Dir1DType>[] = [jumpKeys, throttleKeys];
 	for (const keys of panel) keys.CaptureChord(() => {}, { Timeout: 2 });

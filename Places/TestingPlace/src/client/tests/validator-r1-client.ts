@@ -436,7 +436,7 @@ export class ValidatorR1ClientTests implements OnStart {
 
 			test("import refuses a ResponseCurve on a binding that is not a thumbstick, as Set does", () => {
 				const input = createTestInput();
-				const look = input.Gameplay.Actions.Look.Bindings.Mouse;
+				const look = input.Gameplay.Actions.Look.Bindings.KeyboardAndMouse;
 				expectThrows(() =>
 					(look as unknown as { Set(spec: unknown): void }).Set({
 						KeyCode: K.MouseDelta,
@@ -446,7 +446,7 @@ export class ValidatorR1ClientTests implements OnStart {
 				const result = input.ImportBindings(
 					HttpService.JSONEncode({
 						Version: 1,
-						Bindings: { "Gameplay/Look/Mouse": { ResponseCurve: 2 } },
+						Bindings: { "Gameplay/Look/KeyboardAndMouse": { ResponseCurve: 2 } },
 					}),
 				);
 				expectEqual(result.Applied.size(), 0, "applied entries");

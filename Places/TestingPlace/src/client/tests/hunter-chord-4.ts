@@ -15,7 +15,7 @@ import {
 	UserInputService,
 	Workspace,
 } from "@rbxts/services";
-import { ClassifyCaptureInput } from "@rbxts/input-actions/out/InputActions/Handles/BindingHandle";
+import { ClassifyCaptureInput } from "@rbxts/input-actions/out/InputActions/Capture";
 import { createTestInput, frames, newFolder } from "./helpers";
 import {
 	clickProblem,
@@ -79,9 +79,22 @@ function isTouch() {
 	return getProject() === "touch";
 }
 
-/** The key a click (a tap on the simulated phone) is captured as */
+/** The key a click (a tap on the simulated phone) is */
 function clickKey() {
 	return isTouch() ? K.TouchPosition : K.MouseLeftButton;
+}
+
+/**
+ * The key the captures should take from the click on the world just sent: the mouse button. On the
+ * phone a tap is never captured (0.7.0: touch has no keys to press), so H, pressed here once the
+ * tap has had its chance, ends them instead: "Capture H" then also shows the tap was ignored
+ */
+function clickCaptureKey(real: RealInput): string {
+	if (!isTouch()) return clickKey().Name;
+	frames(6);
+	hold(real, [K.H]);
+	lifted(real, K.H);
+	return "H";
 }
 
 /** What the engine reports down right now: keys and mouse buttons 1 and 2 */
@@ -210,10 +223,13 @@ function both(captured: Enum.KeyCode[], outcomes: Outcome[]) {
 	return `Capture ${names(captured)}; chord ${describeAll(outcomes)}`;
 }
 
-/** Fire on H too (its Gamepad binding): how many times IAS pressed it, until the test ends */
+/**
+ * Fire on H too (its keyboard binding, which no capture here uses): how many times IAS pressed it,
+ * until the test ends
+ */
 function iasOnH(input: ReturnType<typeof createTestInput>) {
 	const fire = input.Gameplay.Actions.Fire;
-	fire.Bindings.Gamepad.Set(K.H);
+	fire.Bindings.KeyboardAndMouse.Set(K.H);
 	const counter = { count: 0 };
 	const connection = fire.Pressed.Connect(() => counter.count++);
 	defer(() => connection.Disconnect());
@@ -269,8 +285,8 @@ export class HunterChord4Tests implements OnStart {
 				const afterStart = both(captured, outcomes);
 				clearOfTyping();
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
 				expectEqual(
 					`${afterStart}; then ${both(captured, outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,
@@ -430,8 +446,8 @@ export class HunterChord4Tests implements OnStart {
 				);
 				clearOfTyping();
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1, 1);
-				const key = clickKey().Name;
 				expectEqual(
 					both(captured, outcomes),
 					`Capture ${key}; chord -+-+${key}`,
@@ -577,12 +593,17 @@ export class HunterChord4Tests implements OnStart {
 				real.MouseDown(emptyPoint());
 				frames(3);
 				real.MouseUp();
+				// on the phone the tap is no key of the keyboard's chord (0.7.0): Ctrl alone settles it
+				if (isTouch()) {
+					frames(6);
+					lifted(real, K.LeftControl);
+				}
 				waitFor(() => outcomes.size() >= 1);
 				real.ReleaseAll();
-				const key = clickKey().Name;
+				const chord = isTouch() ? "-+-+LeftControl" : `LeftControl+-+${clickKey().Name}`;
 				expectEqual(
 					`${afterRelease}; then ${describeAll(outcomes)}`,
-					`nothing; then LeftControl+-+${key}`,
+					`nothing; then ${chord}`,
 					`at the start: ${atStart}; clicks ${processed.join(", ")}${real.FocusNote()}`,
 				);
 			});
@@ -617,8 +638,8 @@ export class HunterChord4Tests implements OnStart {
 				pause(0.2);
 				const afterStart = both(captured, outcomes);
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
 				expectEqual(
 					`${afterStart}; then ${both(captured, outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,
@@ -660,8 +681,8 @@ export class HunterChord4Tests implements OnStart {
 				frames(6);
 				const afterStart = both(captured, outcomes);
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
 				expectEqual(
 					`${afterStart}; then ${both(captured, outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,
@@ -691,8 +712,8 @@ export class HunterChord4Tests implements OnStart {
 				frames(6);
 				const afterStart = both(captured, outcomes);
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
 				expectEqual(
 					`${afterStart}; then ${both(captured, outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,
@@ -739,8 +760,8 @@ export class HunterChord4Tests implements OnStart {
 				part.Destroy();
 				frames(2);
 				real.Click(emptyPoint());
+				const key = clickCaptureKey(real);
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
 				expectEqual(
 					`${afterStart}; then ${both(captured, outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,

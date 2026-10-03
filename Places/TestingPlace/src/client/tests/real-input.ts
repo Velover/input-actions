@@ -40,7 +40,10 @@ import {
 
 const K = Enum.KeyCode;
 
-/** Two actions on one key, one of them a chord; and one action with two keys */
+/**
+ * Two actions on one key, one of them a chord; and one action that a test gives a second key (an
+ * action has one binding per device: the second is a binding the test makes by hand)
+ */
 const KEYS_SCHEMA = InputActions.Schema({
 	RealKeys: {
 		Priority: 2500,
@@ -49,19 +52,23 @@ const KEYS_SCHEMA = InputActions.Schema({
 				KeyboardAndMouse: { KeyCode: K.C, PrimaryModifier: K.LeftControl },
 			}),
 			Plain: InputActions.Bool({ KeyboardAndMouse: K.C }),
-			Use: InputActions.Bool({ First: K.R, Second: K.F }),
+			Use: InputActions.Bool({ KeyboardAndMouse: K.R }),
 		},
 	},
 });
 
 /** A sinking context above one that binds the same key and another */
 const SINK_SCHEMA = InputActions.Schema({
-	SinkHigh: { Priority: 3500, Sink: true, Actions: { Use: InputActions.Bool({ Key: K.G }) } },
+	SinkHigh: {
+		Priority: 3500,
+		Sink: true,
+		Actions: { Use: InputActions.Bool({ KeyboardAndMouse: K.G }) },
+	},
 	SinkLow: {
 		Priority: 3400,
 		Actions: {
-			Use: InputActions.Bool({ Key: K.G }),
-			Other: InputActions.Bool({ Key: K.H }),
+			Use: InputActions.Bool({ KeyboardAndMouse: K.G }),
+			Other: InputActions.Bool({ KeyboardAndMouse: K.H }),
 		},
 	},
 });
@@ -72,7 +79,7 @@ const WHEEL_SCHEMA = InputActions.Schema({
 		Priority: 2500,
 		Actions: {
 			Raw: InputActions.Direction1D({
-				Mouse: { KeyCode: K.MouseWheel, ClampMagnitudeToOne: false },
+				KeyboardAndMouse: { KeyCode: K.MouseWheel, ClampMagnitudeToOne: false },
 			}),
 		},
 	},
@@ -213,6 +220,12 @@ export class RealInputTests implements OnStart {
 				const input = InputActions.Create(KEYS_SCHEMA, { Folder: newFolder() });
 				defer(() => input.Destroy());
 				const use = input.RealKeys.Actions.Use;
+				// IAS's own behaviour: a second binding of the action, beside the schema's R
+				const second = new Instance("InputBinding");
+				second.Name = "UseSecond";
+				second.KeyCode = K.F;
+				second.Parent = use.Instance;
+				defer(() => second.Destroy());
 				real.Press(K.R);
 				eventually(() => use.IsPressed(), "R");
 				real.Press(K.F);

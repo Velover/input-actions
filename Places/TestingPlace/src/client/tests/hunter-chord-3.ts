@@ -15,7 +15,7 @@ import {
 	TextChatService,
 	UserInputService,
 } from "@rbxts/services";
-import { ClassifyCaptureInput } from "@rbxts/input-actions/out/InputActions/Handles/BindingHandle";
+import { ClassifyCaptureInput } from "@rbxts/input-actions/out/InputActions/Capture";
 import { createTestInput, frames, newFolder } from "./helpers";
 import {
 	clickProblem,
@@ -385,10 +385,11 @@ export class HunterChord3Tests implements OnStart {
 				const captured = new Array<Enum.KeyCode>();
 				const outcomes = new Array<Outcome>();
 				let state = "?";
-				// Jump also on G: "let go of G to rebind"
-				const jump = input.Gameplay.Actions.Jump;
-				jump.Bindings.Gamepad.Set(K.G);
-				const connection = jump.Released.Connect(() => {
+				// Fire on G: "let go of G to rebind" (Jump's keyboard binding is the one captured, and a
+				// binding holds one device's keys: the Gamepad one can't take G)
+				const fire = input.Gameplay.Actions.Fire;
+				fire.Bindings.KeyboardAndMouse.Set(K.G);
+				const connection = fire.Released.Connect(() => {
 					if (state !== "?") return;
 					state = `G down ${UserInputService.IsKeyDown(K.G)}, ${downNow()}`;
 					// Capture on Jump's keyboard slot, CaptureChord on Crouch
@@ -431,8 +432,14 @@ export class HunterChord3Tests implements OnStart {
 				frames(4);
 				const afterStart = `Capture ${names(captured)}; chord ${describeAll(outcomes)}`;
 				real.Click(emptyPoint());
+				// a tap is never captured (0.7.0: touch has no keys), so on the phone H ends them
+				if (isTouch()) {
+					frames(6);
+					hold(real, [K.H]);
+					lifted(real, K.H);
+				}
 				waitFor(() => captured.size() >= 1 && outcomes.size() >= 1);
-				const key = clickKey().Name;
+				const key = isTouch() ? "H" : clickKey().Name;
 				expectEqual(
 					`${afterStart}; then Capture ${names(captured)}; chord ${describeAll(outcomes)}`,
 					`Capture nothing; chord nothing; then Capture ${key}; chord -+-+${key}`,
@@ -481,7 +488,9 @@ export class HunterChord3Tests implements OnStart {
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const processed = watchClicks();
 				const fire = input.Gameplay.Actions.Fire;
-				fire.Bindings.Mouse.Set(clickKey());
+				// a tap is the Touch binding's key (0.7.0)
+				if (isTouch()) fire.Bindings.Touch.Set(K.TouchPosition);
+				else fire.Bindings.KeyboardAndMouse.Set(K.MouseLeftButton);
 				const captured = new Array<Enum.KeyCode>();
 				const outcomes = new Array<Outcome>();
 				let state = "?";
@@ -700,9 +709,13 @@ export class HunterChord3Tests implements OnStart {
 				lifted(real, K.G);
 				waitFor(() => outcomes.size() >= 1);
 				real.ReleaseAll();
+				// on the phone the tap is no key of the keyboard's chord (0.7.0: touch is another
+				// device, ignored), so Ctrl+G settles at once
 				expectEqual(
 					`${afterClick}; ${afterG}; then ${describeAll(outcomes)}`,
-					"nothing; nothing; then LeftControl+-+G",
+					isTouch()
+						? "nothing; LeftControl+-+G; then LeftControl+-+G"
+						: "nothing; nothing; then LeftControl+-+G",
 					`the click's gameProcessed ${processed.join(",")}${real.FocusNote()}`,
 				);
 			});

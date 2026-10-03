@@ -33,7 +33,7 @@ export class ValidatorR5SharedTests implements OnStart {
 			test("a save nested exactly as deep as a save can be is still cleaned, not refused", () => {
 				// the save, Bindings, an entry, a vector: 4 levels, then 4 more of nothing useful
 				const json =
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Vector2Scale":[2,-2]},' +
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Vector2Scale":[2,-2]},' +
 					'"Gameplay/Jump/KeyboardAndMouse":{"KeyCode":"F","Extra":[[[[1]]]]},' +
 					'"Gameplay/Jump/Gamepad":{"KeyCode":"ButtonB"}}}';
 				const result = HttpService.JSONDecode(clean(json)) as {
@@ -41,7 +41,9 @@ export class ValidatorR5SharedTests implements OnStart {
 				};
 				expectEqual(result.Bindings["Gameplay/Jump/Gamepad"]?.KeyCode, "ButtonB");
 				expectEqual(
-					(result.Bindings["Gameplay/Look/Mouse"]?.Vector2Scale as number[] | undefined)?.[1],
+					(
+						result.Bindings["Gameplay/Look/KeyboardAndMouse"]?.Vector2Scale as number[] | undefined
+					)?.[1],
 					-2,
 				);
 				expectEqual(result.Bindings["Gameplay/Jump/KeyboardAndMouse"], undefined, "the bad entry");

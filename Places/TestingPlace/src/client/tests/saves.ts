@@ -54,7 +54,7 @@ export class SaveTests implements OnStart {
 					Up: Enum.KeyCode.Up,
 					Down: Enum.KeyCode.Down,
 				});
-				actions.Look.Bindings.Mouse.Set({
+				actions.Look.Bindings.KeyboardAndMouse.Set({
 					KeyCode: Enum.KeyCode.MouseDelta,
 					Scale: 0.5,
 					Vector2Scale: new Vector2(2, -2),
@@ -74,7 +74,7 @@ export class SaveTests implements OnStart {
 				expectArrayEqual(paths(save), [
 					"Gameplay/Fire/Gamepad",
 					"Gameplay/Jump/KeyboardAndMouse",
-					"Gameplay/Look/Mouse",
+					"Gameplay/Look/KeyboardAndMouse",
 					"Gameplay/Move/KeyboardAndMouse",
 					"Gameplay/QuickSave/KeyboardAndMouse",
 				]);
@@ -84,7 +84,7 @@ export class SaveTests implements OnStart {
 				expectEqual(move.Up, "Up");
 				expectEqual(move.Down, "Down");
 				expectEqual(move.Left, undefined);
-				const look = save.Bindings["Gameplay/Look/Mouse"];
+				const look = save.Bindings["Gameplay/Look/KeyboardAndMouse"];
 				expectEqual(look.KeyCode, undefined);
 				expectEqual(look.Scale, 0.5);
 				expectArrayEqual(look.Vector2Scale as number[], [2, -2]);
@@ -112,13 +112,13 @@ export class SaveTests implements OnStart {
 				const actions = input.Gameplay.Actions;
 				actions.Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
 				actions.Move.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.MouseDelta);
-				actions.Look.Bindings.Mouse.Set({
+				actions.Look.Bindings.KeyboardAndMouse.Set({
 					KeyCode: Enum.KeyCode.MouseDelta,
 					Scale: 0.25,
 					Vector2Scale: new Vector2(1, 1),
 				});
 				actions.Zoom.Bindings.Gamepad.Clear();
-				actions.Fly.Bindings.Keyboard.Set({
+				actions.Fly.Bindings.KeyboardAndMouse.Set({
 					Forward: Enum.KeyCode.Up,
 					Vector3Scale: new Vector3(1, 2, 3),
 				});
@@ -134,16 +134,25 @@ export class SaveTests implements OnStart {
 				const move = actions.Move.Bindings.KeyboardAndMouse.Instance;
 				expectEqual(move.KeyCode, Enum.KeyCode.MouseDelta);
 				expectEqual(move.Up, Enum.KeyCode.None);
-				expectTrue(nearlyEqual(actions.Look.Bindings.Mouse.Instance.Scale, 0.25));
-				expectEqual(actions.Look.Bindings.Mouse.Instance.Vector2Scale, new Vector2(1, 1));
+				expectTrue(nearlyEqual(actions.Look.Bindings.KeyboardAndMouse.Instance.Scale, 0.25));
+				expectEqual(
+					actions.Look.Bindings.KeyboardAndMouse.Instance.Vector2Scale,
+					new Vector2(1, 1),
+				);
 				expectEqual(actions.Zoom.Bindings.Gamepad.Instance.Up, Enum.KeyCode.None);
-				expectEqual(actions.Fly.Bindings.Keyboard.Instance.Forward, Enum.KeyCode.Up);
-				expectEqual(actions.Fly.Bindings.Keyboard.Instance.Vector3Scale, new Vector3(1, 2, 3));
+				expectEqual(actions.Fly.Bindings.KeyboardAndMouse.Instance.Forward, Enum.KeyCode.Up);
+				expectEqual(
+					actions.Fly.Bindings.KeyboardAndMouse.Instance.Vector3Scale,
+					new Vector3(1, 2, 3),
+				);
 				expectEqual(
 					input.Ui.Actions.Accept.Bindings.KeyboardAndMouse.Instance.KeyCode,
 					Enum.KeyCode.Space,
 				);
-				expectEqual(decode(input.ExportBindings()).Bindings["Gameplay/Look/Mouse"].Scale, 0.25);
+				expectEqual(
+					decode(input.ExportBindings()).Bindings["Gameplay/Look/KeyboardAndMouse"].Scale,
+					0.25,
+				);
 				expectArrayEqual(paths(decode(input.ExportBindings())), paths(decode(json)));
 			});
 
@@ -194,9 +203,9 @@ export class SaveTests implements OnStart {
 				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.Space, "back to the default");
 				// as deep as a save goes (the save, Bindings, an entry, a vector) still applies
 				const look = input.ImportBindings(
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Vector2Scale":[2,-2]}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Vector2Scale":[2,-2]}}}',
 				);
-				expectArrayEqual(look.Applied, ["Gameplay/Look/Mouse"]);
+				expectArrayEqual(look.Applied, ["Gameplay/Look/KeyboardAndMouse"]);
 			});
 
 			test("every invalid entry is skipped with its reason and stays default", () => {
@@ -208,14 +217,14 @@ export class SaveTests implements OnStart {
 						"Gameplay/Nope/KeyboardAndMouse": { KeyCode: "F" },
 						"Gameplay/Move/Virtual": { KeyCode: "Thumbstick1" },
 						"Gameplay/Jump/Gamepad": { Foo: 1 },
-						"Gameplay/Fire/Mouse": { KeyCode: "Nope" },
+						"Gameplay/Fire/KeyboardAndMouse": { KeyCode: "Nope" },
 						"Gameplay/Fire/Gamepad": { KeyCode: "MouseDelta" },
 						"Gameplay/QuickSave/KeyboardAndMouse": { KeyCode: "Escape" },
-						"Gameplay/Look/Mouse": { Scale: "big" },
+						"Gameplay/Look/KeyboardAndMouse": { Scale: "big" },
 						"Gameplay/Look/Gamepad": { Vector2Scale: [1] },
 						"Gameplay/Zoom/Gamepad": { Left: "A" },
 						"Gameplay/Crouch/KeyboardAndMouse": "C",
-						"Gameplay/Move/Gamepad": { KeyCode: "Thumbstick2", Up: "W" },
+						"Gameplay/Move/Gamepad": { KeyCode: "Thumbstick2", Up: "DPadUp" },
 						"Gameplay/Steer/Gamepad": { KeyCode: "Unknown" },
 					}),
 				);
@@ -228,9 +237,13 @@ export class SaveTests implements OnStart {
 				expectEqual(actions.Steer.Bindings.Gamepad.Instance.KeyCode, Enum.KeyCode.None);
 
 				expectEqual(reasonFor(result, "Gameplay/Nope/KeyboardAndMouse"), "unknown path");
-				expectEqual(reasonFor(result, "Gameplay/Move/Virtual"), "unknown path");
+				// a save holds device bindings only (0.7.0)
+				expectEqual(
+					reasonFor(result, "Gameplay/Move/Virtual"),
+					"Virtual is not a device: a save holds the KeyboardAndMouse, Gamepad, Touch bindings",
+				);
 				expectEqual(reasonFor(result, "Gameplay/Jump/Gamepad"), "unknown property Foo");
-				expectEqual(reasonFor(result, "Gameplay/Fire/Mouse"), "unknown key name Nope");
+				expectEqual(reasonFor(result, "Gameplay/Fire/KeyboardAndMouse"), "unknown key name Nope");
 				expectEqual(
 					reasonFor(result, "Gameplay/Fire/Gamepad"),
 					"MouseDelta is not allowed in KeyCode",
@@ -239,7 +252,10 @@ export class SaveTests implements OnStart {
 					reasonFor(result, "Gameplay/QuickSave/KeyboardAndMouse"),
 					"Escape is not allowed in KeyCode",
 				);
-				expectEqual(reasonFor(result, "Gameplay/Look/Mouse"), "Scale is not a finite number");
+				expectEqual(
+					reasonFor(result, "Gameplay/Look/KeyboardAndMouse"),
+					"Scale is not a finite number",
+				);
 				expectEqual(
 					reasonFor(result, "Gameplay/Look/Gamepad"),
 					"Vector2Scale must be 2 finite numbers",
@@ -258,7 +274,7 @@ export class SaveTests implements OnStart {
 				expectEqual(actions.Jump.Bindings.Gamepad.Instance.KeyCode, Enum.KeyCode.ButtonA);
 				expectEqual(actions.Fire.Bindings.Gamepad.Instance.KeyCode, Enum.KeyCode.ButtonR2);
 				expectEqual(actions.QuickSave.Bindings.KeyboardAndMouse.Instance.KeyCode, Enum.KeyCode.S);
-				expectTrue(nearlyEqual(actions.Look.Bindings.Mouse.Instance.Scale, 0.02));
+				expectTrue(nearlyEqual(actions.Look.Bindings.KeyboardAndMouse.Instance.Scale, 0.02));
 				expectEqual(actions.Move.Bindings.Gamepad.Instance.KeyCode, Enum.KeyCode.Thumbstick1);
 			});
 
@@ -266,10 +282,12 @@ export class SaveTests implements OnStart {
 				// Roblox's JSON has no way to write one: such a save does not decode at all
 				const input = createTestInput();
 				const result = input.ImportBindings(
-					'{"Version":1,"Bindings":{"Gameplay/Look/Mouse":{"Scale":1e999}}}',
+					'{"Version":1,"Bindings":{"Gameplay/Look/KeyboardAndMouse":{"Scale":1e999}}}',
 				);
 				expectArrayEqual(result.Applied, []);
-				expectTrue(nearlyEqual(input.Gameplay.Actions.Look.Bindings.Mouse.Instance.Scale, 0.02));
+				expectTrue(
+					nearlyEqual(input.Gameplay.Actions.Look.Bindings.KeyboardAndMouse.Instance.Scale, 0.02),
+				);
 				// the entry check itself
 				expectEqual(
 					DecodeSavedEntry("Direction2D", { Scale: math.huge }),
@@ -290,7 +308,10 @@ export class SaveTests implements OnStart {
 			});
 
 			test("a number a float can't hold is skipped; the largest float round-trips", () => {
-				expectEqual(DecodeSavedEntry("Direction2D", { Scale: 1e39 }), "Scale is not a finite number");
+				expectEqual(
+					DecodeSavedEntry("Direction2D", { Scale: 1e39 }),
+					"Scale is not a finite number",
+				);
 				expectEqual(
 					DecodeSavedEntry("Direction2D", { Vector2Scale: [1, -1e39] }),
 					"Vector2Scale must be 2 finite numbers",
@@ -300,23 +321,29 @@ export class SaveTests implements OnStart {
 					"ReleasedThreshold is not a finite number",
 				);
 				const input = createTestInput();
-				const result = input.ImportBindings(encode({ "Gameplay/Zoom/Mouse": { Scale: 3.4e38 } }));
-				expectArrayEqual(result.Applied, ["Gameplay/Zoom/Mouse"]);
+				const result = input.ImportBindings(
+					encode({ "Gameplay/Zoom/KeyboardAndMouse": { Scale: 3.4e38 } }),
+				);
+				expectArrayEqual(result.Applied, ["Gameplay/Zoom/KeyboardAndMouse"]);
 				const again = input.ImportBindings(input.ExportBindings());
 				expectEqual(again.Skipped.size(), 0, input.ExportBindings());
-				expectArrayEqual(again.Applied, ["Gameplay/Zoom/Mouse"]);
+				expectArrayEqual(again.Applied, ["Gameplay/Zoom/KeyboardAndMouse"]);
 				// Set refuses it too
-				const zoom = input.Gameplay.Actions.Zoom.Bindings.Mouse;
+				const zoom = input.Gameplay.Actions.Zoom.Bindings.KeyboardAndMouse;
 				const [ok] = pcall(() => zoom.Set({ KeyCode: Enum.KeyCode.MouseWheel, Scale: 1e39 }));
 				expectEqual(ok, false, "Set with a Scale of 1e39");
 			});
 
 			test("a value written straight to the instance that no import could write back is not exported", () => {
 				const input = createTestInput();
-				const zoom = input.Gameplay.Actions.Zoom.Bindings.Mouse;
+				const zoom = input.Gameplay.Actions.Zoom.Bindings.KeyboardAndMouse;
 				zoom.Instance.Scale = math.huge;
 				const save = decode(input.ExportBindings());
-				expectEqual(save.Bindings["Gameplay/Zoom/Mouse"], undefined, input.ExportBindings());
+				expectEqual(
+					save.Bindings["Gameplay/Zoom/KeyboardAndMouse"],
+					undefined,
+					input.ExportBindings(),
+				);
 				expectEqual(input.ImportBindings(input.ExportBindings()).Skipped.size(), 0);
 			});
 
@@ -324,28 +351,36 @@ export class SaveTests implements OnStart {
 				const input = createTestInput();
 				const actions = input.Gameplay.Actions;
 				// the default KeyCode is a thumbstick: an entry with the curve alone applies
-				let result = input.ImportBindings(encode({ "Gameplay/Move/Gamepad": { ResponseCurve: 3 } }));
+				let result = input.ImportBindings(
+					encode({ "Gameplay/Move/Gamepad": { ResponseCurve: 3 } }),
+				);
 				expectArrayEqual(result.Applied, ["Gameplay/Move/Gamepad"]);
 				expectTrue(nearlyEqual(actions.Move.Bindings.Gamepad.Instance.ResponseCurve, 3));
 				// a composite clears the KeyCode, so the curve would act on nothing
 				result = input.ImportBindings(
-					encode({ "Gameplay/Move/Gamepad": { Up: "W", ResponseCurve: 3 } }),
+					encode({ "Gameplay/Move/Gamepad": { Up: "DPadUp", ResponseCurve: 3 } }),
 				);
 				expectArrayEqual(result.Applied, []);
 				const reason = reasonFor(result, "Gameplay/Move/Gamepad") ?? "";
 				expectTrue(reason.find("ResponseCurve", 1, true)[0] !== undefined, reason);
-				// the entry's own thumbstick KeyCode makes the curve legal on a mouse binding
+				// the entry's own thumbstick KeyCode makes the curve legal on a binding whose default is
+				// a D-pad composite
 				result = input.ImportBindings(
-					encode({ "Gameplay/Look/Mouse": { KeyCode: "Thumbstick2", ResponseCurve: 3 } }),
+					encode({ "Ui/Navigate/Gamepad": { KeyCode: "Thumbstick2", ResponseCurve: 3 } }),
 				);
-				expectArrayEqual(result.Applied, ["Gameplay/Look/Mouse"]);
+				expectArrayEqual(result.Applied, ["Ui/Navigate/Gamepad"]);
 
-				// a curve left behind beside a mouse key does nothing, and isn't saved
-				const look = actions.Look.Bindings.Mouse;
-				look.Set(Enum.KeyCode.MouseDelta);
-				expectTrue(nearlyEqual(look.Instance.ResponseCurve, 3));
+				// a curve left behind beside composite directions does nothing, and isn't saved
+				const navigate = input.Ui.Actions.Navigate.Bindings.Gamepad;
+				navigate.Set({
+					Up: Enum.KeyCode.DPadUp,
+					Down: Enum.KeyCode.DPadDown,
+					Left: Enum.KeyCode.DPadLeft,
+					Right: Enum.KeyCode.DPadRight,
+				});
+				expectTrue(nearlyEqual(navigate.Instance.ResponseCurve, 3));
 				const json = input.ExportBindings();
-				expectEqual(decode(json).Bindings["Gameplay/Look/Mouse"], undefined);
+				expectEqual(decode(json).Bindings["Ui/Navigate/Gamepad"], undefined);
 				expectArrayEqual(input.ImportBindings(json).Skipped, []);
 			});
 

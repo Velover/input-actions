@@ -8,8 +8,11 @@ const R4 = InputActions.Schema({
 	Menu: InputActions.Presets.UiNavigation({ Priority: 3000, Enabled: false }),
 	Play: {
 		Actions: {
-			Lean: InputActions.Direction1D({ Stick: K.Thumbstick1Left, Keys: { Up: K.E, Down: K.Q } }),
-			Jump: InputActions.Bool({ Keys: K.Space }, { TrackPrevious: true }),
+			Lean: InputActions.Direction1D({
+				Gamepad: K.Thumbstick1Left,
+				KeyboardAndMouse: { Up: K.E, Down: K.Q },
+			}),
+			Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }, { TrackPrevious: true }),
 		},
 	},
 });
@@ -24,9 +27,9 @@ export function ValidatorR4TypeRules() {
 	const navigate: Vector2 = Navigate.GetState();
 	const scroll: number = Scroll.GetState();
 	const lean: number = Lean.GetState();
-	Scroll.Bindings.Mouse.Set(K.TrackpadPinch);
+	Scroll.Bindings.KeyboardAndMouse.Set(K.TrackpadPinch);
 	Scroll.Bindings.KeyboardAndMouse.Capture("Down", () => {});
-	Lean.Bindings.Keys.Set({ Up: K.Thumbstick2Up, Down: K.ButtonL2 });
+	Lean.Bindings.Gamepad.Set({ Up: K.Thumbstick2Up, Down: K.ButtonL2 });
 	const accept: InputActions.BoolAction = Accept;
 	const tracked: InputActions.BoolAction = Jump;
 	MouseController.SetForceUnlockAction(Jump);
@@ -48,7 +51,7 @@ export function ValidatorR4TypeRules() {
 	// @ts-expect-error Scroll is Direction1D: no Left slot
 	Scroll.Bindings.KeyboardAndMouse.Capture("Left", () => {});
 	// @ts-expect-error Scroll is Direction1D: a stick doesn't drive it
-	Scroll.Bindings.Mouse.Set(K.Thumbstick1);
+	Scroll.Bindings.Gamepad.Set(K.Thumbstick1);
 	// @ts-expect-error the preset's bindings are key bindings, without Fire
 	Accept.Bindings.Gamepad.Fire(true);
 	// @ts-expect-error MouseController's force-unlock action is a Bool action
@@ -58,7 +61,7 @@ export function ValidatorR4TypeRules() {
 	// @ts-expect-error ProvideToPlayers' options are checked
 	InputActions.ProvideToPlayers(R4, { PlayerFolder: "Inputs" });
 	// @ts-expect-error a per-axis thumbstick key is not a Direction2D KeyCode
-	InputActions.Direction2D({ Stick: K.Thumbstick1Up });
+	InputActions.Direction2D({ Gamepad: K.Thumbstick1Up });
 	// @ts-expect-error ImportBindings takes the saved JSON string
 	Input.ImportBindings({ Version: 1 });
 	// @ts-expect-error a context option of the wrong type
@@ -66,11 +69,11 @@ export function ValidatorR4TypeRules() {
 	// @ts-expect-error a context without Actions
 	InputActions.Schema({ Bad: { Priority: 5 } });
 	// @ts-expect-error a misspelt ServerAuthority: the context would silently be local
-	InputActions.Schema({ Play: { ServerAuthorty: true, Actions: { Jump: InputActions.Bool({ Keys: K.Space }) } } });
+	InputActions.Schema({ Play: { ServerAuthorty: true, Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }) } } });
 	// @ts-expect-error a misspelt Priority
-	InputActions.Schema({ Play: { Prority: 2000, Actions: { Jump: InputActions.Bool({ Keys: K.Space }) } } });
+	InputActions.Schema({ Play: { Prority: 2000, Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }) } } });
 	// @ts-expect-error a misspelt Sink
-	InputActions.Schema({ Play: { Snk: true, Actions: { Jump: InputActions.Bool({ Keys: K.Space }) } } });
+	InputActions.Schema({ Play: { Snk: true, Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.Space }) } } });
 	// @ts-expect-error a misspelt option beside correct ones
 	InputActions.Schema({ Play: { Priority: 2000, Enable: false, Actions: {} } });
 	// @ts-expect-error a misspelt preset option beside correct ones

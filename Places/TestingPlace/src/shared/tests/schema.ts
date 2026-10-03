@@ -71,7 +71,9 @@ export class SchemaTests implements OnStart {
 
 			test("Schema creates no instances", () => {
 				const before = game.GetDescendants().size();
-				InputActions.Schema({ Temp: { Actions: { A: InputActions.Bool({ K: Enum.KeyCode.K }) } } });
+				InputActions.Schema({
+					Temp: { Actions: { A: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.K }) } },
+				});
 				expectEqual(game.GetDescendants().size(), before);
 			});
 
@@ -79,14 +81,23 @@ export class SchemaTests implements OnStart {
 				const message = expectThrows(() =>
 					untypedSchema({
 						Gameplay: {
-							Actions: { Jump: InputActions.Bool({ Mouse: Enum.KeyCode.MouseDelta as never }) },
+							Actions: {
+								Jump: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.MouseDelta as never }),
+							},
 						},
 					}),
 				);
-				expectTrue(message.find("Gameplay/Jump/Mouse", 1, true)[0] !== undefined, message);
+				expectTrue(
+					message.find("Gameplay/Jump/KeyboardAndMouse", 1, true)[0] !== undefined,
+					message,
+				);
 				expectThrows(() =>
 					untypedSchema({
-						Gameplay: { Actions: { Jump: InputActions.Bool({ K: Enum.KeyCode.Escape as never }) } },
+						Gameplay: {
+							Actions: {
+								Jump: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.Escape as never }),
+							},
+						},
 					}),
 				);
 				expectThrows(() => untypedSchema({ Gameplay: { Actions: { Jump: "nope" } } }));
@@ -129,9 +140,10 @@ export class SchemaTests implements OnStart {
 			});
 
 			test("Schema refuses slot names that would take the package's own binding names", () => {
+				// a binding not named after a device is Scriptable (0.7.0)
 				const withSlot = (slot: string) => () =>
 					InputActions.Schema({
-						Gameplay: { Actions: { Dash: InputActions.Bool({ [slot]: Enum.KeyCode.X }) } },
+						Gameplay: { Actions: { Dash: InputActions.Bool({ [slot]: InputActions.Scriptable }) } },
 					});
 				// DashScript is Fire's binding, DashUIButton<n> AttachButton's; a slot matches S or A..S
 				for (const slot of ["Script", "UIButton1", "UIButton12", "DashScript", "DashUIButton2"]) {
@@ -149,19 +161,31 @@ export class SchemaTests implements OnStart {
 					InputActions.Schema({
 						Gameplay: {
 							Actions: {
-								Jump: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA, JumpPad: Enum.KeyCode.ButtonB }),
+								Jump: InputActions.Bool({
+									Gamepad: Enum.KeyCode.ButtonA,
+									JumpGamepad: InputActions.Scriptable,
+								}),
 							},
 						},
 					}),
 				);
 				expectTrue(message.find("Gameplay/Jump", 1, true)[0] !== undefined, message);
-				expectTrue(message.find("JumpPad", 1, true)[0] !== undefined, message);
+				expectTrue(message.find("JumpGamepad", 1, true)[0] !== undefined, message);
+				// every action has the device bindings, named or not (0.7.0): JumpTouch is Touch's
+				const touch = expectThrows(() =>
+					InputActions.Schema({
+						Gameplay: {
+							Actions: { Jump: InputActions.Bool({ JumpTouch: InputActions.Scriptable }) },
+						},
+					}),
+				);
+				expectTrue(touch.find("JumpTouch", 1, true)[0] !== undefined, touch);
 				// on two actions the names are fine
 				InputActions.Schema({
 					Gameplay: {
 						Actions: {
-							Jump: InputActions.Bool({ Pad: Enum.KeyCode.ButtonA }),
-							Dash: InputActions.Bool({ JumpPad: Enum.KeyCode.ButtonB }),
+							Jump: InputActions.Bool({ Gamepad: Enum.KeyCode.ButtonA }),
+							Dash: InputActions.Bool({ JumpGamepad: InputActions.Scriptable }),
 						},
 					},
 				});

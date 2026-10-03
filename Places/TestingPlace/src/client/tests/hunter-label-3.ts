@@ -76,13 +76,17 @@ const HL3_LOCAL_BIG = InputActions.Schema({
 	},
 });
 
-/** Two schemas sharing one action: the second gives it a binding the first lacks */
+/**
+ * Two schemas sharing one action: the second names a device the first leaves out, and fills the
+ * first's unbound Gamepad binding (0.7.0: every action has the three device bindings, so both root
+ * handles have every binding of it)
+ */
 const HL3_KEYS_SMALL = InputActions.Schema({
 	Hl3Keys: { Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.J }) } },
 });
 const HL3_KEYS_BIG = InputActions.Schema({
 	Hl3Keys: {
-		Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.J, Alternate: K.K }) },
+		Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.J, Gamepad: K.ButtonA }) },
 	},
 });
 
@@ -294,7 +298,11 @@ export class HunterLabel3Tests implements OnStart {
 			// ---- a shared action held through a binding only the destroyed root handle had
 
 			// HL3-2 (hunter, fixed: when bindings that go with the root handle go while its shared action is not at rest and nothing another handle fired holds it, a pair on <Action>Script releases it, as for buttons): Destroy of a root handle on an action another root handle still uses destroyed the bindings only it had (its own slots) without letting go of what they held: a key held through one left the shared action stuck on after the key came up (ReleaseOwn handled Fire values and buttons only; ResetIfHeld only actions no one else uses)
-			test("a root handle destroyed while a key holds a shared action through a binding only it has: the action comes to rest once the key is up", () => {
+			// Since 0.7.0 every root handle on an action has its three device bindings, so no key
+			// binding goes with one root handle alone (buttons still do: attach-button covers them).
+			// What stays to check: the second's Destroy leaves the bindings both use, the Gamepad one
+			// its schema filled included, and the key keeps holding until it comes up
+			test("a root handle destroyed while a key holds a shared action through a binding both use: held until the key is up, then at rest", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const folder = newFolder();
@@ -302,21 +310,26 @@ export class HunterLabel3Tests implements OnStart {
 				const second = create(HL3_KEYS_BIG, { Folder: folder, ResetOnFocusLoss: false });
 				const jump = first.Hl3Keys.Actions.Jump;
 				expectEqual(second.Hl3Keys.Actions.Jump.Instance, jump.Instance, "one shared action");
-				const alternate = second.Hl3Keys.Actions.Jump.Bindings.Alternate.Instance;
-				real.Press(K.K);
-				eventually(
-					() => jump.IsPressed(),
-					`K holds Jump through the second root handle's Alternate binding${real.FocusNote()}`,
+				const pad = jump.Bindings.Gamepad;
+				expectEqual(pad.Instance, second.Hl3Keys.Actions.Jump.Bindings.Gamepad.Instance);
+				expectEqual(
+					pad.Instance.KeyCode,
+					K.ButtonA,
+					"the second schema filled the unbound binding",
 				);
+				real.Press(K.J);
+				eventually(() => jump.IsPressed(), `J holds Jump${real.FocusNote()}`);
 				second.Destroy();
 				frames(2);
 				const afterDestroy = jump.IsPressed();
-				const bindingGone = alternate.Parent === undefined;
-				real.Release(K.K);
+				expectEqual(pad.Instance.Parent, jump.Instance, "the first root handle still uses it");
+				expectEqual(pad.Instance.KeyCode, K.ButtonA);
+				real.Release(K.J);
 				frames(5);
-				expectFalse(
-					jump.IsPressed(),
-					`signals ${expectedSignalBehavior()}: after the second root handle's Destroy (its Alternate binding destroyed: ${bindingGone}; Jump pressed then: ${afterDestroy}) and K's release, the first root handle's Jump stays pressed. Advanced.md: "destroying one handle leaves what another still uses (instances, held input, requests)", "On an action another handle still uses, Destroy lets go of what the destroyed handle held itself", and "an action that stays after Destroy ... and is still not at rest once the package's bindings are gone is reset"${real.FocusNote()}`,
+				expectEqual(
+					`${afterDestroy}, then ${jump.IsPressed()}`,
+					"true, then false",
+					`signals ${expectedSignalBehavior()}: Jump pressed after the second root handle's Destroy, then after J's release${real.FocusNote()}`,
 				);
 			});
 

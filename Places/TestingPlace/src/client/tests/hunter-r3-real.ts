@@ -6,6 +6,7 @@ import {
 	expectDefined,
 	expectEqual,
 	expectFalse,
+	expectThrows,
 	expectTrue,
 	getProject,
 	skip,
@@ -72,19 +73,29 @@ function watch<T extends defined>(read: () => T, rest: T): T[] {
 export class HunterR3RealTests implements OnStart {
 	onStart() {
 		defineTests("hunter-r3-real", () => {
-			// docs/Advanced.md, Rebinding: "Mouse buttons and touch count as MouseLeftButton/.../TouchPosition"
-			test("touch: Capture takes a tap on the world as TouchPosition; a finger down then presses the action", () => {
+			// docs/Advanced.md, Rebinding: touch has no keys to press (0.7.0): a capture never takes a
+			// tap, the Touch binding has no Capture, and Set gives it TouchPosition
+			test("touch: a tap is never captured; Set gives the Touch binding TouchPosition, and a finger down then presses the action", () => {
 				if (!isTouch()) return skip("the touch project only");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput().Gameplay.Actions.Jump;
 				const keys = jump.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key));
+				defer(stop);
 				real.Click(emptyPoint());
-				eventually(() => captured.size() === 1, "the tap captured");
-				expectEqual(captured[0], K.TouchPosition);
-				expectEqual(keys.Instance.KeyCode, K.TouchPosition);
+				frames(6);
+				expectEqual(captured.size(), 0, "the tap");
+				expectEqual(keys.Instance.KeyCode, K.Space);
+				const touch = jump.Bindings.Touch;
+				expectThrows(() =>
+					(touch as unknown as { Capture(slot: string, callback: () => void): void }).Capture(
+						"KeyCode",
+						() => {},
+					),
+				);
+				touch.Set(K.TouchPosition);
 				frames(3);
 				real.MouseDown(emptyPoint());
 				eventually(() => jump.IsPressed(), "a finger down presses Jump");

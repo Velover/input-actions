@@ -222,6 +222,17 @@ export class HunterR1RealTests implements OnStart {
 					real.Release(key);
 					eventually(() => !action.IsPressed(), `${key.Name} released`);
 				}
+				if (getProject() !== "touch") {
+					const zoomed = countSignal(input.Gameplay.Actions.Zoom.StateChanged);
+					const scrolled = countSignal(Scroll.StateChanged);
+					real.Wheel(1);
+					eventually(() => scrolled.count > 0, "Scroll takes the wheel");
+					frames(3);
+					expectEqual(zoomed.count, 0, "sunk from Zoom");
+				}
+				// one binding per device (0.7.0): the preset's keyboard-and-mouse Scroll is the wheel;
+				// PageUp and PageDown as a composite instead
+				Scroll.Bindings.KeyboardAndMouse.Set({ Up: K.PageUp, Down: K.PageDown });
 				real.Press(K.PageUp);
 				eventually(() => Scroll.GetState() > 0, "PageUp");
 				real.Release(K.PageUp);
@@ -229,13 +240,6 @@ export class HunterR1RealTests implements OnStart {
 				eventually(() => Scroll.GetState() < 0, "PageDown");
 				real.Release(K.PageDown);
 				eventually(() => Scroll.GetState() === 0, "at rest");
-				if (getProject() === "touch") return;
-				const zoomed = countSignal(input.Gameplay.Actions.Zoom.StateChanged);
-				const scrolled = countSignal(Scroll.StateChanged);
-				real.Wheel(1);
-				eventually(() => scrolled.count > 0, "Scroll takes the wheel");
-				frames(3);
-				expectEqual(zoomed.count, 0, "sunk from Zoom");
 			});
 
 			// ---- chords and rebinding
@@ -331,10 +335,16 @@ export class HunterR1RealTests implements OnStart {
 				frames(2);
 				expectEqual(captured.size(), 0, "the click on the button");
 				real.Click(emptyPoint());
+				if (getProject() === "touch") {
+					// touch has no keys to press (0.7.0): a keyboard-and-mouse binding never takes a tap
+					frames(6);
+					expectEqual(captured.size(), 0, "a tap on the world");
+					expectEqual(keys.Instance.KeyCode, K.Space);
+					return;
+				}
 				eventually(() => captured.size() === 1, "the click on the world");
-				const expected = getProject() === "touch" ? K.TouchPosition : K.MouseLeftButton;
-				expectEqual(captured[0], expected);
-				expectEqual(keys.Instance.KeyCode, expected);
+				expectEqual(captured[0], K.MouseLeftButton);
+				expectEqual(keys.Instance.KeyCode, K.MouseLeftButton);
 			});
 
 			test("Capture ignores keys typed into a focused TextBox, then takes the next key", () => {
@@ -366,7 +376,7 @@ export class HunterR1RealTests implements OnStart {
 				if (getProject() === "touch") return skip("no wheel on a simulated phone");
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
-				const zoomKeys = createTestInput().Gameplay.Actions.Zoom.Bindings.Mouse;
+				const zoomKeys = createTestInput().Gameplay.Actions.Zoom.Bindings.KeyboardAndMouse;
 				zoomKeys.Clear();
 				const captured = new Array<Enum.KeyCode>();
 				const stop = zoomKeys.Capture("KeyCode", (key) => captured.push(key));
@@ -534,12 +544,12 @@ export class HunterR1RealTests implements OnStart {
 					HunterHigh: {
 						Priority: 3500,
 						Sink: true,
-						Actions: { Use: InputActions.Bool({ Key: K.G }) },
+						Actions: { Use: InputActions.Bool({ KeyboardAndMouse: K.G }) },
 					},
 					HunterLow: {
 						Priority: 3400,
 						Sink: true,
-						Actions: { Use: InputActions.Bool({ Key: K.G }) },
+						Actions: { Use: InputActions.Bool({ KeyboardAndMouse: K.G }) },
 					},
 				});
 				const input = InputActions.Create(schema, { Folder: newFolder() });
@@ -628,7 +638,10 @@ export class HunterR1RealTests implements OnStart {
 				action.Parent = context;
 				defer(() => folder.Destroy());
 				const schema = InputActions.Schema({
-					HunterSwap: { ServerAuthority: true, Actions: { Jump: InputActions.Bool({ Key: K.J }) } },
+					HunterSwap: {
+						ServerAuthority: true,
+						Actions: { Jump: InputActions.Bool({ KeyboardAndMouse: K.J }) },
+					},
 				});
 				const input = InputActions.Create(schema, {
 					Folder: newFolder(),

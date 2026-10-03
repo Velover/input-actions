@@ -21,7 +21,10 @@ function save(bindings: Record<string, unknown>) {
 	return HttpService.JSONEncode({ Version: 1, Bindings: bindings });
 }
 
-function sanitize(schema: InputActions.InputSchema<Record<string, InputActions.ContextSchema>>, json: string) {
+function sanitize(
+	schema: InputActions.InputSchema<Record<string, InputActions.ContextSchema>>,
+	json: string,
+) {
 	return HttpService.JSONDecode(InputActions.SanitizeBindings(schema, json)) as ISave;
 }
 
@@ -53,9 +56,9 @@ export class ValidatorR3SharedTests implements OnStart {
 				const clean = sanitize(
 					TEST_SCHEMA as never,
 					save({
-						"Gameplay/Zoom/Mouse": { ResponseCurve: 2 },
-						"Gameplay/Aim/Pointer": { PrimaryModifier: "LeftShift" },
-						"Gameplay/Fly/Keyboard": { KeyCode: "W" },
+						"Gameplay/Zoom/KeyboardAndMouse": { ResponseCurve: 2 },
+						"Gameplay/Aim/KeyboardAndMouse": { PrimaryModifier: "LeftShift" },
+						"Gameplay/Fly/KeyboardAndMouse": { KeyCode: "W" },
 						"Gameplay/Jump/KeyboardAndMouse": { Scale: 2 },
 						"Gameplay/Move/KeyboardAndMouse": { Forward: "W" },
 					}),

@@ -32,9 +32,13 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The design the package implements: `../../docs/Design/IAS-Rework.md`.
 - The sections: `schema`, `rules`, `sanitize`, `presets`, `authority-mode`
   (`IsServerAuthority`), `signal-behavior` (the project's signal mode; IAS's and the handles' events
-  under it, on the client) (shared); `create`, `actions`, `track-previous`, `contexts`,
+  under it, on the client), `devices` (0.7.0: binding names, keys per device; the client's part:
+  the three device bindings on every action, `Set` and saves by device, `PreferredDevice`) (shared);
+  `create`, `actions`, `track-previous`, `contexts`,
   `attach-button`, `attach-label` (`AttachLabel`, `WhenLinkedToServer`), `rebinding`,
-  `capture-chord` (`CaptureChord` with real keys), `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
+  `capture-chord` (`CaptureChord` with real keys), `device-capture` (device-locked captures and the
+  action's one-field `Capture`/`CaptureChord` with real keys and VirtualInput's gamepad KeyCodes;
+  sticks and triggers through the virtual pad, which skip unless pad input is on), `saves`, `mouse`, `input-catcher`, `raw-input`, `server-authority`,
   `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
   server when the client resets an action; authority only), `real-input` (real keys and mouse
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
@@ -98,19 +102,30 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   server), and `virtualPad()` in `src/client/tests/virtual-pad.ts` gives a test a `VirtualPad`
   (`Connect`, `Disconnect`, `Press`, `Release`, `Tap`, `SetStick`, `SetTrigger`, `Reset`, by
   Roblox KeyCodes) or the reason there is none. What a test holds is released and the pad unplugged
-  when the test ends, pass or fail. Measured on 2026-10-03 (`default`, `ias`, `touch`):
-  - plugging the pad in, with no input, fires `GamepadConnected` (Gamepad1) and switches
-    `PreferredInput` to `Gamepad` within 0.3 s; every action without a gamepad binding then has no
-    `PreferredBinding` and its `InputActionLabel` shows nothing. Unplugging switches back as fast.
-    Under `touch`, after a tap (`MouseEnabled`, `KeyboardEnabled` then read false) plugging in
-    leaves `PreferredInput` at `Touch` and `GamepadEnabled` false;
-  - IAS never prefers an empty `InputBinding` (no KeyCode, no composite): empty bindings named
-    `Gamepad` or `Touch` beside a Space binding change nothing, and an empty `Touch` binding doesn't
-    beat a UIButton binding (under `touch` the UIButton binding is preferred; its label reads
-    `None`). A Space binding's label reads `" "`;
-  - Steam's Xbox controller support is on here, so while Steam runs, its desktop configuration also
-    turns the pad's buttons and sticks into keys and mouse input for the focused window: no button
-    or stick input has been sent yet.
+  when the test ends, pass or fail.
+  - **Pad input is opt-in.** The service refuses any pad state but the neutral one (and touch
+    injection, and `/window` with `front`) unless it was started with `--allow-input`, which
+    `scripts/virtual-pad.mjs` passes only when the environment variable `VIRTUAL_PAD_INPUT=1` is
+    set: while Steam's "Enable Steam Input for Xbox controllers" is on, Steam turns the pad's
+    buttons and sticks into keys and mouse input for whatever window is focused. Turn that off (or
+    exit Steam) before setting it. Without it, `virtualPad()` answers "pad input is off: set
+    VIRTUAL_PAD_INPUT=1 after turning off Steam Input for Xbox controllers" and the tests that press
+    the pad `skip` with it; `virtualPad({ Input: false })` still gives a test that only plugs the
+    pad in (no input) its pad. `/health` reports `input`. A service already running is used as it
+    is: with `VIRTUAL_PAD_INPUT=1` and a running service without the flag, the run warns.
+  - Measured on 2026-10-03 (`default`, `ias`, `touch`):
+    - plugging the pad in, with no input, fires `GamepadConnected` (Gamepad1) and switches
+      `PreferredInput` to `Gamepad` within 0.3 s; every action without a gamepad binding then has no
+      `PreferredBinding` and its `InputActionLabel` shows nothing. Unplugging switches back as fast.
+      Under `touch`, after a tap (`MouseEnabled`, `KeyboardEnabled` then read false) plugging in
+      leaves `PreferredInput` at `Touch` and `GamepadEnabled` false;
+    - IAS never prefers an empty `InputBinding` (no KeyCode, no composite): empty bindings named
+      `Gamepad` or `Touch` beside a Space binding change nothing, and an empty `Touch` binding doesn't
+      beat a UIButton binding (under `touch` the UIButton binding is preferred; its label reads
+      `None`). A Space binding's label reads `" "`;
+    - Steam's Xbox controller support is on here, so while Steam runs, its desktop configuration also
+      turns the pad's buttons and sticks into keys and mouse input for the focused window: no button
+      or stick input has been sent yet.
 - **Touch from Windows (`POST /touch`, `POST /window`) reaches Studio as mouse input:** injected
   touches (InitializeTouchInjection) arrive as `MouseButton1` and `MouseMovement`, never as touch,
   whether injection started before Studio or during the session; `TouchEnabled` stays false; of two
@@ -129,8 +144,10 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   wheel half of `hunter-r1`'s UiNavigation test under `touch`. Keep `skip` out of `pcall`,
   `expectThrows`, `eventually` and spawned threads.
 - Gamepad input, window focus and the Roblox menu can't be simulated from Luau: those paths are
-  driven through Scriptable bindings (`Fire`) and the TextBox focus path (the virtual pad above
-  may change that for gamepads).
+  driven through Scriptable bindings (`Fire`) and the TextBox focus path (the virtual pad above,
+  with pad input on, for gamepads). VirtualInput's gamepad KeyCodes (`ButtonX`, sent as keys) don't
+  press IAS gamepad bindings, but the captures classify a key by its KeyCode, so they drive the
+  device-locked gamepad captures (`device-capture`).
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
