@@ -381,7 +381,11 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
 	readonly Bindings: BindingHandles<T, B>;
 	GetState(): ActionValue<T>;
-	/** Drives the action from code, through a Scriptable binding the package creates on first use */
+	/**
+	 * Drives the action from code, through a Scriptable binding the package creates on first use.
+	 * Created while the action is held, that binding releases it before the value lands (IAS resets
+	 * an action's bindings when one is added, as for `AttachButton`)
+	 */
 	Fire(value: ActionValue<T>): void;
 	SetEnabled(enabled: boolean): void;
 	IsEnabled(): boolean;

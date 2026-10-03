@@ -240,10 +240,12 @@ function ReleaseAfterReset(action: InputAction, state: unknown, name: string) {
 }
 
 /**
- * Runs `add`, which may add bindings to `action`: `AttachButton`, a `Create` that adds a slot or a
- * template's binding the action lacks, the swap moving a stand-in's bindings onto the copy. A binding
- * added to an action makes IAS reset the action's bindings, as a change to their keys does (hunts
- * HL4-4, HL4-5): on a local context the action is released at once, and a key still down holds it
+ * Runs `add`, which may add bindings to `action`: `AttachButton`, a `Create` that adds a device's
+ * binding, a slot or a template's binding the action lacks, the swap moving a stand-in's bindings
+ * onto the copy, the first `Fire` making `<Action>Script` (its value is fired after: a value at rest
+ * fired on a binding just made changes nothing, and left the action held on the server's copy). A
+ * binding added to an action makes IAS reset the action's bindings, as a change to their keys does
+ * (hunts HL4-4, HL4-5): on a local context the action is released at once, and a key still down holds it
  * again only once pressed again; on a copy under the player in a place that runs Server Authority
  * the client's state is pressed again and stays held, on the client and the server. So an action
  * that was not at rest when `add` gave it a binding is let go of after it, as after a key change

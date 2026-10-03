@@ -658,10 +658,11 @@ held.
 action's bindings, and the client's state is pressed again and stays held, on both sides, after the
 key comes up. So the package fires the same pair after it adds a binding to an action that is held:
 `AttachButton`, a `Create` that gives an action a binding it lacked (a device's binding, a
-Scriptable slot, a template's binding) or fills a device's unbound binding, and the swap moving a
+Scriptable slot, a template's binding) or fills a device's unbound binding, the swap moving a
 stand-in's binding onto an action another handle's input holds on the copy (one pair for all of
-it). A
-binding you add to the instance yourself leaves the action held.
+it), and the first `Fire` on an action, which makes its `<Action>Script` binding (the fired value
+lands after the pair: a press holds the action, a value at rest leaves it released). A binding you
+add to the instance yourself leaves the action held.
 
 **In a place without Server Authority** (`IsServerAuthority()` is `false`), a context marked
 `ServerAuthority: true` still runs on the server's copy under the player, but that copy is an
@@ -766,8 +767,10 @@ IAS code, with or without this package. The package's tests run under both `Defe
   resets the action's bindings. On a local context the action is released at once, with one
   `Released`; a key still down holds it again only once it is pressed again, and a value fired from
   code must be fired again. `AttachButton` adds a binding, and so does a `Create` that gives an
-  action a binding it didn't have (a device's, a Scriptable slot, a template's); a `Create` that
-  fills a device's unbound binding changes its keys. The package can't keep the press: a value
+  action a binding it didn't have (a device's, a Scriptable slot, a template's), and the first
+  `Fire` on an action (it makes `<Action>Script`; the value it fires lands after the release); a
+  `Create` that fills a device's unbound binding changes its keys. The package can't keep the
+  press: a value
   it fired in its place would hold the action after the key comes up. On the server's copy of a
   Server Authority context IAS keeps the action held instead, on the client and the server, so the
   package releases it there (see [Releasing on the server](#releasing-on-the-server)).

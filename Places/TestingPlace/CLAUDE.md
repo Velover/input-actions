@@ -66,6 +66,14 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   - input that would touch CoreGui throws: the top-left menu area, Escape and other keys Roblox
     reserves (VirtualInput sends gamepad KeyCodes as keyboard input, and `DPadUp`, `ButtonStart`
     throw), and anything while the Roblox menu is open;
+  - a mouse press sent right after a release landed can be lost: no `InputBegan`, the cursor doesn't
+    move, nothing is pressed (measured on 2026-10-03: a press on empty space sent at once after a
+    click's `Activated` was lost 5 times in 13, never a frame or two later; real-input's
+    "AttachButton with a real click" failed so in about a third of the full runs).
+    `RealInput.MouseDown` waits two frames after the test's last `MouseUp`;
+  - `pointerReport(point)` says, for a failure message, what could have taken or moved a click
+    there: the cursor's behaviour and the buttons down, the camera's distance, the GUI under the
+    point, CAS actions on the left button, enabled IAS contexts that bind it or sink;
   - `SendMouseDelta` registers only while the cursor is locked: `moveLockedMouse(real, delta)` in
     `real-input.ts` locks it through `MouseController`, and returns false when it never locks, for
     the test to skip. `SendMousePosition` doesn't register while the window is unfocused, so no

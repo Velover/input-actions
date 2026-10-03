@@ -494,13 +494,16 @@ Binding handle (non-Scriptable: a device's binding):
   leaves a held action held **(probed)**. Adding a binding to an action resets its bindings the
   same way **(probed, hunts HL4-3 to HL4-5)**: `AttachButton`, a `Create` that gives an action a
   binding it lacks, the swap moving a stand-in's binding onto a copy's action another root handle
-  uses, and a `<Action>Script` made for the first `Fire`. Each of the first three (`AddingBindings`)
-  reads the held value before its adds and, when it was not at rest, does as above after them:
-  forgets the package's held values, and fires the pair on such a copy. A key change inside it
-  (the swap writing a stand-in's rebinds onto an adopted binding, a later schema filling a
-  placeholder, §4) is not released on its own: `WriteBindings` marks the action, and the one
-  release at the end covers it, since two pairs on such a copy would press and release it once
-  more. The first `Fire` is left as it was: the value it fires follows the add.
+  uses, and a `<Action>Script` made for the first `Fire`. Each of them (`AddingBindings`) reads the
+  held value before its adds and, when it was not at rest, does as above after them: forgets the
+  package's held values, and fires the pair on such a copy. A key change inside it (the swap
+  writing a stand-in's rebinds onto an adopted binding, a later schema filling a placeholder, §4)
+  is not released on its own: `WriteBindings` marks the action, and the one release at the end
+  covers it, since two pairs on such a copy would press and release it once more. The first
+  `Fire`'s value follows the pair: a press holds the action, a value at rest leaves it released.
+  Without the pair a first `Fire(false)` while a key held the action on the server's copy left it
+  held on both sides after the key came up **(probed, 2026-10-03)**: IAS pressed it again as
+  `<Action>Script` was added, and a value at rest fired on a binding just made changes nothing.
 - `Reset()`: back to the defaults snapshot (§4). `Clear(slot?)`: with no slot, unbinds: KeyCode,
   composites and modifiers become `None`. With a slot (`"KeyCode"`, `"Up"`, ...,
   `"PrimaryModifier"`, typed as for `Capture`), clears only that one, e.g. `Clear("PrimaryModifier")`
@@ -789,7 +792,8 @@ client; the server only reads action state, which IAS replicates on its own.
   package fires it after the writes, on a binding made and destroyed in that frame.
 - **Adding a binding to a held action (probed, hunt HL4-4).** A binding added to an action of the
   copy while it is held (`AttachButton`, a second `Create` adding a slot, the swap moving a
-  stand-in's binding onto a copy's action another root handle's input holds) resets it as a key
+  stand-in's binding onto a copy's action another root handle's input holds, the `<Action>Script`
+  the first `Fire` makes) resets it as a key
   change does: `Released` then `Pressed`, and it stays held on both sides after the key comes up.
   So the package fires the same pair after the add (`AddingBindings`), once per action for all the
   bindings added and keys changed in one go (a placeholder filled, rebinds carried by the swap),
@@ -1051,6 +1055,7 @@ places, `SignalBehavior = Deferred`:
 | A real key holds an action, its binding destroyed: a Bool (a template's extra on the server's copy, in places without Server Authority) and a Direction2D (composite `W` under an adopted action) (hunt round 4, 2026-10-01) | the action stays held after the key comes up, with no `Released`; an `Enabled` toggle releases it |
 | A real key (or a Scriptable binding) holds an action of a local context, and a binding is added to it: an `AttachButton` UIButton binding, a second `Create`'s slot, a Scriptable binding (label hunt HL4-5, 2026-10-03, every project) | released at once, one `Released` as the binding is parented; the key, still down, holds it again only once pressed again. A pair fired on a Scriptable binding made in that frame then presses and releases it once more (`R P R`, hunt HL4-3) |
 | The same under the player in a Server Authority place: the server's copy, and a context the client made in `LocalPlayer` (hunt HL4-4) | `Released` then `Pressed`: held on the client and the server after the key comes up; the pair after the add (value read before it, then the value at rest) releases it, once |
+| On the server's copy, a key holding `Jump`, the first `Fire(false)` (it makes `JumpScript`) without that pair (2026-10-03, `authority`) | `P`, `+JumpScript`, `R P`: held on the client and the server after the key comes up; the `Fire(false)` on the new binding changes nothing. A first `Fire(true)` there holds it until a `Fire(false)`, which releases both sides |
 | Under Immediate signals, a listener that fires a Scriptable binding while the swap releases the stand-in's held values (hunt HL4-2) | its value lands on the stand-in; a binding moved to the copy counts its next `Fire` again, whatever it held before the move |
 | Studio simulating the iPhone 14 (landscape): `GetGuiInset()`, the camera's viewport, ScreenGuis by `ScreenInsets` and `IgnoreGuiInset`, and where taps sent with `VirtualInput` land (hunt round 4, 2026-10-01) | inset (0, 58); viewport 749 x 368; `ScreenInsets = None` with `IgnoreGuiInset` at (-47, -58), 843 x 389 (the whole screen), every other setting at x = 0 (`TopbarSafeInsets`: 164); taps sent at (100, 150), (400, 150), (700, 300) land at `InputObject.Position` (53, 92), (353, 92), (653, 242): sent minus (47, 58). `GuiService:GetScreenResolution()` needs RobloxScript |
 | The play session's server calls `http://127.0.0.1:47110` (the virtual-pad service) with HttpService (P1, 2026-10-03) | it reaches it: 3 ms from the server, about 0.2 s a call from the client through a RemoteFunction |
