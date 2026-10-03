@@ -45,7 +45,12 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   `options.Folder`. Contexts can live anywhere in the DataModel.
 - An existing action whose `Type` differs from the builder's type throws, naming the path
   (`Gameplay/Jump`). Nothing `Create` made before the throw is left behind.
-- An adopted binding whose keys break the type rules is left as it is, with a `warn` naming it.
+- An adopted binding whose keys break the type rules (another device's key included) is left as it
+  is, with a `warn` naming it.
+- Every action gets the three device bindings: the folder's (`JumpTouch`, say, adopted as the Touch
+  binding even when the schema leaves Touch out), else one made with no keys. IAS never prefers a
+  binding without keys, so an unbound one changes nothing for `GetPreferredBinding()` or a keybind
+  label.
 - Instances the schema doesn't mention are left alone (IAS still runs them) and are not typed. In
   Studio, each gets one `warn`. That includes bindings whose names match no slot, such as the
   Manager's default name `InputBinding`, because they run beside the package's own binding.
@@ -53,7 +58,9 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   handles then share them: a context has one enabled state (base state and requests) whichever
   handle changes it, every handle on a binding has the same defaults, and destroying one handle
   leaves what another still uses (instances, held input, requests). What the package made goes
-  with the last handle.
+  with the last handle. When a later schema names a device an earlier one left out, it fills that
+  device's unbound binding: its keys become the defaults of every handle on it (a player's rebind
+  made meanwhile stays).
 - On an action another handle still uses, `Destroy` lets go of what the destroyed handle held
   itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless the package
   fired a value after it (IAS shows the last write), even an equal one on another binding. A value
@@ -96,7 +103,7 @@ Jump.Tap(); // Fire(true), then Fire(false) on the next frame
 - A fired value stays until something changes it: fire the value at rest (`false`, `0`,
   `Vector2.zero`) when your on-screen control is released.
 - Several bindings on one action are not combined: the last one to change wins (see
-  [below](#ias-behaviours-to-know)).
+  [below](#ias-behaviours-to-know)). That holds between a Scriptable binding and the device ones.
 
 ## On-screen buttons
 
@@ -166,9 +173,9 @@ const detach = Input.Gameplay.Actions.Jump.AttachLabel(label);
 - The returned function, the label's destruction and the root handle's `Destroy` let go of it. Letting
   go clears `label.InputAction`, unless something else pointed it elsewhere meanwhile. Attaching
   the same label twice keeps one attachment; a label destroyed already is left alone.
-- The label shows nothing for a device the action has no binding for (Jump with keyboard and
-  gamepad bindings, on a phone). Give the bindings `DisplayName` or `DisplayImage` in the schema to
-  change what it shows.
+- The label shows nothing for a device whose binding is unbound (Jump with keyboard and gamepad
+  keys, on a phone: its `Touch` binding has none, and IAS never prefers a binding without keys).
+  Give the bindings `DisplayName` or `DisplayImage` in the schema to change what it shows.
 - A hook is one line, as for buttons: `useEffect(() => label && action.AttachLabel(label), [action, label])`.
 
 ## TrackPrevious
@@ -204,8 +211,15 @@ keys.Clear(); // unbound: KeyCode, composites and modifiers become None
 Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/KeyboardAndMouse"
 ```
 
+- **An action's bindings are its devices'**: `KeyboardAndMouse`, `Gamepad` and `Touch`, and each
+  takes only its device's keys (see [Keys per device](API.md#keys-per-device)). Every action has
+  the three: one the schema leaves out starts unbound (`Get()` returns `{}`, `Reset()` unbinds it
+  again), so a player can give a gamepad button to an action you bound on the keyboard only, and
+  the save keeps it.
 - `Set` takes the same shapes as the schema and follows the same rules, checked at compile time and
-  again at runtime: it throws, naming the path, on a key or property the action type doesn't allow.
+  again at runtime: it throws, naming the path, on a key or property the action type doesn't allow,
+  and on another device's key (`ButtonA is a Gamepad key: a KeyboardAndMouse binding takes keyboard
+  and mouse keys`).
 - An object merges into the binding. One input source per binding still holds: a `KeyCode` in the
   object clears the composite directions, and a composite direction clears the `KeyCode`.
 - `Reset` returns to the defaults, which are the tree right after `Create`: the designer's values
@@ -219,10 +233,14 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   its plain key from firing: Ctrl+S on `QuickSave` and S on `Move` both fire on Ctrl then S. IAS
   needs the modifier pressed first, and releasing it releases the chord. See
   [IAS behaviours to know](#ias-behaviours-to-know).
-- `Capture(slot, callback, { Cancel })` waits for the next key legal for that slot (`"KeyCode"`,
-  `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`. Mouse buttons and touch
-  count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`/`TouchPosition`. Keys in `Cancel`
-  stop it without a change; the returned function stops it too. Input the game already processed
+- `Capture(slot, callback, { Cancel })` waits for the next key of the binding's device legal for
+  that slot (`"KeyCode"`, `"Up"`..., `"PrimaryModifier"`), applies it, then calls `callback(key)`.
+  Mouse buttons count as `MouseLeftButton`/`MouseRightButton`/`MouseMiddleButton`. **Captures are
+  per device:** `Bindings.Gamepad.Capture` takes gamepad keys only and
+  `Bindings.KeyboardAndMouse.Capture` keyboard and mouse keys only; another device's key is ignored
+  (it doesn't cancel). A key's device is the key's own, not the device that sent it nor
+  `PreferredInput`. Keys in `Cancel` stop it without a change, from any device (Backspace can
+  cancel a gamepad rebind, ButtonB a keyboard one); the returned function stops it too. Input the game already processed
   (`gameProcessed`) is ignored: a click or tap on GUI, typing in a TextBox, and keys a
   ContextActionService binding sinks, such as an active `InputCatcher`'s or the legacy shift lock's
   on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
@@ -236,21 +254,85 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   that both starts and cancels a rebind doesn't cancel it with the press that started it. A key another IAS binding uses, even in a sinking context, is not game-processed
   and is captured (measured with real keys). The captured key also does whatever it
   is bound to while it is pressed.
-- **`Capture` takes only input that begins:** it listens to `UserInputService.InputBegan`, which a
-  key, a gamepad button, a mouse button or a tap raises. The mouse wheel, mouse movement, touch
-  drags and trackpad pan and pinch only change (`InputChanged`), so it never sees them: a wheel
-  notch doesn't land in a `Direction1D` slot (measured), and from keyboard and mouse a
-  `Direction2D` `KeyCode` slot, which takes only thumbsticks and those deltas, captures nothing.
-  Offer those as choices in your settings UI and apply them with `Set`
+- **`Capture` takes only input that goes down:** keys, gamepad buttons and mouse buttons
+  (`UserInputService.InputBegan`), and on the gamepad its sticks and triggers. **A stick pushed past
+  halfway** counts as its direction going down (`Thumbstick1Up`, `Thumbstick2Left`...), and back
+  under 0.2 as it coming up: that fills a composite direction, a Bool or Direction1D `KeyCode`, or
+  ends a chord. A `Direction2D` `KeyCode` slot of the Gamepad binding takes the whole stick
+  (`Thumbstick1` or `Thumbstick2`) of the first one pushed. A stick already pushed when the capture
+  starts counts once it has come back. **The triggers** (`ButtonL2`, `ButtonR2`) count as they go
+  down past halfway. The mouse wheel, mouse movement, touch drags and trackpad pan and pinch only
+  change, so a capture never takes them: a wheel notch doesn't land in a `Direction1D` slot
+  (measured), and from keyboard and mouse a `Direction2D` `KeyCode` slot, which takes only those
+  deltas, captures nothing. Offer those as choices in your settings UI and apply them with `Set`
   (`Set(Enum.KeyCode.MouseWheel)`).
-- `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord`, and for every
-  binding an import or `ResetBindings` changed.
+- **Touch has nothing to capture.** A finger has no keys to press: the `Touch` binding has no
+  `Capture` or `CaptureChord` (calling one anyway throws), and a tap is never captured by the other
+  bindings either. Offer the touch keys (`TouchPosition` for a tap, `TouchDelta` for a drag,
+  `TouchPinch`) as choices and apply them with `Set`, or attach on-screen buttons with
+  `AttachButton`.
+- `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord` (the action's
+  too, with the path of the binding they changed), and for every binding an import or
+  `ResetBindings` changed.
+
+### One field per action
+
+A rebinding menu usually has one field per action, not one per device. Bool and Direction1D
+actions have `Capture` and `CaptureChord` of their own: **the first key pressed picks the device**,
+and the key (or chord) goes into that device's binding's `KeyCode`:
+
+```ts
+const jump = Input.Gameplay.Actions.Jump;
+showPrompt("Press a key or a button for Jump");
+const stop = jump.Capture(
+	(key, device) => {
+		hidePrompt();
+		print(`Jump is now ${key.Name} on ${device}`); // device: "KeyboardAndMouse" | "Gamepad"
+	},
+	{ Cancel: [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB] },
+);
+```
+
+- A keyboard key or a mouse button goes into `Bindings.KeyboardAndMouse`, a gamepad button, a
+  trigger or a stick's direction into `Bindings.Gamepad`; the other device's binding is untouched.
+  The `KeyCode` replaces the binding's composite directions, as with `Set`. Touch input is
+  ignored, and so is a key no binding of its device can take (a click, on a Direction1D action).
+- `CaptureChord` does the same with keys held together: the first key that goes down picks the
+  device, and the other device's keys are ignored while any key of the chord is held, so there is
+  no `Shift + ButtonA`. When a chord is refused (four keys...) and every key of it is up, the next
+  first key picks again. Its callback gets `(chord, device)`, or `(undefined, undefined)` when it
+  ends with nothing applied.
+- Everything else is as for a binding's captures: `Cancel` keys from any device, `Timeout`,
+  typing and game-processed input, keys down at the start. Direction2D, Direction3D and
+  ViewportPosition actions don't have them: their `KeyCode` takes no key that can be pressed (or
+  there is none); capture their bindings' slots instead.
+
+### A menu with a column per device
+
+To show and rebind each device's keys, index `Bindings` by device, and pick the column the player
+uses with `InputActions.PreferredDevice()` (`"KeyboardAndMouse"`, `"Gamepad"` or `"Touch"`, from
+`UserInputService.PreferredInput`; the TV remote counts as `"Gamepad"`):
+
+```ts
+for (const device of ["KeyboardAndMouse", "Gamepad"] as const) {
+	const binding = Input.Gameplay.Actions.Jump.Bindings[device];
+	print(device, binding.Get().KeyCode); // undefined when unbound
+}
+const device = InputActions.PreferredDevice();
+if (device === "Touch") hideRebinding(); // nothing to capture on a phone
+else highlightColumn(device);
+```
+
+Roblox counts a gamepad as preferred as soon as one is plugged in, before any of its buttons is
+pressed. `examples/RebindingMenu.ts` in the repository has both menus.
 
 ### Capturing a chord
 
 `Capture` takes one key: a player who holds Ctrl and presses S gets plain `LeftControl`.
-`CaptureChord` takes keys held together, on the bindings of Bool and Direction1D actions (the action
-types whose `KeyCode` takes keys that can be pressed; the others don't have it):
+`CaptureChord` takes keys held together, on the keyboard-and-mouse and gamepad bindings of Bool and
+Direction1D actions (the action types whose `KeyCode` takes keys that can be pressed; the others
+don't have it), and on those actions themselves ([One field per action](#one-field-per-action)).
+A binding's chord takes its device's keys only (ButtonL1 + ButtonX on the gamepad's):
 
 ```ts
 const keys = Input.Gameplay.Actions.QuickSave.Bindings.KeyboardAndMouse;
@@ -273,7 +355,7 @@ keys.CaptureChord(
 - It is written in one write: a held action is released once, and `BindingsChanged` fires once.
   Composite directions give way to the `KeyCode`, as with `Set`. `callback` gets what was applied.
 - A chord the binding can't hold is ignored: more than three keys, a modifier that isn't a Button key
-  (a mouse button, a tap, a trigger), or a last key the action type can't use. The capture then
+  (a mouse button, a trigger, a stick's direction), or a last key the action type can't use. The capture then
   waits for every key of it to come up before the next chord counts, so letting go of the keys one
   by one doesn't record the last of them alone.
 - A key already down when the capture began isn't part of a chord: holding W to walk, then pressing
@@ -317,7 +399,7 @@ Input.ResetBindings();
 { "Version": 1, "Bindings": {
   "Gameplay/Jump/KeyboardAndMouse": { "KeyCode": "F" },
   "Gameplay/Move/KeyboardAndMouse": { "Up": "Up", "Down": "Down" },
-  "Gameplay/Look/Mouse": { "Scale": 0.02, "Vector2Scale": [1, -1] }
+  "Gameplay/Look/Gamepad": { "Scale": 0.02, "Vector2Scale": [1, -1] }
 } }
 ```
 
@@ -338,6 +420,11 @@ Input.ResetBindings();
 - A `ResponseCurve` left beside a key that isn't a thumbstick acts on nothing and isn't saved, so
   every export imports cleanly.
 - A context handle's `ImportBindings` applies only its own paths and skips the others.
+- Paths end with the device (`Context/Action/KeyboardAndMouse`, `.../Gamepad`, `.../Touch`), also
+  for the bindings the schema leaves out. A 0.6 save loads as it is where its bindings were named
+  after the devices; an entry under another name (`Mouse`, `Alternate`, a Scriptable slot) is
+  skipped with the reason `Mouse is not a device: ...`, and one with another device's key with the
+  reason the rules give.
 
 On the server, clean what a client sends before storing it:
 
@@ -577,7 +664,7 @@ its binding goes is reset, as on any local context.
 | `Cancel` | Bool | `B` (Escape is reserved, Backspace belongs to CoreGui) | `ButtonB` |
 | `NextPage` | Bool | `E` | `ButtonR1` |
 | `PreviousPage` | Bool | `Q` | `ButtonL1` |
-| `Scroll` | Direction1D | `MouseWheel` (slot `Mouse`), composite `PageUp`/`PageDown` | composite `Thumbstick2Up`/`Thumbstick2Down` |
+| `Scroll` | Direction1D | `MouseWheel` | composite `Thumbstick2Up`/`Thumbstick2Down` |
 
 With the **legacy** player scripts, the default camera scripts sink `Left`/`Right` through
 ContextActionService, and a CAS sink blocks IAS: the arrow-key composite of `Navigate` gets no left
@@ -585,7 +672,10 @@ or right there. `RawInputHandler`'s legacy fork does the same. The IAS player sc
 (`Workspace.PlayerScriptsUseInputActionSystem = Enabled`) don't.
 
 - `Scroll` reads as a rate: the wheel gives notches per second for one frame, then 0. Multiply its
-  state by the frame's delta time (see [IAS behaviours to know](#ias-behaviours-to-know)).
+  state by the frame's delta time (see [IAS behaviours to know](#ias-behaviours-to-know)). Since
+  0.7.0 an action has one keyboard-and-mouse binding, and `Scroll`'s is the wheel; for
+  `PageUp`/`PageDown` instead, `Scroll.Bindings.KeyboardAndMouse.Set({ Up: PageUp, Down: PageDown })`.
+- Every action of the preset also has its `Touch` binding, unbound.
 - While Roblox's own gamepad UI navigation has a GUI object selected (`GuiService.SelectedObject`),
   `Return` and the arrow keys never reach IAS, so `Accept` and the keyboard's `Navigate` don't fire;
   `Return` activates the selected button instead. Use the preset for menus that don't select GUI
@@ -610,8 +700,8 @@ IAS code, with or without this package. The package's tests run under both `Defe
   `TouchDelta` (and trackpad pan and pinch) give the amount divided by that frame's time, for one
   frame, then 0: one wheel notch reads about 190 at 190 fps, 64 at 60 fps. Multiply `GetState()` by
   the frame's delta time to get notches or pixels. Treat the `Scroll` preset as a rate too: its
-  wheel is one, and its `PageUp`/`PageDown` keys and stick hold at most 1 while held, which times
-  delta time gives one unit a second. `ClampMagnitudeToOne` doesn't clamp the wheel or the mouse
+  wheel is one, and its stick (or a `PageUp`/`PageDown` composite you set) holds at most 1 while
+  held, which times delta time gives one unit a second. `ClampMagnitudeToOne` doesn't clamp the wheel or the mouse
   movement (it acts on composites), and `Scale`/`Vector2Scale` apply as usual.
 - **Sinking:** a context with `Sink` blocks lower contexts only for the keys it binds itself. Since
   2026-02, a ContextActionService binding that returns `Sink` blocks IAS for its keys (this is how

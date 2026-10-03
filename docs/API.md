@@ -7,10 +7,10 @@ import { InputActions, MouseController, EMouseLockAction, InputCatcher, RawInput
 - [InputActions](#inputactions)
   - [Builders](#builders) · [Schema](#schema) · [Create](#create) · [Server](#server) ·
     [IsServerAuthority](#isserverauthority) · [SanitizeBindings](#sanitizebindings) ·
-    [Presets](#presets) · [Types](#types)
+    [PreferredDevice](#preferreddevice) · [Presets](#presets) · [Types](#types)
 - [Handles](#handles): [root](#root-handle) · [context](#context-handle) · [action](#action-handle) ·
   [binding](#binding-handle) · [server](#server-handles)
-- [Binding shapes](#binding-shapes) · [Key groups](#key-groups)
+- [Binding shapes](#binding-shapes) · [Keys per device](#keys-per-device) · [Key groups](#key-groups)
 - [MouseController](Components/MouseController.md) · [InputCatcher](Components/InputCatcher.md) ·
   [RawInputHandler](Components/RawInputHandler.md)
 
@@ -27,9 +27,13 @@ InputActions.ViewportPosition(bindings?, options?)
 InputActions.Scriptable
 ```
 
-- `bindings`: a record of slot name to binding: a bare key, an object shape, or
-  `InputActions.Scriptable` (a binding driven only by `Fire`). See [Binding shapes](#binding-shapes).
-  Unknown properties and keys the action type can't use are compile errors.
+- `bindings`: a record of name to binding. A binding with keys (a bare key or an object shape) is
+  named after its device, `KeyboardAndMouse`, `Gamepad` or `Touch`, and takes only that device's
+  keys ([Keys per device](#keys-per-device)); any other name takes only `InputActions.Scriptable`
+  (a binding driven only by `Fire`). See [Binding shapes](#binding-shapes). Unknown properties,
+  keys the action type can't use, another device's keys, a key binding under another name and a
+  Scriptable under a device's name are compile errors. Every action gets the three device bindings
+  at `Create`, unbound when left out here.
 - `options`: `{ TrackPrevious?: boolean; DisplayName?: string; Enabled?: boolean }`. `DisplayName`
   and `Enabled` are used when the action is created; an existing action keeps its own. (On the
   server's copy of a Server Authority context, which is always enabled on the server, the client
@@ -47,12 +51,15 @@ InputActions.Schema(contexts): { readonly Contexts }
 `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`. The
 defaults are the IAS ones (Priority 1000, Sink false, Enabled true). Any other key is a compile error,
 and `Schema` throws on it at runtime too (a misspelt `ServerAuthority` would make the context local),
-as on an option of the wrong type. `Schema` checks the bindings at runtime too, and throws on names
-the handles can't hold: a context named like one of the root
+as on an option of the wrong type. `Schema` checks the bindings at runtime too (a key binding not
+named after a device, a Scriptable under a device's name, another device's key: each named in the
+message), and throws on names the handles can't hold: a context named like one of the root
 handle's five members, a name with `/`, or a slot whose binding would take the name of one the
 package makes itself (`Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`: see
 [`Fire`](#action-handle) and `AttachButton`), or two slots `S` and `<Action>S` on one action (both
-would find the binding `<Action>S`). The result is frozen and creates no instances: require it on both realms.
+would find the binding `<Action>S`; the device bindings count, being always there, so a Scriptable
+named `JumpTouch` on `Jump` is refused). The result is frozen and creates no instances: require it
+on both realms.
 
 ### Create
 
@@ -126,9 +133,22 @@ InputActions.SanitizeBindings(schema, json): string
 ```
 
 Runs the `ImportBindings` checks against the schema alone and returns a save with only the valid
-entries. Works without instances, on either realm. A save nested deeper than a save can be is refused
-before it is decoded (JSON nested a few hundred levels deep crashes `HttpService:JSONDecode`), so it
-is safe on what a client sends.
+entries. Works without instances, on either realm. It keeps the device paths of every action, also
+those the schema leaves out. A save nested deeper than a save can be is refused before it is decoded
+(JSON nested a few hundred levels deep crashes `HttpService:JSONDecode`), so it is safe on what a
+client sends.
+
+### PreferredDevice
+
+```ts
+InputActions.PreferredDevice(): InputActions.Device // "KeyboardAndMouse" | "Gamepad" | "Touch"
+```
+
+Client. `UserInputService.PreferredInput` as the name of the binding that holds that device's keys;
+the TV remote (`MicroGamepad`) is `"Gamepad"`. Roblox counts a gamepad as preferred as soon as one
+is plugged in, before any of its buttons is pressed. A rebinding menu shows
+`action.Bindings[InputActions.PreferredDevice()]`, and has nothing to capture on `"Touch"`. See
+[Rebinding](Advanced.md#rebinding).
 
 ### Presets
 
@@ -144,22 +164,27 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 
 | Type | |
 | --- | --- |
+| `InputActions.Device` | `"KeyboardAndMouse" \| "Gamepad" \| "Touch"`: a device, and the name of its binding |
+| `InputActions.CapturableDevice` | `"KeyboardAndMouse" \| "Gamepad"`: the devices with keys to press |
 | `InputActions.BoolAction` | any Bool action handle, for helpers in your project |
 | `InputActions.Action<A>` | any action handle of type `A` |
+| `InputActions.CaptureAction` | any Bool or Direction1D action handle: the ones with the one-field `Capture` and `CaptureChord` |
 | `InputActions.ActionHandle<D>` | the handle of an action definition |
-| `InputActions.BindingHandle<A>`, `ScriptableBindingHandle<A>` | binding handles (`BindingHandle` of a Bool or Direction1D action adds `CaptureChord`) |
-| `InputActions.ChordBindingHandle<A>` | a binding handle with `CaptureChord`, for helpers generic over `A extends Bool | Direction1D` (a `BindingHandle<A>` of a generic `A` doesn't resolve to it) |
+| `InputActions.BindingHandle<A, D>` | the handle of device `D`'s binding: by default (`D` = `CapturableDevice`) the keyboard-and-mouse or gamepad one, with `Capture`, and on Bool and Direction1D actions `CaptureChord`; `BindingHandle<A, "Touch">` has no captures; `BindingHandle<A, Device>` is what any of the three is assignable to (its `Set` takes any device's keys, checked at runtime) |
+| `InputActions.ScriptableBindingHandle<A>` | a Scriptable binding's handle |
+| `InputActions.ChordBindingHandle<A, D>` | a binding handle with `CaptureChord`, for helpers generic over `A extends Bool | Direction1D` (a `BindingHandle<A>` of a generic `A` doesn't resolve to it) |
 | `InputActions.ContextHandle<C>` | a context handle |
 | `InputActions.Handle<S>` | what `Create` returns |
 | `InputActions.ServerHandle<S>`, `ServerAction<A>` | what `ForPlayer` returns |
 | `InputActions.ContextSchema`, `InputSchema<S>`, `ActionDefinition<A, B, TP>`, `ActionOptions` | schema data |
 | `InputActions.ActionValue<A>` | `boolean`, `number`, `Vector2`, `Vector3` or `Vector2` |
-| `InputActions.BindingShape<A>`, `BindingData<A>` | what `Set` takes and `Get` returns |
+| `InputActions.BindingShape<A, D>`, `BindingData<A, D>` | what `Set` takes and `Get` returns, for device `D` (any device's by default) |
 | `InputActions.CaptureSlot<A>`, `CaptureOptions` | `Capture`'s arguments |
 | `InputActions.Chord`, `ChordCaptureOptions` | what `CaptureChord` passes its callback, and its options |
 | `InputActions.ImportResult`, `SkippedBinding` | what `ImportBindings` returns |
 | `InputActions.CreateOptions`, `ProvideOptions`, `ForPlayerOptions` | options |
 | `InputActions.ButtonKey`, `MouseButtonKey`, `AxisKey`, `StickKey`, `Delta1DKey`, `Delta2DKey`, `PositionKey`, `BoolKey`, `Direction1DKey`, `Direction2DKey`, `CompositeKey`, `ModifierKey` | the [key groups](#key-groups) |
+| `InputActions.KeyboardAndMouseKey`, `GamepadKey`, `TouchKey` | the [keys per device](#keys-per-device) |
 
 ## Handles
 
@@ -213,7 +238,16 @@ All action types:
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
 | `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. A label is on one action at a time: the last `AttachLabel` takes it over. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere); once the label was taken over, they leave it alone. See [Keybind labels](Advanced.md#keybind-labels) |
-| `Bindings` | the binding handles, by slot name |
+| `Bindings` | the binding handles: `KeyboardAndMouse`, `Gamepad` and `Touch` always (unbound when the schema leaves one out), and the schema's Scriptable slots by name |
+
+Bool and Direction1D actions add (the others don't have them, and they throw if called anyway):
+
+| Member | |
+| --- | --- |
+| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which gets it (its composite directions give way), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture` |
+| `CaptureChord(callback: (chord, device) => void, options?): () => void` | as the binding's `CaptureChord`, on the binding of the device whose key goes down first; the other device's keys are ignored while any key of the chord is held (no Shift + ButtonA). `callback(undefined, undefined)` when it ends with nothing applied |
+
+`device` is `"KeyboardAndMouse"` or `"Gamepad"`. See [Rebinding](Advanced.md#rebinding).
 
 Bool actions add:
 
@@ -229,23 +263,29 @@ actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](A
 
 ### Binding handle
 
-A slot with keys:
+A device's binding (`KeyboardAndMouse`, `Gamepad`, `Touch`):
 
 | Member | |
 | --- | --- |
-| `Instance: InputBinding`, `Name: string` | `Name` is the slot name |
-| `Get(): BindingData<A>` | the binding as plain data in the schema's shape |
-| `Set(binding: BindingShape<A>)` | rebinds; objects merge; throws on what the action type doesn't allow, and on a number a float can't hold (beyond ±3.4e38) |
-| `Reset()` | back to the binding right after `Create` |
+| `Instance: InputBinding`, `Name` | `Name` is the device |
+| `Get(): BindingData<A, D>` | the binding as plain data in the schema's shape; `{}` when unbound |
+| `Set(binding: BindingShape<A, D>)` | rebinds; objects merge; throws on what the action type doesn't allow, on another device's key, and on a number a float can't hold (beyond ±3.4e38) |
+| `Reset()` | back to the binding right after `Create` (unbound when the schema left the device out) |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
-| `Capture(slot, callback, options?): () => void` | waits for the next legal key for `slot` that begins (`UserInputService.InputBegan`: keys, buttons, mouse buttons, taps; never the wheel, mouse movement or a drag), applies it, calls `callback(key)`; `options.Cancel` keys stop it |
-| `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
+
+The `KeyboardAndMouse` and `Gamepad` bindings add (the `Touch` one has none: touch has no keys to
+press; they throw if called on it anyway):
+
+| Member | |
+| --- | --- |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and the triggers; never the wheel, mouse movement or a tap), applies it, calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
+| `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the
 action, whatever holds it, on the server too under Server Authority; a change that leaves the keys
 as they are (a threshold, the same key) leaves it held. See [Rebinding](Advanced.md#rebinding).
 
-A slot declared `InputActions.Scriptable`: `Instance`, `Name`, `Fire(value: V)`.
+A binding declared `InputActions.Scriptable`: `Instance`, `Name`, `Fire(value: V)`.
 
 ### Server handles
 
@@ -291,6 +331,21 @@ The package writes it this way:
   triggers); `PressedThreshold` applies after them.
 - A key with `PrimaryModifier`/`SecondaryModifier` doesn't block other bindings of the plain key.
   See [IAS behaviours to know](Advanced.md#ias-behaviours-to-know).
+
+## Keys per device
+
+Every key belongs to one device, by the key alone (VirtualInput sends gamepad KeyCodes as keyboard
+input: they are still the gamepad's). A device's binding takes only its keys, modifiers included.
+
+| Device | Keys |
+| --- | --- |
+| `Gamepad` | `ButtonA/B/X/Y`, `ButtonL1/R1/L2/R2/L3/R3`, `ButtonSelect`, `DPadLeft/Right/Up/Down`, `Thumbstick1`, `Thumbstick2` and their `Up/Down/Left/Right`, and the TV remote's `ButtonCenter`, `ButtonBack`, `ButtonUp`, `ButtonDown`, `ButtonLeft`, `ButtonRight` (`ButtonStart` is the gamepad's too, but reserved) |
+| `Touch` | `TouchPosition` (`Enum.KeyCode.Touch` is its old name), `TouchDelta`, `TouchPinch` |
+| `KeyboardAndMouse` | every other key: keyboard keys, mouse buttons, `MouseWheel`, `MouseDelta`, `MousePosition`, `TrackpadPan`, `TrackpadPinch` |
+
+So the `Touch` binding takes `TouchPosition` (Bool, ViewportPosition), `TouchPinch` (Direction1D) or
+`TouchDelta` (Direction2D), and has no modifiers or composite directions; a gamepad has no position
+(its ViewportPosition binding stays unbound).
 
 ## Key groups
 

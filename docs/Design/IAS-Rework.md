@@ -6,6 +6,15 @@ package author; the facts marked **(probed)** were measured in Studio on 2026-09
 [Probed IAS behaviour](#probed-ias-behaviour)). The IAS reference is
 [docs/Reference/RobloxInputActionSystem.md](../Reference/RobloxInputActionSystem.md).
 
+**0.7.0: device bindings** (a breaking change, agreed with the author on 2026-10-03). An action's
+key bindings are named after the devices of `Enum.PreferredInput` (`KeyboardAndMouse`, `Gamepad`,
+`Touch`), each holds only its device's keys, and every action has the three (§3, §4); any other
+binding is `InputActions.Scriptable`. A binding's `Capture`/`CaptureChord` take its device's keys
+only, the `Touch` binding has none, Bool and Direction1D actions get a one-field `Capture` and
+`CaptureChord` whose first key picks the device, captures hear the gamepad's sticks and triggers,
+and `InputActions.PreferredDevice()` names the device in use (§6). Saves keep their format (§7).
+Multiple controllers are out of scope (rare on Roblox).
+
 ## 1. What stays, what goes
 
 | Now | After |
@@ -62,6 +71,9 @@ Crouch.IsJustPressed();
 Dash.Fire(true);
 Move.Bindings.Virtual.Fire(new Vector2(0, 1));
 Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
+Crouch.Bindings.Gamepad.Set(Enum.KeyCode.ButtonB); // every action has the three device bindings
+Jump.Capture((key, device) => {}); // the first key pressed picks the device's binding
+Jump.Bindings[InputActions.PreferredDevice()].Get();
 const release = Input.Ui.Request(true);
 const saved = Input.ExportBindings();
 
@@ -96,12 +108,27 @@ Rules and lessons:
 - `Pressed`, `Released`, `IsPressed`, `Tap`, `AttachButton` exist only on Bool actions.
   `GetPrevious`/`HasChanged` only with `TrackPrevious: true`; `IsJustPressed`/`IsJustReleased`
   only on tracked Bool actions.
-- Binding handles: a binding declared `InputActions.Scriptable` gets `Fire(value)`; every other
-  binding gets `Set`/`Reset`/`Clear`/`Capture`, and no `Fire`.
+- **Binding names are devices (0.7.0).** A binding with keys is named after its device:
+  `KeyboardAndMouse`, `Gamepad` or `Touch` (`Enum.PreferredInput`'s names, without `MicroGamepad`:
+  the TV remote's keys are the Gamepad's; also the Input Action Manager's `<Action><Device>`
+  names, so adoption keeps working). Any other name takes only `InputActions.Scriptable`
+  (code-driven sources). A key binding under another name, or a Scriptable under a device's name,
+  is a compile error, and `Schema` (and `Create`, for a schema made without it) throws naming it.
+  So an action has one binding per device: a second keyboard binding (WASD and the arrows) is no
+  longer possible in the schema.
+- Binding handles: a binding declared `InputActions.Scriptable` gets `Fire(value)`; a device's
+  binding gets `Get`/`Set`/`Reset`/`Clear`, and no `Fire`. The `KeyboardAndMouse` and `Gamepad`
+  ones add `Capture` (and `CaptureChord` on Bool and Direction1D actions); the `Touch` one has no
+  captures (touch has no keys to press). `Bindings` always has the three device handles (§4).
 - Unknown binding or action names are compile errors.
 - **Performance trap:** validating bindings with a mapped type that compares against the whole
-  `Enum.KeyCode` union ran tsc out of memory. The prototype's `CheckBindings` compares against
-  `EnumItem` and uses `Exclude<keyof B[K], AllKeys<TShape>>`: keep it that way.
+  `Enum.KeyCode` union ran tsc out of memory. `CheckBindings` maps over the bindings `B` only:
+  for a device's name it checks a bare key with one conditional (`B[K] extends BindingShape<T, D>`,
+  the device's shape, with its key unions computed once in `KeyGroups.ts`) and an object with the
+  device's object shape intersected with the excess-property check
+  (`Exclude<keyof B[K], AllKeys<TShape>>`); any other name must be `IScriptable`. A `string` key
+  (inference fell back to the constraint, whose own error is the useful one) checks nothing more.
+  Keep it that way: never a mapped type over the KeyCode union.
 - **Enum items matching all-optional shapes:** the composite shapes are all-optional, so a bare
   enum item matched them structurally. Every object shape carries `EnumType?: never`.
 - `InputActions.BoolAction` is exported: the type of any Bool action handle, for helpers written in
@@ -134,14 +161,45 @@ adopted from existing instances.
 | ViewportPosition | Position | not allowed | none |
 
 - Every binding may have `DisplayName`, `DisplayImage`; every binding except ViewportPosition may
-  have `PrimaryModifier`/`SecondaryModifier` (Button keys only).
+  have `PrimaryModifier`/`SecondaryModifier` (Button keys only, of the binding's own device).
 - One input source per binding (IAS ignores composites and `UIButton` when `KeyCode` is set):
   `KeyCode` together with a composite direction is a compile error.
 - A binding in the schema is either a bare key (shorthand for `{ KeyCode }`), an object shape, or
   `InputActions.Scriptable`. `UIButton` never appears in the schema (it is attached at runtime,
   §6).
 - At runtime an **unbound** binding (no `KeyCode`, no composite) is legal: the Input Action Manager
-  creates them, and `Clear()` produces them. The type rules forbid writing `None` in the schema only.
+  creates them, `Clear()` produces them, and every device the schema leaves out starts as one (§4).
+  The type rules forbid writing `None` in the schema only.
+
+### Keys per device (0.7.0)
+
+Every key belongs to one device, by the key alone (`GetKeyDevice`; not by the `UserInputType`
+that carried it, since VirtualInput sends gamepad KeyCodes as keyboard input, nor by
+`PreferredInput`, which the same press switches). Two more runtime arrays (`as const`) list them;
+the types derive from them with `Exclude`/`Extract`, once (`IKeyboardAndMouseKeys`, `IGamepadKeys`,
+`ITouchKeys`: the keys a device's binding takes for each kind of slot), and the binding shapes take
+one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
+
+| Device | Keys |
+|---|---|
+| `Gamepad` | `ButtonA/B/X/Y`, `ButtonL1/R1/L2/R2/L3/R3`, `ButtonSelect`, `ButtonStart` (reserved: never allowed), `DPadLeft/Right/Up/Down`, `Thumbstick1`, `Thumbstick2` and their `Up/Down/Left/Right`, and the TV remote's `ButtonCenter`, `ButtonBack`, `ButtonUp`, `ButtonDown`, `ButtonLeft`, `ButtonRight` |
+| `Touch` | `TouchPosition`, `TouchDelta`, `TouchPinch` |
+| `KeyboardAndMouse` | every other key: keyboard keys, mouse buttons, `MouseWheel`, `MouseDelta`, `MousePosition`, `TrackpadPan`, `TrackpadPinch` |
+
+- The per-type rules above hold within the device: a `Gamepad` Bool binding takes buttons and
+  axes (triggers, stick directions), its Direction2D `KeyCode` a stick; `KeyboardAndMouse`'s
+  Direction2D `KeyCode` takes `MouseDelta`/`TrackpadPan`; the `Touch` binding takes
+  `TouchPosition` (Bool, ViewportPosition), `TouchPinch` (Direction1D) or `TouchDelta`
+  (Direction2D), and has no Button keys, so no modifiers and no composite directions (its
+  Direction3D binding stays unbound). A gamepad has no position: its ViewportPosition binding stays
+  unbound too.
+- `Enum.KeyCode.Touch` is `TouchPosition`'s deprecated name: the same item (the typings declare it
+  `TouchPosition`, value 1034), so it is a Touch key like `TouchPosition`. The `devices` section
+  checks `Enum.KeyCode.Touch === Enum.KeyCode.TouchPosition` at runtime.
+- Checked in the types (schema, `Set`) and at runtime: `Set`, imports, `SanitizeBindings`,
+  captures, and adopted bindings (a key of another device warns, naming the path and the device,
+  and is left as it is, like the other rule breaks). The messages say which device the key is
+  (`ButtonA is a Gamepad key: a KeyboardAndMouse binding takes keyboard and mouse keys`).
 
 ## 4. Schema, `Create`, and get-or-create
 
@@ -172,18 +230,40 @@ adopted from existing instances.
   - A slot can't take a name whose binding (`S` or `A .. S`) would be one the package names itself
     (§6): `Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`. Nor can one action have
     slots `S` and `A .. S`: both would match the binding `A .. S`. `Schema` (and `Create`) refuse
-    them.
+    them. Since every action has the three device bindings (below), a Scriptable slot named
+    `<Action><Device>` (`JumpTouch` on Jump) collides with a device's even when the schema leaves
+    that device out.
+- **Every action has the three device bindings (0.7.0).** A device the schema leaves out gets its
+  binding all the same: the one found by name (`S` or `A .. S`, so the Manager's `JumpTouch` is
+  adopted as the Touch binding, typed, rather than warned about as an extra), else one made with no
+  keys (`<Action><Device>`, Automatic). IAS never prefers a binding without keys **(probed, P3,
+  2026-10-03)**: an empty `Gamepad` or `Touch` binding beside a Space binding changes nothing for
+  `PreferredBinding` or an `InputActionLabel` (keyboard, virtual pad, simulated phone), and an empty
+  `Touch` binding doesn't beat a `UIButton` binding under the simulated phone. So a player can give
+  a gamepad key to an action the game bound on the keyboard only, and a menu can index
+  `Bindings[device]`. Its defaults are unbound: `Get()` returns `{}`, `Reset()` unbinds it.
+  - `Create` twice on one folder with different schemas: when a later schema names a device whose
+    binding an earlier root handle made unbound (its schema left the device out: a *placeholder*,
+    `ISharedEntry.Placeholder`), the later schema fills it: the shared defaults become that
+    schema's binding (every handle on it shares the defaults table, so the earlier handle's
+    `Reset` and export follow), and the binding is written when it is still as it was made (a
+    player's rebind stays). The earlier handle's `BindingsChanged` doesn't fire for it. The same
+    holds at a Server Authority swap onto bindings another root handle made on the copy. In the
+    other order the first schema's binding is simply adopted, as before. Without this, a second
+    schema that names `Gamepad: ButtonA` would find the first one's empty binding and keep it
+    ("what exists wins").
 - **Precedence: what exists wins.** An existing context keeps its `Priority`, `Sink`, `Enabled`;
   an existing action keeps `Enabled`/`DisplayName`; an existing binding keeps its keys, modifiers
   and tuning. The schema fills only what is missing.
 - **Defaults are the tree right after `Create`.** `Reset()` returns a binding to that snapshot
   (designer values when they came from the folder, schema values otherwise).
 - An existing action whose `Type` differs from the builder's type: **throw**, naming the path.
-- An adopted binding whose keys break the §3 rules: `warn` with the path, and leave it as it is.
+- An adopted binding whose keys break the §3 rules (another device's key included): `warn` with
+  the path, and leave it as it is.
 - Instances in the folder that the schema doesn't mention: left alone (IAS still runs them), not
   typed, one `warn` per instance in Studio (`RunService.IsStudio()`) naming them. Includes
   bindings whose names match no slot (e.g. the Manager's default `InputBinding` name), because they
-  then run beside the package's own binding.
+  then run beside the package's own binding. A binding named after a device always matches a slot.
 - `Create` twice on the same folder must work (adopts the same instances; creates nothing twice).
   The root handles share what they use, through a registry keyed by instance:
   - an instance the package made is destroyed when the last root handle using it is destroyed;
@@ -268,7 +348,8 @@ Action handle (all types):
   first use. Values go straight into the action state: IAS applies no `Scale`, clamp or
   `Vector2Scale` to fired values **(probed)**.
 - `SetEnabled`, `IsEnabled`.
-- `Bindings`: typed record of binding handles, one per schema slot.
+- `Bindings`: typed record of binding handles: the three devices' always (`KeyboardAndMouse`,
+  `Gamepad`, `Touch`), and the schema's Scriptable slots.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
 - `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
   `label.InputAction` to the action the handle wraps, and again at the Server Authority swap while
@@ -329,13 +410,38 @@ press would reach the server as no press at all), and:
   frame.
 - Actions without `TrackPrevious` do no per-frame work.
 
-Binding handle (non-Scriptable):
+Bool and Direction1D actions (the types whose `KeyCode` takes keys that can be pressed) add a
+one-field capture for a rebinding menu, **0.7.0** (`IActionCapture`; the other types don't have it,
+and it throws on them at runtime):
 
-- `Instance: InputBinding`, `Name`.
+- `Capture(callback: (key, device) => void, options?): () => void`: waits for the next key that a
+  `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`. The key's device
+  picks the binding, which gets it (its composite directions give way, as with `Set`), then
+  `callback(key, device)`; `device` is `"KeyboardAndMouse" | "Gamepad"`. Touch input is ignored,
+  and so is a key no binding of its device can take (a click on a Direction1D action). Same
+  options and rules as the binding's `Capture` (below): `Cancel` keys from any device, typing and
+  game-processed input, keys down at the start, sticks and triggers.
+- `CaptureChord(callback: (chord | undefined, device | undefined) => void, options?)`: as the
+  binding's `CaptureChord`, on whichever device's binding the first key that goes down belongs to;
+  the other device's keys are ignored while any key of the chord is held, so no Shift + ButtonA.
+  Once every key of a refused chord is up, the next first key picks again (a player who started on
+  the keyboard can switch to the pad without cancelling). `callback(undefined, undefined)` when it
+  ends with nothing applied.
+- Both reuse the binding captures' code (`Capture.ts`: `CaptureKey`, `CaptureChord`, the
+  `CaptureInput` stream), with a target picked per key.
+- `InputActions.PreferredDevice(): Device` (0.7.0): `UserInputService.PreferredInput` as the
+  binding name that holds its keys, `MicroGamepad` as `"Gamepad"`. Roblox counts a gamepad as
+  preferred as soon as one is plugged in, before any of its buttons is pressed **(measured with
+  the virtual pad, 2026-10-03)**, and under the simulated phone it stays `Touch`. A two-column menu
+  writes `action.Bindings[InputActions.PreferredDevice()]`; a game hides rebinding on `"Touch"`.
+
+Binding handle (non-Scriptable: a device's binding):
+
+- `Instance: InputBinding`, `Name` (the device).
 - `Get()`: the current binding as plain data in the schema's shape (for settings UIs).
-- `Set(spec)`: typed as the action type's binding shape (§3), validated at runtime (throws on a
-  key or property the action type doesn't allow). Object specs **merge** into the binding; a
-  bare key sets `KeyCode` and clears the composites.
+- `Set(spec)`: typed as the action type's binding shape for the binding's device (§3), validated at
+  runtime (throws on a key or property the action type doesn't allow, or another device's key).
+  Object specs **merge** into the binding; a bare key sets `KeyCode` and clears the composites.
 - **Writing bindings** (`Set`, `Reset`, `Clear`, `Capture`, `ImportBindings`, `ResetBindings`, the
   swap's carried rebinds, `Destroy` giving adopted bindings their defaults): the target values are
   worked out first, then only the properties that differ are written. A property written with the
@@ -384,17 +490,39 @@ Binding handle (non-Scriptable):
   HC4-1) game-processed input (Return, Escape) and clicks or taps (a click away, which isn't
   game-processed), what ends the typing, which arrives once the focus is gone. Other keys count again
   at once (`ClassifyCaptureInput`; hunts HC-2, HC2-3, HC3-1, 0.6.1). Keys already down when a capture
-  starts (`KeysDownNow`: keyboard, mouse buttons, gamepad
-  buttons) count only once they have come up: a ContextActionService action runs before
+  starts (`KeysDownNow`: keyboard, mouse buttons, gamepad buttons, and since 0.7.0 the stick
+  directions and triggers pushed past halfway) count only once they have come up: a ContextActionService action runs before
   `InputBegan` fires, so the press of a CAS hotkey that starts a capture would otherwise reach it
   (hunt HC2-2). A finger down reads as mouse button 1 and arrives as `TouchPosition`: mouse button 1
   down at the start stands for both, and either coming up forgets both (hunt HC3-2). The wheel, mouse movement,
   touch drags and trackpad gestures raise only `InputChanged`, so `Capture` never takes them (from
   keyboard and mouse, a `Direction2D` `KeyCode` slot captures nothing); the docs say so, and point
   to `Set`.
-- `CaptureChord(callback, options?): () => void` (0.6.1), on Bool and Direction1D bindings only (the
-  types whose `KeyCode` takes keys that begin; typed through `BindingHandleOf<T>`, and it throws on
-  the others at runtime). It follows the keys that begin while it waits (`InputBegan`, not
+- **Captures are device-locked (0.7.0).** A binding's `Capture` and `CaptureChord` take only its
+  device's keys, classified by the KeyCode (`GetKeyDevice`), not by `UserInputType` or
+  `PreferredInput`: VirtualInput sends gamepad KeyCodes (`ButtonA`...) as keyboard input, and the
+  captures take them as the gamepad's, which lets the tests drive gamepad captures without a pad
+  (`DPadUp` and `ButtonStart` throw in VirtualInput). Another device's key is ignored, not a cancel;
+  in a chord it is no part of it (its release settles nothing). A `Cancel` key counts from any
+  device (the game lists them). The `Touch` binding has no `Capture`/`CaptureChord` (its type) and
+  they throw if called anyway: touch has no keys to press; give it a touch key with `Set`. So a
+  tap no longer lands in a keyboard-and-mouse binding as `TouchPosition`.
+- **Sticks and triggers in captures (0.7.0).** Captures also follow a gamepad's `InputChanged`
+  (`CaptureInput` in `Capture.ts`): a stick's axis past 0.5 (IAS's default `PressedThreshold`)
+  counts as `Thumbstick<n>Up/Down/Left/Right` going down, back under 0.2 (the default
+  `ReleasedThreshold`) as it coming up. That fills composite slots and Bool/Direction1D `KeyCode`
+  slots (axis keys are legal there), and a chord can end on one. A Direction2D `KeyCode` slot of
+  the Gamepad binding takes the whole stick (`Thumbstick1`/`Thumbstick2`) of the first stick pushed
+  past 0.5 (`CapturedKey`). A stick's own `InputBegan`/`InputEnded`, if any, are ignored: only the
+  axes count. A stick already pushed when the capture starts counts once it has come back. The
+  triggers (`ButtonL2`/`ButtonR2`) go down and up through `InputBegan`/`InputEnded` or through
+  `InputChanged` (`Position.Z` past 0.5, back under 0.2), whichever comes first, once each:
+  **unmeasured** which Roblox sends for a real pad (VirtualInput's `ButtonR2` arrives as
+  `InputBegan`); the `device-capture` section prints what came, for the next probe. Mouse movement,
+  the wheel and touch gestures still never count.
+- `CaptureChord(callback, options?): () => void` (0.6.1), on the KeyboardAndMouse and Gamepad
+  bindings of Bool and Direction1D actions only (the types whose `KeyCode` takes keys that begin;
+  typed through `BindingHandleOf<T, D>`, and it throws on the others at runtime). It follows the keys that begin while it waits (`InputBegan`, not
   `gameProcessed`), in order, and settles on the first `InputEnded` among them: the last key down is
   `KeyCode`, the ones before it `PrimaryModifier` then `SecondaryModifier`, which is the order IAS
   needs them pressed in. One key alone clears the modifiers. Applied in one write (one release of a
@@ -462,9 +590,17 @@ own actions.
 { "Version": 1, "Bindings": {
   "Gameplay/Jump/KeyboardAndMouse": { "KeyCode": "F" },
   "Gameplay/Move/KeyboardAndMouse": { "Up": "Up", "Down": "Down" },
-  "Gameplay/Look/Mouse": { "Scale": 0.02, "Vector2Scale": [1, -1] }
+  "Gameplay/Look/Gamepad": { "Scale": 0.02, "Vector2Scale": [1, -1] }
 } }
 ```
+
+- 0.7.0 keeps the format and the paths (`Context/Action/Device`): a 0.6 save's entries under the
+  device names apply as before. The device bindings a schema leaves out are saved like the others
+  (a player's gamepad key on a keyboard-only action). An entry under another name (0.6's `Mouse`,
+  `Alternate`, or a Scriptable slot) is skipped with the reason `<Name> is not a device: a save
+  holds the KeyboardAndMouse, Gamepad, Touch bindings`; one with another device's key, with the
+  reason the rules give (`F is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys`).
+  `SanitizeBindings` keeps the device paths of every action, and drops the same entries.
 
 - `ExportBindings()` returns only what differs from the defaults snapshot, via
   `HttpService.JSONEncode`. Enums by `Name`; `Vector2`/`Vector3` as arrays.
@@ -665,7 +801,12 @@ client; the server only reads action state, which IAS replicates on its own.
 | `Cancel` | Bool | `B` (Escape is reserved; Backspace belongs to CoreGui) | `ButtonB` |
 | `NextPage` | Bool | `E` | `ButtonR1` |
 | `PreviousPage` | Bool | `Q` | `ButtonL1` |
-| `Scroll` | Direction1D | `MouseWheel` (slot `Mouse`), composite `Up = PageUp`, `Down = PageDown` | composite `Up = Thumbstick2Up`, `Down = Thumbstick2Down` |
+| `Scroll` | Direction1D | `MouseWheel` | composite `Up = Thumbstick2Up`, `Down = Thumbstick2Down` |
+
+0.7.0: one binding per device, so `Scroll` keeps the wheel on the keyboard and mouse and drops the
+`PageUp`/`PageDown` composite it had beside it (0.6's extra `Mouse` slot): the wheel is how a mouse
+scrolls, and a game sets the composite with `Set` when it prefers the keys. Every preset action
+also has its (unbound) `Touch` binding.
 
 Its type must be as precise as a hand-written schema (`Input.Ui.Actions.Navigate.GetState()` is
 `Vector2`). Document that the legacy camera scripts (and `RawInputHandler`'s legacy fork) sink
@@ -754,8 +895,20 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   Under the simulated phone, `PreferredInput` is `Touch`, and `VirtualInput` mouse events arrive as
   touch: taps (`TouchPosition`), drags (`TouchDelta`, a rate), `UIButton` taps, `UIModifier`
   regions. One pointer only: no pinch, no multi-touch.
-- **Gamepad, window focus and the Roblox menu can't be simulated from Luau.** Keep driving those
-  paths through Scriptable bindings and the TextBox focus path, as now.
+- **Window focus and the Roblox menu can't be simulated from Luau.** Keep driving those paths
+  through Scriptable bindings and the TextBox focus path, as now. VirtualInput sends gamepad
+  KeyCodes as keyboard input, which IAS's gamepad bindings don't take but the captures classify as
+  the gamepad's (by KeyCode): the device-locked captures are tested that way.
+- **Gamepad: the virtual pad** (`tools/virtual-pad`, a Rust service that plugs a virtual Xbox 360
+  pad into Windows through ViGEmBus; `virtualPad()` in the tests). **Pad input is opt-in:** Steam's
+  Xbox controller support (on, on the author's PC) turns a pad's buttons and sticks into keys and
+  mouse input for whatever window is focused, so the service refuses any pad state but the neutral
+  one (and touch injection, and bringing a window to the front) unless it was started with
+  `--allow-input`, which `scripts/virtual-pad.mjs` passes only when `VIRTUAL_PAD_INPUT=1` is set.
+  `virtualPad()` then answers the reason ("pad input is off: set VIRTUAL_PAD_INPUT=1 after turning
+  off Steam Input for Xbox controllers") and the tests that press the pad `skip(reason)`. A test
+  that only plugs the pad in (`virtualPad({ Input: false })`: `PreferredDevice()` reads
+  `"Gamepad"` while it is in) runs by default.
 - The server's sections run before the client's in one play session. For Server Authority,
   the server's sections can leave a `RemoteFunction` behind that the client's tests call to read
   server-side state.
@@ -779,6 +932,12 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   rotation and zoom from real mouse input where the cursor can be locked; under `touch`:
   `PreferredBinding` switching to the touch binding, `AttachButton` with a tap, a
   `TouchPosition`/`UIModifier` binding.
+- 0.7.0 adds the sections `devices` (shared: binding names, keys per device, the rules with a
+  device, `SanitizeBindings` with device paths; client: the three device bindings on every action,
+  `Set` and imports by device, adopted bindings, placeholder filling, `PreferredBinding` with
+  unbound bindings, `PreferredDevice`) and `device-capture` (device-locked binding captures and the
+  one-field action capture with real keys and VirtualInput's gamepad KeyCodes; sticks and triggers
+  through the virtual pad, skipped unless pad input is on), and `tests/type-rules/devices-type-rules.ts`.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 
@@ -846,3 +1005,8 @@ places, `SignalBehavior = Deferred`:
 | A real click or tap on a GuiButton with `Active = false`, `Interactable = false` or `Visible = false`, with a `UIButton` binding, with and without an `InputCatcher` (hunt round 2, 2026-10-01) | `Active = false`: `Activated` doesn't fire, the binding still presses its action; `Interactable = false` or `Visible = false`: the binding doesn't press it |
 | A real key holds an action, its binding destroyed: a Bool (a template's extra on the server's copy, in places without Server Authority) and a Direction2D (composite `W` under an adopted action) (hunt round 4, 2026-10-01) | the action stays held after the key comes up, with no `Released`; an `Enabled` toggle releases it |
 | Studio simulating the iPhone 14 (landscape): `GetGuiInset()`, the camera's viewport, ScreenGuis by `ScreenInsets` and `IgnoreGuiInset`, and where taps sent with `VirtualInput` land (hunt round 4, 2026-10-01) | inset (0, 58); viewport 749 x 368; `ScreenInsets = None` with `IgnoreGuiInset` at (-47, -58), 843 x 389 (the whole screen), every other setting at x = 0 (`TopbarSafeInsets`: 164); taps sent at (100, 150), (400, 150), (700, 300) land at `InputObject.Position` (53, 92), (353, 92), (653, 242): sent minus (47, 58). `GuiService:GetScreenResolution()` needs RobloxScript |
+| The play session's server calls `http://127.0.0.1:47110` (the virtual-pad service) with HttpService (P1, 2026-10-03) | it reaches it: 3 ms from the server, about 0.2 s a call from the client through a RemoteFunction |
+| The virtual pad plugged in, with no input (2026-10-03, `default`, `ias`, `touch`) | `GamepadConnected` (Gamepad1), and `PreferredInput` switches to `Gamepad` within 0.3 s; unplugging switches back as fast. Under the simulated phone, after a tap, it stays `Touch` |
+| An empty InputBinding (no keys) beside bound ones (P3, 2026-10-03) | IAS never prefers it: empty `Gamepad`/`Touch` bindings beside a Space binding change nothing for `PreferredBinding` or an `InputActionLabel`; an empty `Touch` binding doesn't beat a `UIButton` binding under the simulated phone (the UIButton binding is preferred; its label reads `None`). A Space binding's label reads `" "` |
+| Touch injected through Windows (`InitializeTouchInjection`, the virtual-pad service's experimental `/touch`) | reaches Studio as `MouseButton1` and `MouseMovement`, never as touch; touch stays on the device simulator and VirtualInput |
+| Not measured yet (Steam Input for Xbox controllers was on): the virtual pad's buttons, sticks and triggers in Roblox (`InputBegan`/`InputChanged` for sticks and triggers, `Position`, `gameProcessed`), and the pad with Studio unfocused | the `device-capture` section's pad tests measure them once pad input is on (`VIRTUAL_PAD_INPUT=1`) |

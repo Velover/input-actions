@@ -25,6 +25,11 @@ and a few safety nets. This package adds those.
    an action handle, `Jump.Bindings.KeyboardAndMouse` a binding handle. Each has an `Instance`
    property when you need the raw IAS object.
 
+An action's bindings are its **devices'**: `KeyboardAndMouse`, `Gamepad` and `Touch`, the
+`Enum.PreferredInput` names. Each binding holds only its device's keys, and every action has the
+three (unbound when the schema leaves one out). A binding driven from code instead of keys is an
+`InputActions.Scriptable`, under any other name.
+
 ```ts
 const Input = InputActions.Create(InputSchema);
 Input.Gameplay.Actions.Move.GetState(); // Vector2
@@ -49,7 +54,9 @@ Input Action Manager:
 
 - a context is named as its schema key, and an action as its schema key;
 - the binding for slot `S` of action `A` is a child named `S` or `A .. S` (the Manager names its
-  bindings `<Action><Device>`: `JumpKeyboardAndMouse`, `JumpGamepad`, `JumpTouch`);
+  bindings `<Action><Device>`: `JumpKeyboardAndMouse`, `JumpGamepad`, `JumpTouch`, the package's
+  device names); a device the folder has no binding for gets one made, unbound unless the schema
+  gives it keys;
 - **what exists wins**: an existing context keeps its Priority, Sink and Enabled, an existing action
   its Enabled and DisplayName, an existing binding its keys and tuning. The schema fills only what is
   missing. (The server's copy of a Server Authority context is always enabled on the server, so the
@@ -67,7 +74,7 @@ now a rewrite on IAS, and most of the old API is gone:
 | `InputContextController` | IAS contexts, through context handles (`SetEnabled`, `Request`) |
 | `InputConfigController`, thumbstick dead zones | binding properties: `PressedThreshold`, `Scale`, `ResponseCurve` |
 | `KeyCombinationController` | `PrimaryModifier` / `SecondaryModifier` on a binding |
-| `DeviceTypeHandler`, `EInputType`, `EDeviceType` | `UserInputService.PreferredInput`, `action.GetPreferredBinding()` |
+| `DeviceTypeHandler`, `EInputType`, `EDeviceType` | `InputActions.PreferredDevice()` (`UserInputService.PreferredInput`), `action.GetPreferredBinding()` |
 | `EDefaultInputAction` and the default UI context | `InputActions.Presets.UiNavigation()` |
 | `InputEchoController`, `HapticFeedbackController`, `InputKeyCodeHelper` | removed |
 | `InputActionsInitializationHelper` | removed: `InputActions.Create` does the setup |

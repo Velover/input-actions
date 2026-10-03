@@ -9,11 +9,18 @@ requests, on-screen buttons, keybind labels and Server Authority support.
 - **Typed from the schema.** `Move.GetState()` is a `Vector2`, `Jump.Pressed` exists only on Bool
   actions, and a binding IAS can't use (a mouse delta on a Bool action, Escape, a thumbstick as a
   composite direction) is a compile error.
+- **Device bindings.** An action's bindings are named after the devices, `KeyboardAndMouse`,
+  `Gamepad` and `Touch`, and each takes only its device's keys (a keyboard key on the gamepad's
+  binding is a compile error). Every action has the three, so a player can give a gamepad button to
+  an action the game bound on the keyboard only. `InputActions.PreferredDevice()` names the device
+  in use.
 - **Works with the Input Action Manager.** Contexts the Manager made in `ReplicatedStorage.Inputs`
   are adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
 - **Rebinding:** `Set`, `Reset`, `Clear`, `Capture` (one key), `CaptureChord` (keys held together,
-  such as Ctrl+Shift+J, with an optional timeout), and `ExportBindings` / `ImportBindings` that save
-  only what the player changed. `SanitizeBindings` cleans a save on the server.
+  such as Ctrl+Shift+J, with an optional timeout), each on one device's binding and taking that
+  device's keys, sticks and triggers included; a one-field `action.Capture` where the first key
+  pressed picks the device; and `ExportBindings` / `ImportBindings` that save only what the player
+  changed. `SanitizeBindings` cleans a save on the server.
 - **UI:** `AttachButton` turns a GuiButton into an on-screen button for a Bool action, and
   `AttachLabel` points Roblox's `InputActionLabel` at any action to show its keybind for the device
   in use. Both return a function that undoes them; nothing React-specific is in the package.
@@ -76,9 +83,32 @@ const direction = Move.GetState(); // Vector2
 if (Crouch.IsJustPressed()) print("crouched this frame");
 
 Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F); // rebind
+Jump.Capture((key, device) => print(`${key.Name} on ${device}`)); // the next key, either device
 const save = Input.ExportBindings(); // JSON of what differs from the defaults
 const release = Input.Ui.Request(true); // open the menu context until release()
 ```
+
+## Upgrading from 0.6
+
+0.7.0 breaks schemas that name bindings freely:
+
+- **Binding names are devices.** A binding with keys is named `KeyboardAndMouse`, `Gamepad` or
+  `Touch`, and takes only that device's keys: rename `Mouse`, `Keyboard`, `Pad`, `Alternate`... A
+  second binding on the same device (WASD beside the arrows) is no longer possible: pick one, or let
+  the player rebind. `Schema` throws on any other name, naming it.
+- **Every other binding is `InputActions.Scriptable`** (driven from code); a Scriptable under a
+  device's name is refused.
+- **Every action has the three device bindings**, unbound when the schema leaves one out:
+  `Bindings.Gamepad` exists on a keyboard-only action, and `Get()` returns `{}` there.
+- **Captures are per device.** `Bindings.Gamepad.Capture` takes gamepad keys only (VirtualInput's
+  and real ones), `Bindings.KeyboardAndMouse.Capture` keyboard and mouse keys; other devices' keys
+  are ignored, and `Cancel` keys count from any device. The `Touch` binding has no `Capture` (a tap
+  is never captured: set touch keys with `Set`). `action.Capture` and `action.CaptureChord` (Bool
+  and Direction1D actions) give a menu one field per action.
+- **Saves** keep their format: entries under the device names load as before; others are skipped
+  with a reason (`Mouse is not a device: ...`).
+- The `UiNavigation` preset's `Scroll` is the wheel on the keyboard and mouse (its `Mouse` slot and
+  the `PageUp`/`PageDown` composite are gone).
 
 ## Documentation
 
