@@ -138,7 +138,7 @@ export class BindingHandle {
 	 */
 	Capture(
 		slot: string,
-		callback: (key: Enum.KeyCode) => void,
+		callback: (key: Enum.KeyCode | undefined) => void,
 		options?: ICaptureOptions,
 	): () => void {
 		const device = this.CapturableDevice("Capture");
@@ -156,6 +156,8 @@ export class BindingHandle {
 				this.ApplyCapturedKey(target.Slot, target.Key);
 				callback(target.Key);
 			},
+			// A `Cancel` key: nothing applied
+			() => callback(undefined),
 			options?.Cancel ?? [],
 		);
 	}

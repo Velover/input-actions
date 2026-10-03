@@ -54,7 +54,9 @@ handles then share them:
   of a key held through a binding the other handles keep, until the key is pressed again. On the
   server's copy the release is the pair of [Releasing on the server](#releasing-on-the-server);
   elsewhere it is an `InputAction.Enabled` toggle once the bindings are gone, as below, after which
-  a value the other handles fired before counts again when fired again.
+  a value the other handles fired before counts again when fired again. The other root handles'
+  gestures take that release for a reset, not the player's: no tap or long press comes of it, and a
+  hold in progress is cancelled.
 - Root handles made before a Server Authority context's copy arrives share one stand-in, and swap
   together (see [The Server Authority swap](#the-server-authority-swap)).
 
@@ -220,11 +222,24 @@ How the handles move from the local stand-in to the server's copy is in
 
 A release the player didn't make ends a gesture without completing it (see
 [Gestures](Advanced.md#gestures)). The package tells such a release by the action or its context
-being disabled when it arrives, or by a reset it made itself since the press began. At the Server
-Authority swap a press ends so, since the copy doesn't show it yet, and a value a Scriptable binding
-held is fired again on the copy, a new press; only a press the copy already shows (another root
-handle's input holds it there) goes on. A release IAS makes on its own when the window loses focus
-counts as the player's while `ResetOnFocusLoss` is off.
+being disabled when it arrives at the handle, or by a reset it made itself since the press began:
+a context or the action disabled, a rebind or a binding added while held, the swap, and another
+root handle's `Destroy` letting go of an action they share (see
+[above](#several-root-handles-on-one-folder)), also when that `Destroy` turns the action off and on
+again before the release arrives. It is worked out once per release, as the release arrives, and
+every gesture on the handle gets the same answer: a gesture whose callback turns the context off (a
+tap that opens a menu) doesn't make that same release a reset for the gestures that hear it after.
+
+At the Server Authority swap a press ends so, since the copy doesn't show it yet, and a value a
+Scriptable binding held is fired again on the copy, a new press; only a press the copy already shows
+(another root handle's input holds it there) goes on. A release IAS makes on its own when the window
+loses focus counts as the player's while `ResetOnFocusLoss` is off.
+
+A frame that runs long (a hitch) can hold back a gesture's timer past its moment. The gestures then
+go by the time each press and release arrived: a second press that arrives after a waiting tap's
+`Window` keeps that tap (it fires as the press arrives, then the press counts on its own), and a
+release that arrives once the press has lasted a hold's `Duration` completes the hold rather than
+cancelling it.
 
 ## Saves cleaned on the server
 

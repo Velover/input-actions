@@ -1,23 +1,36 @@
 import { EveryFrame } from "../Internal/EveryFrame";
-import { IsLive, ResetSince } from "./Internal";
+import { IsLive } from "./Internal";
 import type { IDoubleTapOptions, IHoldOptions, ILongPressOptions, ITapOptions } from "./Types";
 
 // Gestures on Bool actions (design spec §6, F4): tap, double tap, hold, long press. Built on the
-// handle's own `Pressed` and `Released`, which always alternate, timed with `os.clock` from when
-// each arrives. No per-frame work but a Hold's `Progress` while held.
+// handle's presses and releases as its listeners hear them (`Pressed` and `Released`, which always
+// alternate), timed with `os.clock` from when each arrives at the handle. No per-frame work but a
+// Hold's `Progress` while held.
 
 /** Seconds a press may last and still be a tap */
 export const DEFAULT_TAP_DURATION = 0.25;
 /** Seconds from a tap's release within which a second press makes a double tap */
 export const DEFAULT_DOUBLE_TAP_WINDOW = 0.3;
 
+/**
+ * One press or release the handle passed on: its number (counted from the handle's first), whether
+ * it is a press, when it arrived (`os.clock`), and for a release whether it is a reset's
+ */
+export type GestureEdge = (edge: number, pressed: boolean, at: number, reset: boolean) => void;
+
 /** What a gesture listens to: an action handle */
 export interface IGestureSource {
 	readonly Name: string;
 	/** The action the handle wraps now */
 	readonly Instance: InputAction;
-	readonly Pressed: RBXScriptSignal<() => void>;
-	readonly Released: RBXScriptSignal<() => void>;
+	/**
+	 * The handle's presses and releases as its listeners hear them (`Pressed` and `Released`
+	 * always alternate), each with when it arrived, and for a release whether it is a reset's,
+	 * worked out once as it arrived: every gesture gets the same answer (hunt HF-7)
+	 */
+	GestureEdges(): RBXScriptSignal<GestureEdge>;
+	/** How many edges the handle has passed on: a gesture made now starts after them */
+	EdgeCount(): number;
 	IsDestroyed(): boolean;
 	/** Keeps a running gesture's stop function, for `Destroy` */
 	AddGesture(stop: () => void): void;
@@ -31,7 +44,8 @@ interface IGestureEdges {
 	/**
 	 * The press that began at `start` ended at `now`. `reset`: no player's release, but a reset's
 	 * (the context or the action disabled, the focus-loss reset, a key change or a binding added while
-	 * held, the Server Authority swap), which ends the gesture without completing it
+	 * held, another root handle's `Destroy`, the Server Authority swap), which ends the gesture
+	 * without completing it
 	 */
 	Released(now: number, start: number, reset: boolean): void;
 	/** The gesture is stopped (its function, `Destroy`): it calls nothing more */
@@ -83,24 +97,25 @@ function Listen(source: IGestureSource, edges: IGestureEdges): () => void {
 	if (source.IsDestroyed()) return () => {};
 	let start: number | undefined;
 	let live = true;
-	const connections = [
-		source.Pressed.Connect(() => {
+	// An edge passed on before the gesture was made is no part of it, also one still on its way
+	const since = source.EdgeCount();
+	const connection = source.GestureEdges().Connect((edge, pressed, at, reset) => {
+		if (edge <= since) return;
+		if (pressed) {
 			if (!live || source.IsDestroyed()) return;
-			start = os.clock();
-			edges.Pressed(start);
-		}),
-		source.Released.Connect(() => {
-			const began = start;
-			start = undefined;
-			if (!live || source.IsDestroyed() || began === undefined) return;
-			const action = source.Instance;
-			edges.Released(os.clock(), began, !IsLive(action) || ResetSince(action, began));
-		}),
-	];
+			start = at;
+			edges.Pressed(at);
+			return;
+		}
+		const began = start;
+		start = undefined;
+		if (!live || source.IsDestroyed() || began === undefined) return;
+		edges.Released(at, began, reset);
+	});
 	const stop = () => {
 		if (!live) return;
 		live = false;
-		for (const connection of connections) connection.Disconnect();
+		connection.Disconnect();
 		source.RemoveGesture(stop);
 		edges.Stop?.();
 	};
@@ -131,18 +146,26 @@ export function OnTap(
 	const waitForDoubleTap = options?.WaitForDoubleTap === true;
 	/** A tap waiting for the double-tap window to pass without a second press */
 	let pending: thread | undefined;
+	/** When the waiting tap's release arrived */
+	let pendingSince = 0;
 	/** The press in progress came within the window after a tap: a double tap's second, no tap */
 	let second = false;
 	return Listen(source, {
-		Pressed() {
-			second = pending !== undefined;
+		Pressed(now) {
+			const waiting = pending !== undefined;
 			CancelTimer(pending);
 			pending = undefined;
+			// Within the window, as `OnDoubleTap` counts it, by the time the press arrived: a press
+			// after it, in a frame that ran long before the window's timer could (a hitch), comes
+			// after a tap that the window let through (hunt HF-3)
+			second = waiting && now - pendingSince <= window;
+			if (waiting && !second && !source.IsDestroyed() && IsLive(source.Instance)) callback();
 		},
 		Released(now, start, reset) {
 			if (reset || now - start > maxDuration) return;
 			if (!waitForDoubleTap) return callback();
 			if (second) return;
+			pendingSince = now;
 			pending = task.delay(window, () => {
 				pending = undefined;
 				// The action disabled meanwhile (a menu opened): the tap is dropped
@@ -216,6 +239,10 @@ export function OnHold(
 	let holding: number | undefined;
 	let timer: thread | undefined;
 	let stopFrames: (() => void) | undefined;
+	/** Stopped (its function, `Destroy`): calls nothing more, also from inside its own `Progress` */
+	let stopped = false;
+	/** Whether the gesture may still call anything: `Progress` may stop it, or destroy the root handle */
+	const running = () => !stopped && !source.IsDestroyed();
 	const finish = () => {
 		holding = undefined;
 		CancelTimer(timer);
@@ -224,10 +251,11 @@ export function OnHold(
 		stopFrames = undefined;
 	};
 	const complete = () => {
-		if (holding === undefined || source.IsDestroyed()) return;
+		if (holding === undefined || !running()) return;
 		finish();
 		progress?.(1);
-		callback();
+		// Stopped from `Progress(1)`: nothing more (hunt HF-5)
+		if (running()) callback();
 	};
 	return Listen(source, {
 		Pressed(now) {
@@ -236,6 +264,8 @@ export function OnHold(
 			timer = task.delay(duration, complete);
 			if (progress === undefined) return;
 			progress(0);
+			// Stopped from `Progress(0)`: no per-frame work left behind
+			if (holding === undefined || !running()) return;
 			// Per-frame work while the hold is in progress only
 			stopFrames = EveryFrame(() => {
 				if (holding === undefined) return;
@@ -244,13 +274,19 @@ export function OnHold(
 				else progress(fraction);
 			});
 		},
-		Released() {
+		Released(now, _start, reset) {
 			if (holding === undefined) return;
+			// A press that lasted `Duration`, released before the hold's timer or a frame could run
+			// (a frame that ran long): it held long enough, and completes, as the long press it also
+			// is (hunt HF-4). A reset's release ends it without completing it
+			if (!reset && now - holding >= duration) return complete();
 			finish();
 			progress?.(0);
-			cancelled?.();
+			// Stopped from `Progress(0)`: nothing more (hunt HF-5)
+			if (running()) cancelled?.();
 		},
 		Stop() {
+			stopped = true;
 			finish();
 		},
 	});

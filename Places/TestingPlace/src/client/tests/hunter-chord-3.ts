@@ -201,7 +201,7 @@ function startBoth(
 	outcomes: Outcome[],
 ) {
 	const stopOne = input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) =>
-		captured.push(key),
+		captured.push(key ?? K.Unknown),
 	);
 	const stopChord = input.Gameplay.Actions.Crouch.Bindings.KeyboardAndMouse.CaptureChord((chord) =>
 		outcomes.push({ chord }),
@@ -265,7 +265,7 @@ export class HunterChord3Tests implements OnStart {
 				const outcomes = new Array<Outcome>();
 				keys.CaptureChord((chord) => outcomes.push({ chord }), { Cancel: [K.Return] });
 				const captured = new Array<Enum.KeyCode>();
-				const stop = keys.Capture("PrimaryModifier", (key) => captured.push(key), {
+				const stop = keys.Capture("PrimaryModifier", (key) => captured.push(key ?? K.Unknown), {
 					Cancel: [K.Return],
 				});
 				defer(stop);
@@ -338,9 +338,11 @@ export class HunterChord3Tests implements OnStart {
 				let stopSecond: (() => void) | undefined;
 				defer(() => stopSecond?.());
 				const stopFirst = jump.Capture("KeyCode", (key) => {
-					captured.push(`Jump ${key.Name}`);
+					captured.push(`Jump ${key?.Name ?? "cancelled"}`);
 					state = `G down ${UserInputService.IsKeyDown(K.G)}, ${downNow()}`;
-					stopSecond = crouch.Capture("KeyCode", (later) => captured.push(`Crouch ${later.Name}`));
+					stopSecond = crouch.Capture("KeyCode", (later) =>
+						captured.push(`Crouch ${later?.Name ?? "cancelled"}`),
+					);
 				});
 				defer(stopFirst);
 				hold(real, [K.G]);

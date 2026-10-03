@@ -339,7 +339,7 @@ export class HunterR4RealTests implements OnStart {
 				const jump = input.HunterR4Capture.Actions.Jump;
 				const keys = jump.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				expectFalse(input.HunterR4Capture.IsLinkedToServer());
 				const { folder } = fakeCopy("HunterR4CaptureCopy", "HunterR4Capture", ["Jump"]);
 				folder.Parent = Players.LocalPlayer;
@@ -458,7 +458,7 @@ export class HunterR4RealTests implements OnStart {
 				const quickSave = createTestInput().Gameplay.Actions.QuickSave;
 				const keys = quickSave.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Press(K.LeftControl);
 				frames(2);
 				real.Press(K.D);

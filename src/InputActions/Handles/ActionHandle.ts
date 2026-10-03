@@ -7,8 +7,15 @@ import {
 	WriteBindings,
 } from "../BindingState";
 import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
-import { IGestureSource, OnDoubleTap, OnHold, OnLongPress, OnTap } from "../Gestures";
-import { IRuntime, IsLive, IsServerAuthorityCopy, MarkReset, NEUTRAL_VALUES } from "../Internal";
+import { GestureEdge, IGestureSource, OnDoubleTap, OnHold, OnLongPress, OnTap } from "../Gestures";
+import {
+	IRuntime,
+	IsLive,
+	IsServerAuthorityCopy,
+	MarkReset,
+	NEUTRAL_VALUES,
+	ResetSince,
+} from "../Internal";
 import { CapturableDevice, Device, GetKeyDevice, IsDevice } from "../KeyGroups";
 import { PreferredDevice } from "../PreferredDevice";
 import type {
@@ -251,6 +258,12 @@ export class ActionHandle {
 	private _track?: ITrackState;
 	/** The gestures running on this handle (`OnTap`...): `Destroy` stops them */
 	private readonly _gestures = new Set<() => void>();
+	/** The gestures' signal (`GestureEdges`), made with the first gesture */
+	private _gestureEdges?: BindableEvent;
+	/** When the press the listeners last heard arrived (`os.clock`), until its release */
+	private _pressedAt?: number;
+	/** How many presses and releases the handle has passed on: each edge's number (`GestureEdges`) */
+	private _edges = 0;
 
 	// A parameter named `Instance` would shadow the global in the field initializers
 	constructor(
@@ -305,30 +318,81 @@ export class ActionHandle {
 				stateChanged.Fire(value);
 			}),
 		);
-		const pressed = this._pressed;
-		const released = this._released;
-		if (pressed !== undefined && released !== undefined) {
-			const track = this._track;
+		if (this._pressed !== undefined && this._released !== undefined) {
 			this._forwards.push(
 				action.Pressed.Connect(() => {
 					if (this.Instance !== action || this._lastEdge === "Pressed") return;
-					// Counted here, from the IAS signal: a forward would land one deferral later
-					if (track !== undefined) track.PressedCount++;
-					this._shownPressed = true;
-					this._lastEdge = "Pressed";
-					pressed.Fire();
+					this.EmitPressed();
 				}),
 			);
 			this._forwards.push(
 				action.Released.Connect(() => {
 					if (this.Instance !== action || this._lastEdge === "Released") return;
-					if (track !== undefined) track.ReleasedCount++;
-					this._shownPressed = false;
-					this._lastEdge = "Released";
-					released.Fire();
+					this.EmitReleased();
 				}),
 			);
 		}
+	}
+
+	/**
+	 * Tells the listeners and the gestures of a press. Counted here, from the IAS signal (or the swap):
+	 * a forward would land one deferral later
+	 */
+	private EmitPressed() {
+		const track = this._track;
+		if (track !== undefined) track.PressedCount++;
+		this._shownPressed = true;
+		this._lastEdge = "Pressed";
+		const now = os.clock();
+		this._pressedAt = now;
+		const edge = ++this._edges;
+		this._pressed?.Fire();
+		this._gestureEdges?.Fire(edge, true, now, false);
+	}
+
+	/**
+	 * Tells the listeners and the gestures of a release. Whether it is a reset's (no player's) is
+	 * worked out once, here, as it arrives, and every gesture gets that answer: the action not live,
+	 * or the package reset it since the press began (`MarkReset`). A gesture's callback that turns the
+	 * context off (a menu opened on a tap) then leaves the other gestures' release the player's
+	 * (hunt HF-7)
+	 */
+	private EmitReleased() {
+		const track = this._track;
+		if (track !== undefined) track.ReleasedCount++;
+		this._shownPressed = false;
+		this._lastEdge = "Released";
+		const now = os.clock();
+		const began = this._pressedAt;
+		this._pressedAt = undefined;
+		const action = this.Instance;
+		const reset = !IsLive(action) || (began !== undefined && ResetSince(action, began));
+		const edge = ++this._edges;
+		this._released?.Fire();
+		this._gestureEdges?.Fire(edge, false, now, reset);
+	}
+
+	/**
+	 * The gestures' own signal, made with the first gesture: `(edge, pressed, at, reset)` for each
+	 * press (`reset` false) and release the listeners hear: its number (`EdgeCount`), when it arrived
+	 * (`os.clock`), and whether a release is a reset's (see `EmitReleased`)
+	 */
+	GestureEdges(): RBXScriptSignal<GestureEdge> {
+		let edges = this._gestureEdges;
+		if (edges === undefined) {
+			edges = new Instance("BindableEvent");
+			this._gestureEdges = edges;
+		}
+		return edges.Event as RBXScriptSignal<GestureEdge>;
+	}
+
+	/**
+	 * How many presses and releases the handle has passed on so far: a gesture made now ignores
+	 * those, also one still being delivered (a gesture made in a `Pressed` listener under Immediate
+	 * signals starts with the next press)
+	 */
+	EdgeCount() {
+		return this._edges;
 	}
 
 	/**
@@ -381,18 +445,11 @@ export class ActionHandle {
 		}
 		const pressed = state === true;
 		if (this.Type !== Enum.InputActionType.Bool || pressed === this._shownPressed) return;
-		this._shownPressed = pressed;
-		const track = this._track;
-		if (pressed) {
-			if (track !== undefined) track.PressedCount++;
-			this._lastEdge = "Pressed";
-			this._pressed?.Fire();
-		} else {
-			if (track !== undefined) track.ReleasedCount++;
-			this._lastEdge = "Released";
+		if (pressed) this.EmitPressed();
+		else {
 			// The swap's release, no player's: it ends a gesture without completing it
 			MarkReset(this.Instance);
-			this._released?.Fire();
+			this.EmitReleased();
 		}
 	}
 
@@ -407,6 +464,7 @@ export class ActionHandle {
 		this._stateChanged.Destroy();
 		this._pressed?.Destroy();
 		this._released?.Destroy();
+		this._gestureEdges?.Destroy();
 	}
 
 	IsTracked() {
@@ -525,10 +583,11 @@ export class ActionHandle {
 	 * Waits for the next key a keyboard-and-mouse or gamepad binding of this action can hold in its
 	 * `KeyCode`: the key's device picks the binding, which becomes that key alone, its modifiers
 	 * cleared as by a one-key chord (see `IActionCapture.Capture`; hunt HD2-4). Touch input is
-	 * ignored, as is a key no binding of its device can take.
+	 * ignored, as is a key no binding of its device can take. A `Cancel` key calls back with
+	 * `undefined` twice, as `CaptureChord` does.
 	 */
 	Capture(
-		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,
+		callback: (key: Enum.KeyCode | undefined, device: CapturableDevice | undefined) => void,
 		options?: ICaptureOptions,
 	): () => void {
 		this.CheckCapture("Capture");
@@ -548,6 +607,8 @@ export class ActionHandle {
 				target.Binding.ApplyChord({ KeyCode: target.Key });
 				callback(target.Key, target.Binding.Name as CapturableDevice);
 			},
+			// A `Cancel` key: nothing applied
+			() => callback(undefined, undefined),
 			options?.Cancel ?? [],
 		);
 	}
@@ -783,13 +844,18 @@ export class ActionHandle {
 			// Fire of the same value on it changes nothing (a shared `<Action>Script`)
 			if (binding !== latest) continue;
 			ClearHeldValue(binding);
-			if (live && (state === held.Value || state === this._neutral))
-				pcall(() => binding.Fire(this._neutral));
+			if (!live || (state !== held.Value && state !== this._neutral)) continue;
+			// A release the package makes: the other root handles' gestures take it for no player's
+			if (state !== this._neutral) MarkReset(action);
+			pcall(() => binding.Fire(this._neutral));
 		}
 		if (!live || !this.LosesHoldingBinding()) return false;
 		const now = action.GetState();
 		if (now === this._neutral || (others !== undefined && others.Value === now)) return false;
+		// The caller resets it (`ResetIfHeld`, which notes it too) once the bindings are gone
 		if (!IsServerAuthorityCopy(action)) return true;
+		// The pair releases it on both sides: no player's release either (hunt HF-1)
+		MarkReset(action);
 		const binding = this.GetScriptBinding();
 		pcall(() => {
 			binding.Fire(now);

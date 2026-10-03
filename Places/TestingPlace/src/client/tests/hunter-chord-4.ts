@@ -206,7 +206,7 @@ function startBoth(
 ) {
 	const stopOne = input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Capture(
 		"KeyCode",
-		(key) => captured.push(key),
+		(key) => captured.push(key ?? K.Unknown),
 		{ Cancel: cancel },
 	);
 	const stopChord = input.Gameplay.Actions.Crouch.Bindings.KeyboardAndMouse.CaptureChord(

@@ -105,7 +105,7 @@ export class HunterR2RealTests implements OnStart {
 				real.Press(K.Space);
 				eventually(() => jump.IsPressed(), "Space");
 				const captured = new Array<Enum.KeyCode>();
-				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Tap(K.G);
 				expectEqual(captured.size(), 0, "G is the keyboard's: the Gamepad binding ignores it");
 				real.Press(K.ButtonX);

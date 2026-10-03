@@ -512,13 +512,13 @@ export class HunterDevices2Tests implements OnStart {
 					.Bindings.Gamepad;
 				pad.Clear();
 				const captured = new Array<Enum.KeyCode>();
-				const stop = pad.Capture("KeyCode", (key) => captured.push(key));
+				const stop = pad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.ButtonA);
 				quiet();
 				const first = captured.map((key) => key.Name).join(",");
 				// control: a button the navigation doesn't use
-				const stopControl = pad.Capture("KeyCode", (key) => captured.push(key));
+				const stopControl = pad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stopControl);
 				real.Tap(K.ButtonX);
 				quiet();
@@ -566,7 +566,8 @@ export class HunterDevices2Tests implements OnStart {
 				// the example's RebindAction
 				const messages = new Array<string>();
 				const stop = quickSave.Capture(
-					(key, device) => messages.push(`${quickSave.Name} is now ${key.Name} on ${device}`),
+					(key, device) =>
+						messages.push(`${quickSave.Name} is now ${key?.Name ?? "cancelled"} on ${device}`),
 					{ Cancel: CANCEL },
 				);
 				defer(stop);
@@ -600,7 +601,9 @@ export class HunterDevices2Tests implements OnStart {
 				const keys = create(HD2_MENU, { Folder: newFolder(), ResetOnFocusLoss: false }).Hd2Menu
 					.Actions.QuickSave.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = keys.Capture("KeyCode", (key) => captured.push(key), { Cancel: CANCEL });
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown), {
+					Cancel: CANCEL,
+				});
 				defer(stop);
 				real.Tap(K.F);
 				eventually(() => captured.size() === 1, `the callback${real.FocusNote()}`);

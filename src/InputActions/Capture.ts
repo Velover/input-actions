@@ -353,13 +353,15 @@ export interface ICaptureTarget<T> {
 
 /**
  * Waits for the next key that `pick` gives a place to (`Capture`, on a binding or an action), then
- * stops and calls `onCaptured` with it. A `Cancel` key, from any device, stops it with nothing.
- * Typing and keys the game took are no part of it. Returns the function that stops it.
+ * stops and calls `onCaptured` with it. A `Cancel` key, from any device, stops it with nothing
+ * applied and calls `onCancelled`. Typing and keys the game took are no part of it. Returns the
+ * function that stops it, which calls neither.
  */
 export function CaptureKey<T>(
 	runtime: IRuntime,
 	pick: (key: Enum.KeyCode) => ICaptureTarget<T> | undefined,
 	onCaptured: (target: ICaptureTarget<T>, key: Enum.KeyCode) => void,
+	onCancelled: () => void,
 	cancelKeys: readonly Enum.KeyCode[],
 ): () => void {
 	let input: CaptureInput | undefined = undefined;
@@ -368,7 +370,11 @@ export function CaptureKey<T>(
 		runtime,
 		(key, gameProcessed) => {
 			const kind = ClassifyCaptureInput(key, gameProcessed, cancelKeys);
-			if (kind === ECaptureInput.Cancel) return stop();
+			if (kind === ECaptureInput.Cancel) {
+				stop();
+				if (!runtime.IsDestroyed()) onCancelled();
+				return;
+			}
 			if (kind !== ECaptureInput.Count) return;
 			const target = pick(key);
 			if (target === undefined) return;

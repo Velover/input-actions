@@ -202,11 +202,11 @@ function BeginCapture(): () => void {
 	};
 }
 
-/** After a capture: the other gameplay bindings of the device that now share its key */
-function WarnConflicts(binding: AnyBinding) {
+/** After a capture: the other gameplay bindings of the device that now share its key lose it */
+function FreeKey(binding: AnyBinding) {
 	for (const conflict of Input.Gameplay.FindConflicts(binding)) {
-		warn(`${conflict.Key.Name} is also ${conflict.Path}`); // show it in the menu
-		// or take the key from the other: conflict.Binding.Clear() (all its keys, a composite's too)
+		warn(`${conflict.Key.Name} was also ${conflict.Path}`); // show it in the menu
+		conflict.Binding.Clear(conflict.Slot); // that key alone: Move's WASD keeps W, A and D
 	}
 }
 
@@ -216,7 +216,7 @@ export function RebindAction(action: InputActions.CaptureAction): () => void {
 	const stop = action.CaptureChord(
 		(chord, device) => {
 			finish();
-			if (chord !== undefined && device !== undefined) WarnConflicts(action.Bindings[device]);
+			if (chord !== undefined && device !== undefined) FreeKey(action.Bindings[device]);
 		},
 		{ Cancel: CANCEL, Timeout: 5 },
 	);
@@ -238,7 +238,7 @@ export function RebindCell(
 	const stop = binding.CaptureChord(
 		(chord) => {
 			finish();
-			if (chord !== undefined) WarnConflicts(binding);
+			if (chord !== undefined) FreeKey(binding);
 		},
 		{ Cancel: CANCEL, Timeout: 5 },
 	);
@@ -250,17 +250,19 @@ export function RebindCell(
 ```
 
 - **Captures and cancel.** `CaptureChord` takes one key, or keys held together (Ctrl+Shift+S,
-  LB + A), and settles when the first comes up. Its callback gets `undefined` when the capture ends
-  without a change: a `Cancel` key, or the `Timeout` with no keys held. `Capture` takes one key as it
-  goes down, but calls back only when it captures one: a `Cancel` key ends it silently. The function
-  a capture returns stops it without calling back.
+  LB + A), and settles when the first comes up. `Capture` takes one key as it goes down. Both call
+  back with `undefined` when the capture ends without a change: a `Cancel` key, or (`CaptureChord`
+  only) the `Timeout` with no keys held. The function a capture returns stops it without calling
+  back.
 - The one-field `action.Capture` and `action.CaptureChord` write the device's **main** binding; an
   Alternate cell captures through the extra's handle. A binding's captures take only its device's
   keys; `Cancel` keys count from either device.
 - A key pressed during a capture also fires whatever it is bound to: keep the contexts that use it
   off (gameplay is off in the menu; `BeginCapture` turns off the menu's own).
-- **Conflicts.** After a capture, warn, swap (give the other binding the old key with `Set`) or
-  clear the other binding (`Clear()` empties all its keys, every direction of a composite too).
+- **Conflicts.** After a capture, `FreeKey` takes the key from the other bindings:
+  `Clear(conflict.Slot)` clears the one slot that holds it (Move's `Down` when S goes to Jump),
+  where `Clear()` would empty all its keys, every direction of a composite too. A menu may warn
+  instead, or swap (give the other binding the old key with `Set`).
   `Input.Gameplay.FindConflicts` looks in that context only, so the menu's `Accept` on `ButtonA` is
   no conflict for `Jump`: the two contexts are never on together. The root handle's
   `Input.FindConflicts` looks in every context. `conflict.Identical` is false when the bindings only

@@ -355,14 +355,14 @@ export class RebindingTests implements OnStart {
 			test("Capture checks the slot and returns a cancel function", () => {
 				const actions = createTestInput().Gameplay.Actions;
 				const jump = actions.Jump.Bindings.KeyboardAndMouse;
-				let captured: Enum.KeyCode | undefined;
-				const cancel = jump.Capture("KeyCode", (key) => (captured = key), {
+				let calls = 0;
+				const cancel = jump.Capture("KeyCode", () => calls++, {
 					Cancel: [Enum.KeyCode.Backspace],
 				});
 				expectNoThrow(cancel);
 				expectNoThrow(cancel);
 				frame();
-				expectEqual(captured, undefined);
+				expectEqual(calls, 0, "the function that stops it calls nothing");
 				expectEqual(jump.Instance.KeyCode, Enum.KeyCode.Space);
 				expectThrows(() =>
 					(jump as unknown as { Capture(slot: string, callback: () => void): void }).Capture(

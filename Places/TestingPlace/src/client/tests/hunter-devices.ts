@@ -472,10 +472,11 @@ export class HunterDevicesTests implements OnStart {
 						PrimaryModifier: K.E,
 					}),
 				);
+				// touch has no key a modifier takes: said so (features loop, round 1), not which keys it takes
 				expectTrue(
 					contains(
 						touch,
-						"E is a KeyboardAndMouse key: a Touch binding takes touch keys (TouchPosition, TouchDelta, TouchPinch)",
+						"E is a KeyboardAndMouse key, and no Touch key goes in PrimaryModifier on a Bool action",
 					),
 					touch,
 				);
@@ -526,13 +527,14 @@ export class HunterDevicesTests implements OnStart {
 					reasons.get("Gameplay/Move/Virtual"),
 					"Virtual is not a device: a save holds the KeyboardAndMouse, Gamepad, Touch bindings",
 				);
+				// a device with no key for the slot says so (features loop, round 1), not which keys it takes
 				expectEqual(
 					reasons.get("Gameplay/Zoom/Touch"),
-					"E is a KeyboardAndMouse key: a Touch binding takes touch keys (TouchPosition, TouchDelta, TouchPinch)",
+					"E is a KeyboardAndMouse key, and no Touch key goes in PrimaryModifier on a Direction1D action",
 				);
 				expectEqual(
 					reasons.get("Gameplay/Aim/Gamepad"),
-					"MousePosition is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys",
+					"MousePosition is a KeyboardAndMouse key, and no Gamepad key goes in KeyCode on a ViewportPosition action",
 				);
 				expectEqual(input.Gameplay.Actions.Jump.Bindings.Touch.Instance.KeyCode, K.TouchPosition);
 				// a context handle's import names the other context's paths so
@@ -616,7 +618,7 @@ export class HunterDevicesTests implements OnStart {
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const pad = input.Gameplay.Actions.Jump.Bindings.Gamepad;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = pad.Capture("PrimaryModifier", (key) => captured.push(key));
+				const stop = pad.Capture("PrimaryModifier", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.ButtonL2);
 				real.Tap(K.G);
@@ -635,7 +637,7 @@ export class HunterDevicesTests implements OnStart {
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const keys = input.Gameplay.Actions.QuickSave.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = keys.Capture("SecondaryModifier", (key) => captured.push(key));
+				const stop = keys.Capture("SecondaryModifier", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.ButtonL1);
 				real.Click(emptyPoint());
@@ -655,7 +657,9 @@ export class HunterDevicesTests implements OnStart {
 				const move = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Move;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = move.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				const stop = move.Bindings.Gamepad.Capture("KeyCode", (key) =>
+					captured.push(key ?? K.Unknown),
+				);
 				defer(stop);
 				real.Tap(K.ButtonX);
 				quiet();
@@ -673,7 +677,9 @@ export class HunterDevicesTests implements OnStart {
 				const zoom = input.Gameplay.Actions.Zoom;
 				const changes = recordSignal(input.BindingsChanged);
 				const captured = new Array<string>();
-				const stop = zoom.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				const stop = zoom.Capture((key, device) =>
+					captured.push(`${key?.Name ?? "cancelled"} on ${device}`),
+				);
 				defer(stop);
 				real.Tap(K.ButtonX);
 				eventually(() => captured.size() === 1, `ButtonX${real.FocusNote()}`);
@@ -748,7 +754,7 @@ export class HunterDevicesTests implements OnStart {
 					.Bindings.Gamepad;
 				hold(real, [K.ButtonR2]);
 				const captured = new Array<Enum.KeyCode>();
-				const stop = pad.Capture("KeyCode", (key) => captured.push(key));
+				const stop = pad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				quiet();
 				lifted(real, K.ButtonR2);
@@ -767,10 +773,14 @@ export class HunterDevicesTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				const keys = new Array<Enum.KeyCode>();
-				const stopKeys = jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => keys.push(key));
+				const stopKeys = jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) =>
+					keys.push(key ?? K.Unknown),
+				);
 				defer(stopKeys);
 				const captured = new Array<string>();
-				const stop = jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				const stop = jump.Capture((key, device) =>
+					captured.push(`${key?.Name ?? "cancelled"} on ${device}`),
+				);
 				defer(stop);
 				real.Tap(K.ButtonCenter);
 				eventually(() => captured.size() === 1, `ButtonCenter${real.FocusNote()}`);
@@ -804,7 +814,9 @@ export class HunterDevicesTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				const stop = jump.Bindings.Gamepad.Capture("KeyCode", (key) =>
+					captured.push(key ?? K.Unknown),
+				);
 				defer(stop);
 				pad.SetTrigger(K.ButtonR2, 0.3);
 				quiet();

@@ -88,7 +88,7 @@ const direction = Move.GetState(); // Vector2
 if (Crouch.IsJustPressed()) print("crouched this frame");
 
 Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F); // rebind
-Jump.Capture((key, device) => print(`${key.Name} on ${device}`)); // the next key, either device
+Jump.Capture((key, device) => print(`${key?.Name} on ${device}`)); // the next key, either device
 const save = Input.ExportBindings(); // JSON of what differs from the defaults
 const release = Input.Ui.Request(true); // open the menu context until release()
 ```
@@ -134,6 +134,11 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   and `Cancel` keys count from any device.
   The `Touch` binding has no `Capture`: set touch keys with `Set`. `action.Capture` and
   `action.CaptureChord` (Bool and Direction1D actions) give a menu one field per action.
+- **`Capture` calls back on a cancel.** A `Cancel` key now calls `callback(undefined)`, as
+  `CaptureChord` does (in 0.6 it called nothing), so its callback is typed
+  `(key: Enum.KeyCode | undefined) => void`: check for `undefined` before using the key
+  (`if (key !== undefined) print(key.Name)`), and close a rebind prompt there. The function a
+  capture returns still stops it without calling back.
 - **Saves** keep their format. Entries under the device names load as before; others are skipped
   with a reason (`Mouse is not a device: ...`). An extra saves at `Context/Action/Device/Extra`. To
   keep a 0.6 save's rebinds, rename its paths on the JSON string before importing it (an entry whose

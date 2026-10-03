@@ -360,7 +360,7 @@ export class DeviceExtrasTests implements OnStart {
 				const jump = create(EXTRAS_SCHEMA).Extras.Actions.Jump;
 				const alt = jump.Bindings.KeyboardAndMouse.Alt;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = alt.Capture("KeyCode", (key) => captured.push(key));
+				const stop = alt.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.ButtonX);
 				real.Tap(K.ButtonL1);
@@ -386,7 +386,7 @@ export class DeviceExtrasTests implements OnStart {
 				const jump = input.Extras.Actions.Jump;
 				const padAlt = jump.Bindings.Gamepad.Alt;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = padAlt.Capture("KeyCode", (key) => captured.push(key));
+				const stop = padAlt.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.G);
 				quiet();
@@ -418,7 +418,7 @@ export class DeviceExtrasTests implements OnStart {
 				if (typeIs(real, "string")) return skip(real);
 				const jump = create(EXTRAS_SCHEMA).Extras.Actions.Jump;
 				const captured = new Array<string>();
-				const stop = jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				const stop = jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				defer(stop);
 				real.Tap(K.ButtonX);
 				eventually(() => captured.size() === 1, `the callback${real.FocusNote()}`);

@@ -308,7 +308,7 @@ export class HunterR1SaTests implements OnStart {
 				real.Press(K.F);
 				eventually(() => serverJump() === true, "the server sees F", 5);
 				const captured = new Array<Enum.KeyCode>();
-				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => captured.push(key));
+				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Press(K.G);
 				eventually(() => captured.size() === 1, "G captured");
 				real.Release(K.G);

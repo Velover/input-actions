@@ -60,7 +60,7 @@ export function DeviceExtrasTypeRules() {
 	// ---- what must compile, with the types it must have
 	// the device's handle is the main binding's: code written for the direct form keeps working
 	Move.Bindings.KeyboardAndMouse.Set({ Up: K.I });
-	Move.Bindings.KeyboardAndMouse.Capture("Up", (key: Enum.KeyCode) => key);
+	Move.Bindings.KeyboardAndMouse.Capture("Up", (key: Enum.KeyCode | undefined) => key); // undefined on a Cancel key
 	// the extras are binding handles of the device: its key rules, its captures
 	Move.Bindings.KeyboardAndMouse.Arrows.Set({ Up: K.Eight });
 	Move.Bindings.KeyboardAndMouse.Arrows.Capture("Up", () => {});
@@ -105,7 +105,7 @@ export function DeviceExtrasTypeRules() {
 	alternate(Jump, "KeyboardAndMouse");
 	alternate(Throttle, "Gamepad");
 	// Advanced.md, "Several bindings per device": a two-column menu on the device the player uses
-	const onKey = (key: Enum.KeyCode) => print(key.Name);
+	const onKey = (key: Enum.KeyCode | undefined) => print(key?.Name ?? "cancelled");
 	if (device !== "Touch") {
 		const binding = Jump.Bindings[device];
 		binding.Capture("KeyCode", onKey);

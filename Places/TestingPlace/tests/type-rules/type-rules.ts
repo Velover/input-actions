@@ -87,7 +87,7 @@ export function TypeRules() {
 	Move.Bindings.Virtual.Fire(new Vector2(0, 1));
 	Move.Fire(Vector2.zero);
 	Dash.Fire(true);
-	Jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key: Enum.KeyCode) => key, {
+	Jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key: Enum.KeyCode | undefined) => key, {
 		Cancel: [Enum.KeyCode.Backspace],
 	});
 	Move.Bindings.KeyboardAndMouse.Capture("Left", () => {});

@@ -116,17 +116,20 @@ export function CanRebind() {
 // device, and that device's binding becomes the key alone (Quick save's Ctrl+S captured with F is
 // F); the other device's binding is left alone. On a gamepad, unselect the menu's button while the
 // capture runs (GuiService.SelectedObject = undefined): Roblox's UI navigation takes ButtonA
-// meanwhile. Then the menu looks for the other bindings that now share the key, and clears them (or
-// swaps: `conflict.Binding.Set(<the key this binding had>)`). `Identical` is false when they only
-// overlap: a chord and its plain key, which IAS both presses (a chord doesn't block its plain key)
+// meanwhile. Then the menu looks for the other bindings that now share the key, and takes it from
+// them: `Clear(conflict.Slot)` clears the one slot that holds it, so S captured for Jump leaves
+// Move's W, A and D (`Clear()` would unbind Move; or swap: set that slot to the key this binding
+// had). `Identical` is false when they only overlap: a chord and its plain key, which IAS both
+// presses (a chord doesn't block its plain key). A Cancel key calls back with undefined
 export function RebindAction(action: InputActions.CaptureAction): () => void {
 	return action.Capture(
 		(key, device) => {
+			if (key === undefined || device === undefined) return print(`${action.Name} unchanged`);
 			print(`${action.Name} is now ${key.Name} on ${device}`);
 			for (const conflict of Input.FindConflicts(action.Bindings[device])) {
 				const how = conflict.Identical ? "the same keys" : "overlapping keys";
 				warn(`${conflict.Key.Name} was also ${conflict.Path} (${how}): cleared there`);
-				conflict.Binding.Clear();
+				conflict.Binding.Clear(conflict.Slot);
 			}
 		},
 		{ Cancel: CANCEL },
@@ -144,7 +147,7 @@ export function RebindCell(
 	if (binding === undefined) return () => {}; // no Alternate on this row
 	return binding.Capture(
 		"KeyCode",
-		(key) => print(`${action.Name} (${device}, ${slot}) is now ${key.Name}`),
+		(key) => print(`${action.Name} (${device}, ${slot}) is now ${key?.Name ?? "unchanged"}`),
 		{ Cancel: CANCEL },
 	);
 }
@@ -179,7 +182,11 @@ export function RebindQuickSave(): () => void {
 // One direction of a composite, on the keyboard. A stick's direction (pushed past halfway) on the
 // gamepad: Move.Bindings.Gamepad.Capture("KeyCode", ...) takes the whole stick pushed first
 export function RebindForward(): () => void {
-	return Move.Bindings.KeyboardAndMouse.Capture("Up", (key) => print(`Forward is now ${key.Name}`));
+	return Move.Bindings.KeyboardAndMouse.Capture(
+		"Up",
+		(key) => print(key !== undefined ? `Forward is now ${key.Name}` : "Forward unchanged"),
+		{ Cancel: CANCEL },
+	);
 }
 
 // The wheel, mouse movement and touch gestures can't be pressed, so no capture takes them: offer

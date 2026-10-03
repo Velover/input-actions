@@ -69,6 +69,8 @@ export function ReleaseOnServer(
 	if (!IsLive(action) || !IsServerAuthorityCopy(action)) return;
 	const neutral = NEUTRAL_VALUES[action.Type.Name];
 	if (state === neutral) return;
+	// A release the package makes: a gesture takes it for no player's (hunt HF-1)
+	MarkReset(action);
 	const binding = new Instance("InputBinding");
 	binding.Name = name;
 	binding.Type = Enum.InputBindingType.Scriptable;

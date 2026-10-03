@@ -42,7 +42,9 @@ function row<A extends Enum.InputActionType>(binding: InputActions.BindingHandle
 
 /** A one-field rebind a project writes, for any Bool or Direction1D action */
 function rebind(action: InputActions.CaptureAction) {
-	return action.Capture((key, device) => print(`${key.Name} on ${device}`), { Cancel: [K.Backspace] });
+	return action.Capture((key, device) => print(key === undefined ? "cancelled" : `${key.Name} on ${device}`), {
+		Cancel: [K.Backspace],
+	});
 }
 
 export function DevicesTypeRules() {
@@ -73,12 +75,17 @@ export function DevicesTypeRules() {
 	const padKeys = Jump.Bindings.Gamepad.Get().KeyCode;
 	const padKey: InputActions.GamepadKey | undefined = padKeys;
 	// captures on the keyboard-and-mouse and gamepad bindings
-	Jump.Bindings.Gamepad.Capture("KeyCode", (key: Enum.KeyCode) => key);
+	Jump.Bindings.Gamepad.Capture("KeyCode", (key: Enum.KeyCode | undefined) => key);
 	Jump.Bindings.Gamepad.CaptureChord((chord) => chord?.KeyCode);
 	Move.Bindings.Gamepad.Capture("KeyCode", () => {});
 	const capturable: InputActions.BindingHandle<BoolType> = Jump.Bindings.Gamepad;
 	// the one-field capture on Bool and Direction1D actions
-	const stop: () => void = Jump.Capture((key, picked: InputActions.CapturableDevice) => [key, picked]);
+	const stop: () => void = Jump.Capture((key, picked: InputActions.CapturableDevice | undefined) => [key, picked]);
+	// a Cancel key calls back with undefined, so a callback typed for a key alone is refused
+	// @ts-expect-error the key is undefined on a Cancel key
+	Jump.Capture((key: Enum.KeyCode, picked: InputActions.CapturableDevice) => [key, picked]);
+	// @ts-expect-error the key is undefined on a Cancel key
+	Jump.Bindings.Gamepad.Capture("KeyCode", (key: Enum.KeyCode) => key);
 	Throttle.Capture(() => {}, { Cancel: [K.Backspace, K.ButtonB] });
 	Jump.CaptureChord(
 		(chord, chordDevice) => {

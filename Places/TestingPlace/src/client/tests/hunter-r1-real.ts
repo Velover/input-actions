@@ -330,7 +330,7 @@ export class HunterR1RealTests implements OnStart {
 				const problem = clickProblem(button);
 				if (problem !== undefined) return skip(problem);
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Click(screenCenter(button));
 				frames(2);
 				expectEqual(captured.size(), 0, "the click on the button");
@@ -357,7 +357,7 @@ export class HunterR1RealTests implements OnStart {
 				box.Parent = testGui("HunterCaptureBox");
 				defer(() => box.ReleaseFocus());
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				box.CaptureFocus();
 				frames(2);
 				real.Tap(K.G);
@@ -379,7 +379,7 @@ export class HunterR1RealTests implements OnStart {
 				const zoomKeys = createTestInput().Gameplay.Actions.Zoom.Bindings.KeyboardAndMouse;
 				zoomKeys.Clear();
 				const captured = new Array<Enum.KeyCode>();
-				const stop = zoomKeys.Capture("KeyCode", (key) => captured.push(key));
+				const stop = zoomKeys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Wheel(1);
 				frames(4);

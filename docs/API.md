@@ -99,21 +99,26 @@ InputActions.Bool({ Gamepad: Enum.KeyCode.Space })
 | Written | The sentence |
 | --- | --- |
 | another device's key, also as a modifier or a direction | `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys` |
+| another device's key where the device has none for the slot (a ViewportPosition on the gamepad, a modifier or a direction on touch) | `MousePosition is a KeyboardAndMouse key, and no Gamepad key goes in KeyCode on a ViewportPosition action` |
 | a key the slot never takes | `MouseDelta is not allowed in KeyCode on a Bool action` |
 | keys under another name | `Keys is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable` |
 | `InputActions.Scriptable` under a device | `Gamepad is a device: its bindings hold keys, not InputActions.Scriptable; name a Scriptable binding beside the devices` |
 | an extra named after a handle's member, or a binding property | `Get is a member of a binding handle, ...`, `KeyCode is a binding property, not an extra binding: ...` |
 | an extra name with `/` | `a/b: an extra binding's name can't contain /` |
-| a property the action type lacks (a key there: likely a second binding) | `Alt is not a property of a Bool binding; several bindings of one device go in { Main: <binding>, Alt: <binding> }` |
+| a property the action type lacks | `Typo is not a property of a Bool binding`; with a key or an object under a name no binding has, beside a device's keys (likely a second binding of the device): `Alt is not a property of a Bool binding; several bindings of one device go in { Main: <binding>, Alt: <binding> }` |
 | `KeyCode` beside a direction | `KeyCode and composite directions can't share a binding` |
 | `ResponseCurve` without a thumbstick | `ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode` |
 | a misspelt context option | `unknown option ServerAuthorty; a context has ServerAuthority, Priority, Sink, Enabled and Actions` |
+| a context named after a member of the root handle | `Destroy is a member of the root handle, which holds the contexts by name: name the context something else` |
 
 A number, a boolean or a string is checked against an object named by the sentence
 (`Type '1' is not assignable to type '1 & { readonly "Typo is not a property of a Bool binding": never; }'`).
 `Set` on a binding handle keeps TypeScript's own message (the keys it takes, listed): its parameter
 isn't generic, so that handles of different devices still compare (`BindingHandle<A, Device>`
-takes any of the three), and it checks again at runtime with the sentence.
+takes any of the three), and it checks again at runtime with the sentence. So does a binding under a
+computed name (`{ [name]: binding }`): its device is known only at runtime, so it is checked
+against the action type's shapes with any device's keys (or a namespace of them, or
+`InputActions.Scriptable`), and `Schema` checks the rest.
 
 ### Create
 
@@ -279,8 +284,8 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |
-| `FindConflicts(binding): BindingConflict[]` | the other bindings of `binding`'s device, in every context, that share a key with it, by path: `{ Binding, Path, Key, Keys, Identical }` (see [Conflicts](Advanced.md#conflicts)) |
-| `FindConflicts(): ConflictPair[]` | every pair of bindings of one device that share a key, each pair once: `{ Bindings, Paths, Key, Keys, Identical }` |
+| `FindConflicts(binding): BindingConflict[]` | the other bindings of `binding`'s device, in every context, that share a key with it, by path: `{ Binding, Path, Key, Keys, Slot, Slots, Identical }`, where `Slot` is the other binding's slot that holds `Key` (`Binding.Clear(Slot)` frees that key alone) and `Slots` all of its slots that hold one of `Keys`. A stick and a binding on its direction share the direction, a drag or a pinch and `TouchPosition` the drag or the pinch (see [Conflicts](Advanced.md#conflicts)) |
+| `FindConflicts(): ConflictPair[]` | every pair of bindings of one device that share a key, each pair once: `{ Bindings, Paths, Key, Keys, Slots, Identical }`, `Slots` being each binding's slots that hold a shared key, in the order of `Paths` |
 | `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held and doesn't show the last value the other handles fired (see [Several root handles on one folder](EdgeCases.md#several-root-handles-on-one-folder)) |
 
 ### Context handle
@@ -328,7 +333,7 @@ Bool and Direction1D actions add (the others don't have them, and they throw if 
 
 | Member | |
 | --- | --- |
-| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which becomes that key alone (its composite directions and modifiers give way, as with `CaptureChord` given one key: Ctrl+S captured with F is F), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture`, which keeps the modifiers; `callback` isn't called when a `Cancel` key ends it |
+| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which becomes that key alone (its composite directions and modifiers give way, as with `CaptureChord` given one key: Ctrl+S captured with F is F), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture`, which keeps the modifiers; `callback(undefined, undefined)` when a `Cancel` key ends it |
 | `CaptureChord(callback: (chord, device) => void, options?): () => void` | as the binding's `CaptureChord`, on the binding of the device whose key goes down first; the other device's keys are ignored while any key of the chord is held (no Shift + ButtonA). `callback(undefined, undefined)` when it ends with nothing applied |
 
 `device` is `"KeyboardAndMouse"` or `"Gamepad"`. Both write the device's main binding, never one of
@@ -342,15 +347,17 @@ Bool actions add:
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
 | `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none. Adding the binding releases the action if it is held (IAS resets an action's bindings when one is added; see [Held actions and binding changes](EdgeCases.md#held-actions-and-binding-changes)) |
-| `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? }?): () => void` | a press released within `MaxDuration` (0.25 s). With `WaitForDoubleTap`, once `Window` (0.3 s) has passed after it without a second press |
+| `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? }?): () => void` | a press released within `MaxDuration` (0.25 s). With `WaitForDoubleTap`, once `Window` (0.3 s) has passed after it without a second press (a second press that arrives after the window fires it first) |
 | `OnDoubleTap(callback, { Window?, MaxDuration? }?): () => void` | at the second press, within `Window` (0.3 s) after a tap (released within `MaxDuration`, 0.25 s) |
-| `OnHold(callback, { Duration, Progress?, Cancelled? }): () => void` | once a press has lasted `Duration`, while still held; `Progress(fraction)` each frame while held, from 0 to 1; `Cancelled()` (after `Progress(0)`) when it ends first |
+| `OnHold(callback, { Duration, Progress?, Cancelled? }): () => void` | once a press has lasted `Duration`, while still held (or at a release that arrives after `Duration`, when a long frame held its timer back); `Progress(fraction)` each frame while held, from 0 to 1; `Cancelled()` (after `Progress(0)`) when it ends first |
 | `OnLongPress(callback: (heldFor) => void, { Duration }): () => void` | on the release of a press that lasted at least `Duration`, with the seconds held |
 
-The gestures' functions stop them, and so does `Destroy`. Durations are positive, finite seconds
-(anything else throws). A release the package or IAS makes (the context or the action disabled,
-the focus-loss reset, a rebind or a binding added while held, the Server Authority swap) ends a
-gesture without completing it. See [Gestures](Advanced.md#gestures).
+The gestures' functions stop them, and so does `Destroy`, also from a gesture's own `Progress`.
+Durations are positive, finite seconds (anything else throws). Each gesture sees every press and
+release. A release the package or IAS makes (the context or the action disabled, the focus-loss
+reset, a rebind or a binding added while held, another root handle's `Destroy` letting go of a
+shared action, the Server Authority swap) ends a gesture without completing it. See
+[Gestures](Advanced.md#gestures).
 
 Actions with `TrackPrevious: true` add `GetPrevious(): V` and `HasChanged(): boolean`; tracked Bool
 actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](Advanced.md#trackprevious).
@@ -374,7 +381,7 @@ press; they throw if called on it anyway):
 
 | Member | |
 | --- | --- |
-| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway, both as IAS reads them past its deadzone, so where a binding on them would press; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device, without calling `callback` (the returned function too) |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway, both as IAS reads them past its deadzone, so where a binding on them would press; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys end it, from any device, with nothing applied: `callback(undefined)`. The returned function stops it without calling `callback` |
 | `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the

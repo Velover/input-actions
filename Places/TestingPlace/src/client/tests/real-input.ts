@@ -300,7 +300,7 @@ export class RealInputTests implements OnStart {
 				const keys = jump.Bindings.KeyboardAndMouse;
 				const changes = recordSignal(input.BindingsChanged);
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Tap(K.G);
 				eventually(() => captured.size() === 1, "the callback");
 				expectEqual(captured[0], K.G);
@@ -322,7 +322,7 @@ export class RealInputTests implements OnStart {
 				const input = createTestInput();
 				const crouchKeys = input.Gameplay.Actions.Crouch.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				crouchKeys.Capture("KeyCode", (key) => captured.push(key));
+				crouchKeys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				// Space is Jump's, in the same sinking context
 				real.Tap(K.Space);
 				eventually(() => captured.size() === 1, "the callback for a key in use");
@@ -346,13 +346,18 @@ export class RealInputTests implements OnStart {
 				expectEqual(moveKeys.Instance.Up, K.W, "the composite is untouched");
 				stopMove();
 
-				// a cancel key ends it with no change; the next key changes nothing either
+				// a cancel key ends it with no change, calling back with undefined; the next key changes
+				// nothing either
 				const jumpKeys = actions.Jump.Bindings.KeyboardAndMouse;
-				let jumpCalls = 0;
-				jumpKeys.Capture("KeyCode", () => jumpCalls++, { Cancel: [K.Delete] });
+				const jumpCalls = new Array<string>();
+				jumpKeys.Capture("KeyCode", (key) => jumpCalls.push(key?.Name ?? "undefined"), {
+					Cancel: [K.Delete],
+				});
 				real.Tap(K.Delete);
+				eventually(() => jumpCalls.size() === 1, `the cancel${real.FocusNote()}`);
 				real.Tap(K.G);
-				expectEqual(jumpCalls, 0);
+				frames(4);
+				expectEqual(jumpCalls.join(","), "undefined");
 				expectEqual(jumpKeys.Instance.KeyCode, K.Space);
 			});
 
@@ -363,7 +368,7 @@ export class RealInputTests implements OnStart {
 				const quickSave = input.Gameplay.Actions.QuickSave;
 				const keys = quickSave.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("PrimaryModifier", (key) => captured.push(key));
+				keys.Capture("PrimaryModifier", (key) => captured.push(key ?? K.Unknown));
 				// a mouse button (a touch, on a simulated phone) is no modifier
 				real.Click(emptyPoint());
 				expectEqual(captured.size(), 0);

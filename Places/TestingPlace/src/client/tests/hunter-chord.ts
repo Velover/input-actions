@@ -405,7 +405,7 @@ export class HunterChordTests implements OnStart {
 				const keys = createTestInput().Gameplay.Actions.Jump.Bindings.KeyboardAndMouse;
 				const single = new Array<Enum.KeyCode>();
 				const chords = new Array<Outcome>();
-				keys.Capture("KeyCode", (key) => single.push(key));
+				keys.Capture("KeyCode", (key) => single.push(key ?? K.Unknown));
 				keys.CaptureChord((chord) => chords.push({ chord }));
 				hold(real, [K.LeftControl, K.G]);
 				real.Release(K.G);
@@ -638,18 +638,22 @@ export class HunterChordTests implements OnStart {
 				expectEqual(describe(outcomes[0].chord), "undefined");
 				expectEqual(keys.Instance.KeyCode, K.Space, "the binding is untouched");
 
-				// Capture: the same
-				let captured = 0;
-				const stop = keys.Capture("KeyCode", () => captured++, { Cancel: [K.Delete] });
+				// Capture: the same, its callback getting undefined for the cancel
+				const captured = new Array<string>();
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key?.Name ?? "undefined"), {
+					Cancel: [K.Delete],
+				});
 				defer(stop);
 				real.Tap(K.G);
-				expectEqual(captured, 0, "G is the catcher's");
+				expectEqual(captured.size(), 0, "G is the catcher's");
 				real.Tap(K.Delete);
+				eventually(() => captured.size() === 1, `the Cancel key ends it${real.FocusNote()}`, 3);
 				real.Tap(K.H);
 				catcher.ReleaseInput();
 				frames(3);
 				real.Tap(K.J);
-				expectEqual(captured, 0, "the Cancel key ended it");
+				frames(3);
+				expectEqual(captured.join(","), "undefined", "the Cancel key ended it");
 				expectEqual(keys.Instance.KeyCode, K.Space);
 			});
 

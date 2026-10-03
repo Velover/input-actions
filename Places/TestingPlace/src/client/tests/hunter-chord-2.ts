@@ -262,14 +262,21 @@ export class HunterChord2Tests implements OnStart {
 					`Backspace ends it (gameProcessed: ${processed.join(",")})${real.FocusNote()}`,
 				);
 				expectEqual(describe(outcomes[0].chord), "undefined");
-				let captured = 0;
-				const stop = keys.Capture("KeyCode", () => captured++, { Cancel: [K.Backspace] });
+				// Capture calls back with undefined on a Cancel key, as CaptureChord does
+				const captured = new Array<string>();
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key?.Name ?? "undefined"), {
+					Cancel: [K.Backspace],
+				});
 				defer(stop);
 				real.Tap(K.Backspace);
 				frames(3);
 				real.Tap(K.G);
 				frames(3);
-				expectEqual(captured, 0, `Backspace ended Capture (gameProcessed: ${processed.join(",")})`);
+				expectEqual(
+					captured.join(","),
+					"undefined",
+					`Backspace ended Capture (gameProcessed: ${processed.join(",")})`,
+				);
 				expectEqual(keys.Instance.KeyCode, K.Space);
 			});
 
@@ -349,7 +356,9 @@ export class HunterChord2Tests implements OnStart {
 				casSink([K.Delete], () => {
 					starts++;
 					if (starts === 1)
-						stop = keys.Capture("KeyCode", (key) => captured.push(key), { Cancel: [K.Delete] });
+						stop = keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown), {
+							Cancel: [K.Delete],
+						});
 				});
 				real.Press(K.Delete);
 				eventually(() => starts === 1, `the CAS action ran${real.FocusNote()}`);
@@ -429,9 +438,13 @@ export class HunterChord2Tests implements OnStart {
 				const outcomes = new Array<Outcome>();
 				keys.CaptureChord((chord) => outcomes.push({ chord }), { Cancel: [K.Return] });
 				const captured = new Array<string>();
-				const stop = keys.Capture("PrimaryModifier", (key) => captured.push(key.Name), {
-					Cancel: [K.Return],
-				});
+				const stop = keys.Capture(
+					"PrimaryModifier",
+					(key) => captured.push(key?.Name ?? "cancelled"),
+					{
+						Cancel: [K.Return],
+					},
+				);
 				defer(stop);
 				let enter: boolean | undefined;
 				const lost = box.FocusLost.Connect((enterPressed) => (enter = enterPressed));
@@ -485,15 +498,21 @@ export class HunterChord2Tests implements OnStart {
 				frames(2);
 				const cancelled = new Array<Outcome>();
 				keys.CaptureChord((chord) => cancelled.push({ chord }), { Cancel: [K.Return] });
-				let captured = 0;
-				const stop = keys.Capture("KeyCode", () => captured++, { Cancel: [K.Return] });
+				const captured = new Array<string>();
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key?.Name ?? "undefined"), {
+					Cancel: [K.Return],
+				});
 				defer(stop);
 				real.Tap(K.Return);
 				eventually(() => cancelled.size() === 1, `Return cancels${real.FocusNote()}`);
 				expectEqual(describe(cancelled[0].chord), "undefined");
 				real.Tap(K.H);
 				frames(4);
-				expectEqual(captured, 0, "Return ended Capture too");
+				expectEqual(
+					captured.join(","),
+					"undefined",
+					"Return ended Capture too, calling back with undefined",
+				);
 				expectEqual(keys.Instance.KeyCode, K.G);
 			});
 

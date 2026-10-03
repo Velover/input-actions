@@ -174,7 +174,7 @@ export class HunterR2SaTests implements OnStart {
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createSaInput().SaGameplay.Actions.Jump;
 				const captured = new Array<Enum.KeyCode>();
-				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => captured.push(key));
+				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Press(K.G);
 				eventually(() => captured.size() === 1, "G captured");
 				frames(5);
@@ -394,7 +394,7 @@ export class HunterR2SaTests implements OnStart {
 				const captured = new Array<Enum.KeyCode>();
 				real.Press(K.F);
 				eventually(() => serverJump() === true, "F holds Jump", 5);
-				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				jump.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				real.Tap(K.ButtonX);
 				eventually(() => captured.size() === 1, "ButtonX captured");
 				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.ButtonX);

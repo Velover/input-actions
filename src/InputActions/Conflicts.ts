@@ -1,21 +1,58 @@
 import { IsSlotOf, MODIFIER_SLOTS } from "./BindingRules";
 import { BindingHandle } from "./Handles/BindingHandle";
-import type { IBindingConflict, IConflictPair } from "./Types";
+import type { BindingSlot, IBindingConflict, IConflictPair } from "./Types";
 
 // Conflicts for a rebinding menu (design spec §6, F3): the bindings of one device that share a key.
 // IAS presses every binding a key holds, a chord included: Ctrl then S presses Ctrl+S and plain S
-// both (a chord doesn't block its plain key), and Ctrl alone presses a binding on Ctrl.
+// both (a chord doesn't block its plain key), and Ctrl alone presses a binding on Ctrl. A stick
+// pushed one way presses a binding on that direction and moves one on the whole stick, and a drag or
+// a pinch holds fingers on the screen, which press a binding on `TouchPosition`.
 
 const K = Enum.KeyCode;
 /** The composite directions, in the order `Describe` reads them */
 const DIRECTIONS = ["Up", "Left", "Down", "Right", "Forward", "Backward"] as const;
 
+/**
+ * Keys that one push or touch presses together with a wider key: a stick's direction with the
+ * whole stick, a drag or a pinch with the fingers on the screen (`TouchPosition`, held for each).
+ * The narrower key (the direction, the drag, the pinch) is the key they share (hunt HF-2)
+ */
+const PART_OF = new Map<Enum.KeyCode, Enum.KeyCode>([
+	[K.Thumbstick1Up, K.Thumbstick1],
+	[K.Thumbstick1Down, K.Thumbstick1],
+	[K.Thumbstick1Left, K.Thumbstick1],
+	[K.Thumbstick1Right, K.Thumbstick1],
+	[K.Thumbstick2Up, K.Thumbstick2],
+	[K.Thumbstick2Down, K.Thumbstick2],
+	[K.Thumbstick2Left, K.Thumbstick2],
+	[K.Thumbstick2Right, K.Thumbstick2],
+	[K.TouchDelta, K.TouchPosition],
+	[K.TouchPinch, K.TouchPosition],
+]);
+
+/**
+ * The key that presses both `a` and `b`, if one does: the key itself, or the narrower of a key and
+ * the wider one it presses with (`PART_OF`)
+ */
+function SharedKey(a: Enum.KeyCode, b: Enum.KeyCode): Enum.KeyCode | undefined {
+	if (a === b) return a;
+	if (PART_OF.get(a) === b) return a;
+	if (PART_OF.get(b) === a) return b;
+	return undefined;
+}
+
+/** A key in one of a binding's slots */
+interface IKeyInSlot {
+	readonly Key: Enum.KeyCode;
+	readonly Slot: BindingSlot;
+}
+
 /** What presses a binding */
 interface IPressKeys {
 	/** The keys that press it: its `KeyCode`, else its composite directions (IAS ignores those beside a `KeyCode`) */
-	readonly Keys: Enum.KeyCode[];
+	readonly Keys: IKeyInSlot[];
 	/** Its modifiers, held before the key */
-	readonly Modifiers: Enum.KeyCode[];
+	readonly Modifiers: IKeyInSlot[];
 	readonly Primary: Enum.KeyCode;
 	readonly Secondary: Enum.KeyCode;
 }
@@ -24,50 +61,81 @@ interface IPressKeys {
 function PressKeysOf(handle: BindingHandle): IPressKeys {
 	const binding = handle.Instance;
 	const actionType = handle.ActionType;
-	const keys = new Array<Enum.KeyCode>();
-	if (binding.KeyCode !== K.None && IsSlotOf(actionType, "KeyCode")) keys.push(binding.KeyCode);
+	const keys = new Array<IKeyInSlot>();
+	if (binding.KeyCode !== K.None && IsSlotOf(actionType, "KeyCode"))
+		keys.push({ Key: binding.KeyCode, Slot: "KeyCode" });
 	else {
 		for (const slot of DIRECTIONS) {
 			const key = binding[slot];
-			if (key !== K.None && IsSlotOf(actionType, slot) && !keys.includes(key)) keys.push(key);
+			if (key !== K.None && IsSlotOf(actionType, slot)) keys.push({ Key: key, Slot: slot });
 		}
 	}
-	const modifier = (slot: (typeof MODIFIER_SLOTS)[number]) =>
-		IsSlotOf(actionType, slot) ? binding[slot] : K.None;
+	const modifiers = new Array<IKeyInSlot>();
+	const modifier = (slot: (typeof MODIFIER_SLOTS)[number]) => {
+		const key = IsSlotOf(actionType, slot) ? binding[slot] : K.None;
+		if (key !== K.None) modifiers.push({ Key: key, Slot: slot });
+		return key;
+	};
 	const primary = modifier("PrimaryModifier");
 	const secondary = modifier("SecondaryModifier");
-	const modifiers = [primary, secondary].filter((key) => key !== K.None);
 	return { Keys: keys, Modifiers: modifiers, Primary: primary, Secondary: secondary };
 }
 
-/** What two bindings share, from the first's side */
+/** What two bindings share */
 interface IShared {
+	/** The keys they share, in the first's order */
 	readonly Keys: Enum.KeyCode[];
+	/** The first binding's slots that hold a shared key, in its order */
+	readonly SlotsA: BindingSlot[];
+	/** The second binding's slots that hold a shared key: those holding `Keys[0]` first */
+	readonly SlotsB: BindingSlot[];
 	readonly Identical: boolean;
 }
 
 /**
- * The keys two bindings share, in the first's order: a key that presses both, and a key that presses
- * one and is the other's modifier (pressing the chord presses the plain binding on its modifier).
- * Two chords that only share a modifier (Ctrl+S, Ctrl+D) share nothing: neither presses the other.
- * `Identical` when a key presses both with the same modifiers: each press of it presses both. A
- * binding without a key (unbound, or modifiers alone) shares nothing
+ * The keys two bindings share, in the first's order, with the slots that hold them on each side: a
+ * key that presses both (the same key, or a stick's direction and the stick, a drag or a pinch and
+ * `TouchPosition`: see `SharedKey`), and a key that presses one and is the other's modifier
+ * (pressing the chord presses the plain binding on its modifier). Two chords that only share a
+ * modifier (Ctrl+S, Ctrl+D) share nothing: neither presses the other. `Identical` when one key is in
+ * both with the same modifiers: each press of it presses both. A binding without a key (unbound, or
+ * modifiers alone) shares nothing
  */
 function SharedKeys(a: IPressKeys, b: IPressKeys): IShared | undefined {
 	if (a.Keys.isEmpty() || b.Keys.isEmpty()) return undefined;
 	const keys = new Array<Enum.KeyCode>();
+	const slotsA = new Array<BindingSlot>();
+	/** The second binding's slots, by the shared key they hold */
+	const slotsOfKey = new Map<Enum.KeyCode, BindingSlot[]>();
 	let pressesBoth = false;
-	for (const key of a.Keys) {
-		if (b.Keys.includes(key)) pressesBoth = true;
-		else if (!b.Modifiers.includes(key)) continue;
-		keys.push(key);
+	const add = (key: Enum.KeyCode, slotA: BindingSlot, slotB: BindingSlot) => {
+		if (!keys.includes(key)) keys.push(key);
+		if (!slotsA.includes(slotA)) slotsA.push(slotA);
+		const slots = slotsOfKey.get(key) ?? [];
+		if (!slots.includes(slotB)) slots.push(slotB);
+		slotsOfKey.set(key, slots);
+	};
+	for (const own of a.Keys) {
+		for (const other of b.Keys) {
+			const key = SharedKey(own.Key, other.Key);
+			if (key === undefined) continue;
+			if (own.Key === other.Key) pressesBoth = true;
+			add(key, own.Slot, other.Slot);
+		}
+		for (const other of b.Modifiers) if (own.Key === other.Key) add(own.Key, own.Slot, other.Slot);
 	}
-	for (const key of a.Modifiers) {
-		if (b.Keys.includes(key) && !keys.includes(key)) keys.push(key);
+	for (const own of a.Modifiers) {
+		for (const other of b.Keys) if (own.Key === other.Key) add(own.Key, own.Slot, other.Slot);
 	}
 	if (keys.isEmpty()) return undefined;
+	const slotsB = new Array<BindingSlot>();
+	for (const key of keys) {
+		for (const slot of slotsOfKey.get(key)!) if (!slotsB.includes(slot)) slotsB.push(slot);
+	}
 	return {
 		Keys: keys,
+		SlotsA: slotsA,
+		SlotsB: slotsB,
 		Identical: pressesBoth && a.Primary === b.Primary && a.Secondary === b.Secondary,
 	};
 }
@@ -92,8 +160,8 @@ export function ConflictSubject(
 
 /**
  * The other bindings of `binding`'s device among `handles` that share a key with it (see
- * `SharedKeys`), by path. Not `binding` itself, nor a handle on the same instance (another root
- * handle's)
+ * `SharedKeys`), by path, each with its slots that hold a shared key. Not `binding` itself, nor a
+ * handle on the same instance (another root handle's)
  */
 export function FindConflicts(
 	handles: readonly BindingHandle[],
@@ -110,6 +178,8 @@ export function FindConflicts(
 			Path: other.Path,
 			Key: shared.Keys[0],
 			Keys: shared.Keys,
+			Slot: shared.SlotsB[0],
+			Slots: shared.SlotsB,
 			Identical: shared.Identical,
 		});
 	}
@@ -135,6 +205,7 @@ export function FindAllConflicts(handles: readonly BindingHandle[]): IConflictPa
 				Paths: [a.Path, b.Path],
 				Key: shared.Keys[0],
 				Keys: shared.Keys,
+				Slots: [shared.SlotsA, shared.SlotsB],
 				Identical: shared.Identical,
 			});
 		}

@@ -205,7 +205,9 @@ stop(); // each returns a function that stops it; Input.Destroy() stops them all
 - `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? })`: a press released within
   `MaxDuration` (default 0.25 s). With `WaitForDoubleTap`, it waits until `Window` (default 0.3
   s, as `OnDoubleTap`'s) has passed after the release without a second press; a tap that waits is
-  dropped when the action or its context is disabled by then.
+  dropped when the action or its context is disabled by then. A second press counts as within the
+  window by when it arrives, as for `OnDoubleTap`: one that arrives later, in a frame that ran long
+  before the window's timer could, fires the waiting tap first.
 - `OnDoubleTap(callback, { Window?, MaxDuration? })`: fires at the second press, when it comes within
   `Window` (0.3 s) after a tap (a press released within `MaxDuration`, 0.25 s). The second press
   starts nothing new: a fourth quick press is the next double tap's second.
@@ -213,7 +215,9 @@ stop(); // each returns a function that stops it; Input.Destroy() stops them all
   held, when it has lasted `Duration` (hold to interact, a charge that goes off by itself).
   `Progress` gets 0 at the press, then the fraction of `Duration` held each frame, and 1 as it
   completes; it is then left at 1 until the next press. When the press ends first, `Progress(0)`
-  then `Cancelled()`.
+  then `Cancelled()`. A release that arrives once the press has lasted `Duration`, before the hold's
+  timer or a frame could run (a frame that ran long), completes the hold: the press was long
+  enough.
 - `OnLongPress(callback, { Duration })`: fires on the release of a press that lasted at least
   `Duration`, with the seconds it lasted (charge and release). A shorter press is no long press, and
   may be a tap.
@@ -221,24 +225,30 @@ stop(); // each returns a function that stops it; Input.Destroy() stops them all
   function. On a Direction1D, Direction2D, Direction3D or ViewportPosition action they are compile
   errors (and throw). The server's handles (`ForPlayer`) have none: read `Pressed` and
   `Released` there.
-- They are built on the handle's own `Pressed` and `Released`, which always alternate, timed with
-  `os.clock` as each arrives. A gesture starts with the next press: a press already in progress when
-  you connect it is no part of it. Presses from code count too: `Tap()` is a tap, and `Fire(true)`
-  then `Fire(false)` a press that long. There is no per-frame work, but a Hold's `Progress` while
-  it is held.
-- **Several gestures on one action** are independent: each sees every press. A quick press is a tap
-  and begins a hold that it cancels (`Cancelled` runs); a long one is a hold and a long press, and
-  no tap. A plain `OnTap` hears both taps of a double tap; with `WaitForDoubleTap` and the same
-  `Window` as `OnDoubleTap`, the two exclude each other: a tap fires only once the window has
-  passed without a second press, and the double tap's second press is no tap.
+- They are built on the presses and releases the handle's `Pressed` and `Released` pass on, which
+  always alternate, timed with `os.clock` as each arrives at the handle. A gesture starts with the
+  next press: a press already in progress when you connect it is no part of it. Presses from code
+  count too: `Tap()` is a tap, and `Fire(true)` then `Fire(false)` a press that long. There is no
+  per-frame work, but a Hold's `Progress` while it is held.
+- **Several gestures on one action** are independent: each sees every press, and each release the
+  same way. A quick press is a tap and begins a hold that it cancels (`Cancelled` runs); a long one
+  is a hold and a long press, and no tap. A plain `OnTap` hears both taps of a double tap; with
+  `WaitForDoubleTap` and the same `Window` as `OnDoubleTap`, the two exclude each other: a tap
+  fires only once the window has passed without a second press, and the double tap's second press
+  is no tap. A gesture's callback that turns the context off (a tap that opens a menu,
+  [recipe 9](Guide.md#9-turn-gameplay-off-while-a-menu-is-open)) changes nothing for the other
+  gestures on that release: it was the player's.
 - **A release the player didn't make ends a gesture without completing it:** the context disabled
   (`SetEnabled`, `Request`, the focus-loss reset), the action disabled, a rebind or a binding added
-  while it is held (IAS resets the action), and the Server Authority swap when the server's copy
-  doesn't carry the press. No tap, double tap or long press comes of it, and a hold in progress calls
-  `Cancelled`. How the package tells such a release:
+  while it is held (IAS resets the action), another root handle's `Destroy` letting go of an action
+  the two share, and the Server Authority swap when the server's copy doesn't carry the press. No
+  tap, double tap or long press comes of it, and a hold in progress calls `Cancelled`. How the
+  package tells such a release:
   [Gestures and releases the player didn't make](EdgeCases.md#gestures-and-releases-the-player-didnt-make).
 - The function a gesture returns and `Destroy` stop it without calling anything, a hold in progress
-  included. After `Destroy`, a new gesture does nothing.
+  included, also when called from the gesture's own `Progress`: a hold stopped from `Progress(1)`
+  doesn't complete, and one whose root handle is destroyed from `Progress(0)` isn't cancelled.
+  After `Destroy`, a new gesture does nothing.
 
 ## Rebinding
 
@@ -295,11 +305,11 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   per device:** `Bindings.Gamepad.Capture` takes gamepad keys only and
   `Bindings.KeyboardAndMouse.Capture` keyboard and mouse keys only; another device's key is ignored
   (it doesn't cancel). A key's device is the key's own, not the device that sent it nor
-  `PreferredInput`. Keys in `Cancel` stop it without a change, from any device (Backspace can
-  cancel a gamepad rebind, ButtonB a keyboard one), and so does the returned function. **`callback`
-  isn't called then:** nothing tells you of a cancel, so close a prompt shown for the capture from
-  your own code, or capture with `CaptureChord`, whose callback gets `undefined` when it ends
-  without a change.
+  `PreferredInput`. Keys in `Cancel` end it without a change, from any device (Backspace can
+  cancel a gamepad rebind, ButtonB a keyboard one): **`callback` gets `undefined` then**, as with
+  `CaptureChord`, so the prompt shown for the capture closes in one place (`hidePrompt(); if (key
+  !== undefined) ...`). The returned function stops it without calling `callback` (your code
+  closed the prompt already).
 - **Input the game already processed** (`gameProcessed`) is ignored: a click or tap on GUI, typing
   in a TextBox, and keys a ContextActionService binding sinks, such as an active `InputCatcher`'s or
   the legacy shift lock's on Shift (when the player turned shift lock on). Those keys couldn't drive
@@ -364,8 +374,10 @@ const stop = jump.CaptureChord(
 	},
 	{ Cancel: [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB] },
 );
-// or one key, as it goes down; this callback never runs on a Cancel key
-jump.Capture((key, device) => print(`Jump is now ${key.Name} on ${device}`));
+// or one key, as it goes down; on a Cancel key it gets (undefined, undefined) too
+jump.Capture((key, device) => {
+	if (key !== undefined) print(`Jump is now ${key.Name} on ${device}`);
+});
 ```
 
 - A keyboard key or a mouse button goes into `Bindings.KeyboardAndMouse`, a gamepad button, a
@@ -375,13 +387,14 @@ jump.Capture((key, device) => print(`Jump is now ${key.Name} on ${device}`));
   with F is F. A binding's own `Capture("KeyCode", ...)` changes the key only and keeps the
   modifiers. Touch input is ignored, and so is a key no binding of its device can take (a click,
   on a Direction1D action).
-- `Capture` calls back with `(key, device)` once it captured a key, and never on a `Cancel` key.
+- `Capture` calls back with `(key, device)` once it captured a key, and with `(undefined,
+  undefined)` on a `Cancel` key.
 - `CaptureChord` does the same with keys held together: the first key that goes down picks the
   device, and the other device's keys are ignored while any key of the chord is held, so there is
   no `Shift + ButtonA`. When a chord is refused (four keys...) and every key of it is up, the next
   first key picks again. Its callback gets `(chord, device)`, or `(undefined, undefined)` when it
-  ends with nothing applied. One key pressed and released alone is a chord of that key, so
-  `CaptureChord` also serves a field that wants to hear a cancel.
+  ends with nothing applied (a `Cancel` key, the `Timeout`). One key pressed and released alone is
+  a chord of that key.
 - Everything else is as for a binding's captures: `Cancel` keys from any device, `Timeout`,
   typing and game-processed input, keys down at the start. Direction2D, Direction3D and
   ViewportPosition actions don't have them: their `KeyCode` takes no key that can be pressed (or
@@ -454,10 +467,11 @@ After a capture, a menu asks which other bindings now share the key, then warns,
 
 ```ts
 jump.Capture((key, device) => {
+	if (device === undefined) return; // a Cancel key: nothing changed
 	for (const conflict of Input.FindConflicts(jump.Bindings[device])) {
-		// conflict: { Binding, Path, Key, Keys, Identical }
+		// conflict: { Binding, Path, Key, Keys, Slot, Slots, Identical }
 		warn(`${conflict.Key.Name} is also ${conflict.Path}`);
-		conflict.Binding.Clear(); // or swap: conflict.Binding.Set(<the key this binding had>)
+		conflict.Binding.Clear(conflict.Slot); // frees the key alone: Move's WASD keeps W, A and D
 	}
 });
 for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Paths[1]} share ${pair.Key.Name}`);
@@ -468,14 +482,29 @@ for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Path
   when a key presses both (in a `KeyCode` or a composite direction: plain W and WASD), or one's key is
   the other's modifier (Ctrl+S presses a binding on Ctrl, which goes down first). Two chords that
   only share a modifier (Ctrl+S, Ctrl+D) don't: neither presses the other.
+- **One push or touch can press two different keys.** A stick pushed up moves a binding on the whole
+  stick (`Thumbstick1`) and presses one on its direction (`Thumbstick1Up`): they share the
+  direction. On touch, a drag (`TouchDelta`) and a pinch (`TouchPinch`) hold fingers on the
+  screen, which press a binding on `TouchPosition` (a tap) and move one that follows the finger:
+  they share the drag or the pinch. A drag and a pinch share nothing, nor do the two sticks. On the
+  keyboard and mouse every key is its own: moving the mouse presses nothing.
 - Each entry has the other binding's handle (`Binding`, any action type's: `Get`, `Set`, `Reset`,
   `Clear`, `Describe`), its `Path` (`Context/Action/Device`, or `.../Device/Extra`), the first key
-  they share (`Key`, in the given binding's order) and all of them (`Keys`), and `Identical`: true
-  when a key presses both with the same modifiers, so every press of it presses both; false when
-  they only overlap: a chord and its plain key (IAS presses both when the chord is pressed: a chord
-  doesn't block its plain key), two chords on one key, or a key that is the other's modifier.
+  they share (`Key`, in the given binding's order) and all of them (`Keys`), the other binding's slot
+  that holds `Key` (`Slot`: `"KeyCode"`, a direction such as `"Down"`, or a modifier) and all its
+  slots that hold one of `Keys` (`Slots`), and `Identical`: true when one key is in both with the
+  same modifiers, so every press of it presses both; false when they only overlap: a chord and its
+  plain key (IAS presses both when the chord is pressed: a chord doesn't block its plain key), two
+  chords on one key, a key that is the other's modifier, a stick and its direction, or a drag or a
+  pinch and `TouchPosition`.
+- **Free the key, not the binding:** `conflict.Binding.Clear(conflict.Slot)` clears the one slot
+  that holds it (S captured for Jump takes S out of Move's WASD, where `Clear()` would unbind all of
+  Move; Ctrl captured for Crouch takes the modifier off Quick save's Ctrl+S, which becomes S). For
+  a key held in several slots, clear each of `Slots`. To swap instead, `Set` the other binding's
+  slot to the key this binding had.
 - `FindConflicts()` with no argument lists every pair once, sorted by path:
-  `{ Bindings, Paths, Key, Keys, Identical }`.
+  `{ Bindings, Paths, Key, Keys, Slots, Identical }`, where `Slots` holds each binding's slots that
+  hold a shared key, in the order of `Paths`.
 - Only keys count: not whether the contexts are enabled or sink (a menu context's Accept and
   gameplay's Jump both on Space conflict on the root handle; ask the context handle for one
   context). Unbound bindings conflict with nothing, nor do Scriptable bindings, attached buttons,
@@ -522,7 +551,8 @@ keys.CaptureChord(
   chord, as if one had come up, so a player who keeps holding doesn't keep the capture waiting.
   With no keys held, or a chord the binding can't hold, the capture ends with nothing applied.
 - `callback` gets `undefined` when the capture ends with nothing applied: a `Cancel` key, or the
-  timeout. Calling the returned function stops the capture without calling `callback`.
+  timeout (as `Capture`'s does on a `Cancel` key). Calling the returned function stops the capture
+  without calling `callback`.
 - As with `Capture`, the keys also do whatever they are bound to while they are pressed: disable
   the gameplay contexts while the rebinding UI is open (`Request(false)`). Input the game already
   processed is ignored as for `Capture` (see above): with an `InputCatcher` grabbing input, no key

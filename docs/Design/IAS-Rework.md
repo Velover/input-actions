@@ -148,8 +148,16 @@ Rules and lessons:
   the device's object shapes plus the excess-property check (`Exclude<keyof V, AllKeys<TShape>>`),
   then, only when that fails, property by property over the object's own keys (the readable
   errors below); any other name must be `IScriptable`. A `string` key (computed names, which
-  `Schema` checks at runtime) checks nothing more. Keep it that way: never a mapped type over the
-  KeyCode union.
+  `Schema` checks at runtime) is checked against the action type's shapes with any device's keys,
+  a namespace of them, or `IScriptable` (`AnyNameBindingSpec<T>`): since the readable errors widened
+  `BindingSpec<T>` to any enum item and object (below), `string extends K ? unknown` checked nothing
+  there, and `Bool({ [name]: K.MouseDelta })` or `Bool(x as Record<string, Enum.KeyCode>)`
+  compiled (hunt HF-8, a regression from 73f3ce0). Not when `IAnyObject` is assignable to the value
+  (`IAnyObject extends B[K] ? unknown`): TypeScript reads the parameter `B & CheckBindings<B, T>`
+  with the constraint `Record<string, BindingSpec<T>>` for the object literal's contextual type,
+  and `BindingSpec<T> & AnyNameBindingSpec<T>` multiplied the two unions out: the type rules went
+  from 2.0 s to 20 s. A value typed `unknown` (or `any`) keeps compiling, for `Schema` to check.
+  Keep it that way: never a mapped type over the KeyCode union.
 - The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
   checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
   object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
@@ -303,16 +311,18 @@ the constraint, whose error listed every key the type takes ("... 252 more ...")
   | Refused | Sentence |
   |---|---|
   | another device's key the slot takes (a bare key, a key in an object, a modifier, a direction) | `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys` (`KeyProblem`, as `KeyRuleProblem`) |
+  | the same, where the device has no key for the slot at all (a ViewportPosition `KeyCode` on the gamepad; a modifier or a direction on touch) | `MousePosition is a KeyboardAndMouse key, and no Gamepad key goes in KeyCode on a ViewportPosition action` (types: `SlotKeys<T, IDeviceKeyMap[D], P>` is `never`; runtime: `DeviceHasKeys`, every KeyCode tried once per type, slot and device, cached; before, it advised gamepad keys where none fits) |
   | a key the slot never takes | `MouseDelta is not allowed in KeyCode on a Bool action` |
   | an enum item that is no KeyCode | `a binding must be an Enum.KeyCode, an object or InputActions.Scriptable` |
   | keys under a name that isn't a device | `Keys is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable` (`NotADevice`) |
   | Scriptable under a device, or in a namespace | `Gamepad is a device: its bindings hold keys, not InputActions.Scriptable; name a Scriptable binding beside the devices` (`NotScriptable`) |
   | a reserved extra name | `Get is a member of a binding handle, ...` / `KeyCode is a binding property, not an extra binding: ...` (`ExtraNameProblem`) |
   | an extra name with "/", or empty | `a/b: an extra binding's name can't contain /` |
-  | a property the action type's bindings lack | `Typo is not a property of a Bool binding`; with a key or an object in it, `...; several bindings of one device go in { Main: <binding>, Alt: <binding> }` (as `Schema` says it) |
+  | a property the action type's bindings lack | `Typo is not a property of a Bool binding`; with a KeyCode or a table in it (`BindingLike<X>`: no other enum item, Vector or function), under a name no binding of any action type has (`BindingPropertyName`), written beside a device's keys (not inside a namespace), `...; several bindings of one device go in { Main: <binding>, Alt: <binding> }`, as `Schema` says it (`DeviceBindingProblem`). Hunt HF-6: the types added the advice for `Up` on a Bool binding (an extra can't be named `Up`) and inside a namespace, where `Schema` doesn't; and `Schema` added it for a number, where the types didn't |
   | `KeyCode` beside a direction | `KeyCode and composite directions can't share a binding` |
   | `ResponseCurve` without a thumbstick `KeyCode` | `ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode` (`..., which a KeyboardAndMouse binding can't hold` on a device without sticks) |
   | a misspelt context option (`CheckContexts`) | `unknown option ServerAuthorty; a context has ServerAuthority, Priority, Sink, Enabled and Actions` |
+  | a context named after a member of the root handle (`CheckContexts`, `RootMember` = `ROOT_MEMBERS`) | `Destroy is a member of the root handle, which holds the contexts by name: name the context something else` (`Schema` threw only, with "the name is taken by the root handle"; now its words are these, the name quoted) |
 
 - **Inference.** `BindingSpec<T>` (and a namespace's `NamespaceBindingSpec<T>`) also take any enum
   item and any object (`IAnyObject`), so what the checks refuse is inferred as written and refused
@@ -518,10 +528,14 @@ the constraint, whose error listed every key the type takes ("... 252 more ...")
   (one another root handle uses is released as above, by this toggle too off the server's copy).
   Under Server Authority the release pairs of §8 have let go of the server's copy already; the
   reset covers a local context, and the copy in a place without Server Authority, where no pair is
-  fired.
+  fired. Each of these releases is noted first (`MarkReset`: `ResetIfHeld`'s toggle, `ReleaseOwn`'s
+  fire at rest and its pair, `ReleaseOnServer`'s pair), for the other root handles' gestures (§6;
+  hunt HF-1: under Deferred signals the toggled action is enabled again before its `Released`
+  arrives, and their `OnTap` and `OnLongPress` took it for the player's release).
 - The root handle is a table of its own: the contexts by name beside the six public members
   (`FindConflicts` since 0.7.0), so a context name can shadow nothing internal. `Schema` (and
-  `Create`) refuse those six names.
+  `Create`) refuse those six names, and since the features loop's round 1 the types do too
+  (`CheckContexts`, with the runtime's sentence).
 
 ## 5. Contexts at runtime
 
@@ -650,7 +664,8 @@ and it throws on them at runtime):
   `Set`, and so do its modifiers, as with `CaptureChord` given one key (`ApplyChord`; hunt HD2-4:
   Ctrl+S captured with F is F, as the field's prompt and callback say, not Ctrl+F). A binding's
   `Capture("KeyCode", ...)` fills one slot and keeps the modifiers. Then
-  `callback(key, device)`; `device` is `"KeyboardAndMouse" | "Gamepad"`. Touch input is ignored,
+  `callback(key, device)`; `device` is `"KeyboardAndMouse" | "Gamepad"`, both `undefined` when a
+  `Cancel` key ends it (round 1 of the features loop, as the binding's `Capture`). Touch input is ignored,
   and so is a key no binding of its device can take (a click on a Direction1D action). Same
   options and rules as the binding's `Capture` (below): `Cancel` keys from any device, typing and
   game-processed input, keys down at the start, sticks and triggers.
@@ -755,7 +770,10 @@ Binding handle (non-Scriptable: a device's binding, main or extra):
   turns Ctrl+S into S (`Set` can't write `None`).
 - `Capture(slot, callback, options?): () => void`: waits for the next key that is legal for that
   slot of this binding (`"KeyCode"`, `"Up"`, ..., `"PrimaryModifier"`), applies it, then calls
-  `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
+  `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel: `callback(undefined)` then,
+  as `CaptureChord` does (decided by the main agent in the features loop, round 1: before, a cancel
+  called nothing, and a menu had to close its prompt elsewhere; `CaptureKey`'s `onCancelled`, not
+  after `Destroy`). The returned function cancels without calling anything.
   Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
   binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
   key, so a binding on it couldn't fire either; under the legacy player scripts the ControlModule
@@ -850,18 +868,30 @@ on the keys of `Get()`. `Describe` is a binding handle's member, so no extra can
 
 **Conflicts (0.7.0).** `FindConflicts(binding)` on the root handle (every context) and on a context
 handle (its own) (`Conflicts.ts`): the other device bindings of `binding`'s device whose keys meet
-its keys, by path, each `{ Binding, Path, Key, Keys, Identical }` (`Binding` typed
+its keys, by path, each `{ Binding, Path, Key, Keys, Slot, Slots, Identical }` (`Binding` typed
 `IBindingHandle<Enum.InputActionType, Device>`, any device binding's). A binding's keys are its
 `KeyCode`, else its composite directions, and its modifiers. Two bindings conflict when a key presses
-both, or one's key is the other's modifier: pressing Ctrl+S presses a binding on Ctrl, which goes
+both (one push or touch counts as pressing both keys it drives, `PART_OF`/`SharedKey`: a stick's
+direction and the whole stick, `Thumbstick1Up` and `Thumbstick1`, share the direction; on touch a
+drag or a pinch holds fingers on the screen, which press a `TouchPosition` binding, so
+`TouchDelta` and `TouchPinch` each share themselves with `TouchPosition`, a drag and a pinch
+nothing (decided in the features loop, round 1: hunt HF-2 found a stick and a binding on its
+direction unreported, compared by KeyCode identity; on the keyboard and mouse moving the mouse
+presses nothing, so `MouseDelta` and `MousePosition` stay apart)), or one's key is the other's
+modifier: pressing Ctrl+S presses a binding on Ctrl, which goes
 down first (decided beyond the spec, which named the `KeyCode` and the directions: a menu should
 warn about a crouch on Ctrl that every Ctrl+S also presses). Two chords that only share a modifier
 don't: neither presses the other. `Identical`: a key presses both with the same `PrimaryModifier`
 and `SecondaryModifier`, so every press of it presses both; otherwise they overlap (IAS fires both
 when the chord is pressed: a chord doesn't block its plain key; or two chords on one key; or the
-modifier case). One entry per other binding, `Key` the first shared key in `binding`'s order and
-`Keys` all of them, so a menu swaps or clears each binding once. `FindConflicts()` lists every
-pair once, `{ Bindings, Paths, Key, Keys, Identical }`, sorted by path. Only keys count: not
+modifier case; or a stick and its direction, a drag or a pinch and `TouchPosition`). One entry per
+other binding, `Key` the first shared key in `binding`'s order and `Keys` all of them, so a menu
+swaps or clears each binding once; `Slot` the other binding's slot that holds `Key` and `Slots` all
+of its slots that hold one of `Keys` (`Slot` first), so a menu frees the key alone with
+`conflict.Binding.Clear(conflict.Slot)` (decided by the main agent in the features loop, round 1:
+`Clear()` wiped Move's WASD when S was captured for Jump, in `examples/RebindingMenu.ts`).
+`FindConflicts()` lists every pair once, `{ Bindings, Paths, Key, Keys, Slots, Identical }`, sorted
+by path, `Slots` each side's slots that hold a shared key, in the order of `Paths`. Only keys count: not
 whether the contexts are enabled or sink, nor Scriptable, button or unmentioned bindings, nor
 another root handle's; a handle on the same instance (another root handle's) is `binding` itself.
 Anything but a device's binding handle throws. `FindConflicts` is a root member (§4).
@@ -873,20 +903,36 @@ Anything but a device's binding handle throws. `FindConflicts` is a root member 
 all (`ActionHandle._gestures`). Typed on `IBoolActionHandle` (so `BoolAction` has them); on
 another action type they throw (`needs a Bool action`).
 
-- Built on the handle's own `Pressed`/`Released` (which always alternate), one pair of
-  connections per gesture so a callback that throws stops no other, timed with `os.clock` when each
-  arrives. A gesture starts with the next press: a release whose press it didn't see is ignored.
+- Built on the handle's presses and releases as its listeners hear them (`Pressed`/`Released`
+  always alternate), through the handle's own signal for them, `GestureEdges()` (a BindableEvent
+  made with the first gesture, fired by `EmitPressed`/`EmitReleased` right after the public
+  events, with `(edge, pressed, at, reset)`): one connection per gesture so a callback that throws
+  stops no other, timed with the `os.clock` at which each edge arrived at the handle. Whether a
+  release is a reset's is worked out there, once, and every gesture gets that answer (hunt HF-7:
+  worked out per listener at call time, a gesture whose callback turned the context off, a tap
+  opening a menu, made the gestures that heard the release after it take it for a reset). A gesture
+  starts with the next press: it ignores the edges numbered up to `EdgeCount()` when it was made
+  (one still being delivered too: a gesture made in a `Pressed` listener under Immediate signals),
+  and a release whose press it didn't see.
 - Tap: released within `MaxDuration`. `WaitForDoubleTap` holds it for `Window` after the release
   (a `task.delay`) and drops it at a press within the window, which is then a double tap's second
   press and no tap; `Window` on `OnTap` (beyond the spec) so a tap still excludes an `OnDoubleTap`
   given another window. A waiting tap is dropped when the action is not live by the end of its
-  window (a menu opened). Double tap: fires at a press within `Window` after a tap; that press
+  window (a menu opened). A press is within the window by when it arrived, as `OnDoubleTap` counts
+  it: one that arrives after it, before the window's timer ran (a frame that ran long), fires the
+  waiting tap first, when the action is live, then counts on its own (hunt HF-3: the timer's being
+  pending decided, and the tap was dropped though no double tap came of it). Double tap: fires at a press within `Window` after a tap; that press
   starts nothing new (a fourth quick press is the next double tap's second).
 - Hold: fires once while held, at `Duration` (a `task.delay`, or a frame that finds it past, first
   wins). `Progress` gets 0 at the press, the fraction each frame while held (`EveryFrame`: a render
   step, or `PreAnimation` in a window that renders nothing; per-frame work only while a hold is in
   progress and has `Progress`), and 1 as it completes, then stays at 1 until the next press. An
-  early end calls `Progress(0)` then `Cancelled()`. Long press: fires at the release of a press
+  early end calls `Progress(0)` then `Cancelled()`. A release that is no reset's and arrives once
+  the press has lasted `Duration`, before the timer or a frame ran (a frame that ran long),
+  completes the hold instead (hunt HF-4: it was cancelled, while the long press it also was
+  fired). The hold checks it is still running (not stopped, the root handle not destroyed) after
+  each `Progress` call, before the callback or `Cancelled`, and leaves no per-frame work when
+  `Progress(0)` stops it at the press (hunt HF-5). Long press: fires at the release of a press
   that lasted `Duration`, with the seconds held (beyond the spec: a charge-and-release wants them).
 - Validation: durations positive and finite (`IsSeconds`), callbacks and `Progress`/`Cancelled`
   functions, `OnHold`/`OnLongPress` options present; else they throw, naming the method.
@@ -899,18 +945,24 @@ another action type they throw (`needs a Bool action`).
   (a context or action disabled, `ResetState`, `Destroy`), `ReleaseActions` (every action of a
   context being disabled, another root handle's too), `WriteBindings` (an action whose keys change
   while held), `AddingBindings` (taken back when it added nothing and changed no key),
-  `ReleaseHeldValues` and `FinishLink` (the swap). A press that began after the mark is the
+  `ReleaseHeldValues` and `FinishLink` (the swap), and `Destroy`'s releases of what it shares or
+  leaves: `ReleaseOwn`'s fire at rest and its pair on `<Action>Script`, `ResetIfHeld`'s `Enabled`
+  toggle (under Deferred signals the action is enabled again before the release arrives, so only
+  the mark tells it), `ReleaseOnServer`'s pair (hunt HF-1: another root handle's `Destroy` released
+  a held shared action unmarked, and the gestures completed on it). A press that began after the mark is the
   player's again, so a mark never swallows a later real release.
 - The swap: a press the copy doesn't show ends with `FinishLink`'s `Released`, a reset (the usual
   case: the moved binding's key holds the copy's action only once pressed again); a value a
   Scriptable binding held is fired again on the copy, a new press; a press the copy shows already
   (another root handle's input holds it there) goes on, no edge reaching the listeners.
-- Destroy and a gesture's function stop it without calling anything, a hold in progress included;
-  every listener checks the root handle's `IsDestroyed()` first, so a delivery already queued under
+- Destroy and a gesture's function stop it without calling anything, a hold in progress included,
+  also from inside the gesture's own `Progress` (above); every listener checks the root handle's
+  `IsDestroyed()` first, so a delivery already queued under
   Deferred signals calls nothing either. After `Destroy` a new gesture returns a function that does
   nothing.
-- Several gestures on one action are independent (documented combinations: a tap begins a hold it
-  cancels; a long press is a hold and a long press, no tap).
+- Several gestures on one action are independent: each sees every press, and each release the same
+  way (`GestureEdges`, above). Documented combinations: a tap begins a hold it cancels; a long press
+  is a hold and a long press, no tap.
 - Unverified: IAS's own release when the window loses focus (it can't be simulated from Luau): with
   `ResetOnFocusLoss` off it counts as the player's release; with it on, the reset's mark comes from
   `WindowFocusReleased`, whose order against IAS's release is unmeasured.
@@ -1391,7 +1443,10 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   focus-loss reset mid-gesture, the swap on a copy made by hand, `Destroy`, `Fire`/`Tap`, bad
   options) and `readable-errors` (shared: the runtime's sentences are the compile errors'), and
   `tests/type-rules/features-type-rules.ts` (the API's types, and each sentence pinned through
-  `CheckBindings`/`CheckContexts`).
+  `CheckBindings`/`CheckContexts`). The features loop's hunts add `hunter-features` (HF-1..HF-7 as
+  regression tests, and the hunter's probes) and `tests/type-rules/hunter-features-type-rules.ts`
+  (HF-6, HF-8, the device without keys for a slot, a context named after a root member);
+  `conflicts` adds `Slot`/`Slots` and `Clear(Slot)`, and the sticks' and touch's shared keys.
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

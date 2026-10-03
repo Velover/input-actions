@@ -198,11 +198,39 @@ export function IsFiniteNumber(value: unknown): value is number {
 	return typeIs(value, "number") && value === value && math.abs(value) <= FLOAT_MAX;
 }
 
-/** Why a key that the action type allows in a slot can't go in a binding of `device`, if it can't */
-function DeviceProblem(key: Enum.KeyCode, device: Device | undefined): string | undefined {
+/** Whether `device` has a key that `slot` takes on this action type, by `"<type>/<slot>/<device>"` */
+const DEVICE_HAS_KEYS = new Map<string, boolean>();
+
+/**
+ * Whether any key of `device` may go in `slot` on this action type: none of the gamepad's in a
+ * ViewportPosition `KeyCode`, none of touch's in a composite direction or a modifier
+ */
+function DeviceHasKeys(actionType: ActionTypeName, slot: string, device: Device): boolean {
+	const id = `${actionType}/${slot}/${device}`;
+	let has = DEVICE_HAS_KEYS.get(id);
+	if (has === undefined) {
+		has = Enum.KeyCode.GetEnumItems().some((key) => IsKeyAllowed(actionType, slot, key, device));
+		DEVICE_HAS_KEYS.set(id, has);
+	}
+	return has;
+}
+
+/**
+ * Why a key that the action type allows in a slot can't go in a binding of `device`, if it can't:
+ * another device's key; where `device` has no key for the slot at all, that is said instead of
+ * which keys its bindings take (the compile errors' `KeyProblem` says it alike)
+ */
+function DeviceProblem(
+	actionType: ActionTypeName,
+	slot: string,
+	key: Enum.KeyCode,
+	device: Device | undefined,
+): string | undefined {
 	if (device === undefined) return undefined;
 	const owner = GetKeyDevice(key);
 	if (owner === device) return undefined;
+	if (!DeviceHasKeys(actionType, slot, device))
+		return `${key.Name} is a ${owner} key, and no ${device} key goes in ${slot} on a ${actionType} action`;
 	return `${key.Name} is a ${owner} key: a ${device} binding takes ${DEVICE_KEYS_TEXT[device]}`;
 }
 
@@ -215,7 +243,7 @@ export function KeyRuleProblem(
 ): string | undefined {
 	if (!IsKeyAllowed(actionType, slot, key))
 		return `${key.Name} is not allowed in ${slot} on a ${actionType} action`;
-	return DeviceProblem(key, device);
+	return DeviceProblem(actionType, slot, key, device);
 }
 
 function KeyProblem(
@@ -410,7 +438,7 @@ export function DecodeSavedEntry(
 				if (!IsKeyAllowed(actionType, property, key)) {
 					return `${key.Name} is not allowed in ${property}`;
 				}
-				const problem = DeviceProblem(key, device);
+				const problem = DeviceProblem(actionType, property, key, device);
 				if (problem !== undefined) return problem;
 				if (property === "KeyCode") hasKeyCode = true;
 				else if (IsCompositeSlot(property)) hasComposite = true;

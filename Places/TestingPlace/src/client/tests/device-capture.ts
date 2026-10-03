@@ -198,7 +198,7 @@ export class DeviceCaptureTests implements OnStart {
 				const keys = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions.Jump
 					.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = keys.Capture("KeyCode", (key) => captured.push(key));
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.ButtonX);
 				real.Tap(K.ButtonL1);
@@ -217,7 +217,7 @@ export class DeviceCaptureTests implements OnStart {
 				const pad = input.Gameplay.Actions.Jump.Bindings.Gamepad;
 				const changes = recordSignal(input.BindingsChanged);
 				const captured = new Array<Enum.KeyCode>();
-				const stop = pad.Capture("KeyCode", (key) => captured.push(key));
+				const stop = pad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Tap(K.G);
 				real.Click(emptyPoint());
@@ -234,28 +234,32 @@ export class DeviceCaptureTests implements OnStart {
 				);
 			});
 
-			test("a Cancel key counts from any device", () => {
+			test("a Cancel key counts from any device, and calls back with undefined", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				// the Gamepad binding, cancelled from the keyboard
-				let padCalls = 0;
-				jump.Bindings.Gamepad.Capture("KeyCode", () => padCalls++, { Cancel: [K.Backspace] });
+				const padCalls = new Array<string>();
+				jump.Bindings.Gamepad.Capture("KeyCode", (key) => padCalls.push(key?.Name ?? "undefined"), {
+					Cancel: [K.Backspace],
+				});
 				real.Tap(K.Backspace);
+				eventually(() => padCalls.size() === 1, `the cancel${real.FocusNote()}`);
 				real.Tap(K.ButtonX);
 				quiet();
-				expectEqual(padCalls, 0, `cancelled${real.FocusNote()}`);
+				expectEqual(padCalls.join(","), "undefined", `cancelled, then nothing${real.FocusNote()}`);
 				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.ButtonA);
 				// the keyboard's binding, cancelled from the gamepad
-				let keyCalls = 0;
-				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", () => keyCalls++, {
+				const keyCalls = new Array<string>();
+				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", (key) => keyCalls.push(key?.Name ?? "undefined"), {
 					Cancel: [K.ButtonL1],
 				});
 				real.Tap(K.ButtonL1);
+				eventually(() => keyCalls.size() === 1, `the cancel${real.FocusNote()}`);
 				real.Tap(K.G);
 				quiet();
-				expectEqual(keyCalls, 0, `cancelled${real.FocusNote()}`);
+				expectEqual(keyCalls.join(","), "undefined", `cancelled, then nothing${real.FocusNote()}`);
 				expectEqual(jump.Bindings.KeyboardAndMouse.Instance.KeyCode, K.Space);
 			});
 
@@ -304,7 +308,7 @@ export class DeviceCaptureTests implements OnStart {
 				const jump = input.Gameplay.Actions.Jump;
 				const changes = recordSignal(input.BindingsChanged);
 				const captured = new Array<string>();
-				jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				real.Tap(K.G);
 				eventually(() => captured.size() === 1, `the callback${real.FocusNote()}`);
 				expectEqual(captured[0], "G on KeyboardAndMouse");
@@ -332,7 +336,7 @@ export class DeviceCaptureTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				const captured = new Array<string>();
-				jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				real.Tap(K.ButtonX);
 				eventually(() => captured.size() === 1, `the callback${real.FocusNote()}`);
 				expectEqual(captured[0], "ButtonX on Gamepad");
@@ -345,7 +349,7 @@ export class DeviceCaptureTests implements OnStart {
 				if (typeIs(real, "string")) return skip(real);
 				const throttle = createThrottle().DeviceCapture.Actions.Throttle;
 				const captured = new Array<string>();
-				const stop = throttle.Capture((key, device) => captured.push(`${key.Name} on ${device}`), {
+				const stop = throttle.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`), {
 					Cancel: [K.Delete],
 				});
 				defer(stop);
@@ -367,17 +371,20 @@ export class DeviceCaptureTests implements OnStart {
 				eventually(() => throttle.GetState() === 0, "at rest");
 			});
 
-			test("action.Capture: a Cancel key from either device ends it with nothing", () => {
+			test("action.Capture: a Cancel key from either device ends it with nothing, calling back with undefined twice", () => {
 				const real = realInput();
 				if (typeIs(real, "string")) return skip(real);
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
-				let calls = 0;
-				jump.Capture(() => calls++, { Cancel: [K.ButtonL1] });
+				const calls = new Array<string>();
+				jump.Capture((key, device) => calls.push(`${key?.Name ?? "undefined"} on ${device ?? "undefined"}`), {
+					Cancel: [K.ButtonL1],
+				});
 				real.Tap(K.ButtonL1);
+				eventually(() => calls.size() === 1, `the cancel${real.FocusNote()}`);
 				real.Tap(K.G);
 				quiet();
-				expectEqual(calls, 0, `cancelled${real.FocusNote()}`);
+				expectEqual(calls.join(","), "undefined on undefined", `cancelled, then nothing${real.FocusNote()}`);
 				expectEqual(jump.Bindings.KeyboardAndMouse.Instance.KeyCode, K.Space);
 				expectEqual(jump.Bindings.Gamepad.Instance.KeyCode, K.ButtonA);
 			});
@@ -393,7 +400,7 @@ export class DeviceCaptureTests implements OnStart {
 				box.Parent = testGui("DeviceCaptureBox");
 				defer(() => box.ReleaseFocus());
 				const captured = new Array<string>();
-				jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				box.CaptureFocus();
 				eventually(() => UserInputService.GetFocusedTextBox() === box, "the TextBox has focus");
 				frames(2);
@@ -414,7 +421,7 @@ export class DeviceCaptureTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				const captured = new Array<string>();
-				jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				real.Click(emptyPoint());
 				quiet();
 				expectEqual(captured.size(), 0, "a tap");
@@ -544,7 +551,7 @@ export class DeviceCaptureTests implements OnStart {
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const jump = input.Gameplay.Actions.Jump.Bindings.Gamepad;
 				const captured = new Array<Enum.KeyCode>();
-				jump.Capture("KeyCode", (key) => captured.push(key));
+				jump.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				// under the threshold: nothing
 				pad.SetStick(K.Thumbstick2, new Vector2(0, 0.3));
 				quiet();
@@ -561,7 +568,7 @@ export class DeviceCaptureTests implements OnStart {
 				// a composite slot takes a direction too
 				const steer = createThrottle().DeviceCapture.Actions.Steer.Bindings.Gamepad;
 				const left = new Array<Enum.KeyCode>();
-				steer.Capture("Left", (key) => left.push(key));
+				steer.Capture("Left", (key) => left.push(key ?? K.Unknown));
 				if (usesLegacyPlayerScripts()) {
 					// the legacy ControlModule sinks the left stick: game-processed, ignored
 					pad.SetStick(K.Thumbstick1, new Vector2(-1, 0));
@@ -586,7 +593,7 @@ export class DeviceCaptureTests implements OnStart {
 				const move = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Move;
 				const captured = new Array<Enum.KeyCode>();
-				move.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				move.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				pad.SetStick(K.Thumbstick2, new Vector2(0.8, 0.1));
 				eventually(() => captured.size() === 1, "the right stick");
 				expectEqual(captured[0], K.Thumbstick2);
@@ -627,7 +634,7 @@ export class DeviceCaptureTests implements OnStart {
 				pad.SetStick(stick.Stick, new Vector2(1, 0));
 				frames(4);
 				const captured = new Array<Enum.KeyCode>();
-				keys.Capture("KeyCode", (key) => captured.push(key));
+				keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				frames(4);
 				pad.SetStick(stick.Stick, new Vector2(0.9, 0));
 				quiet();
@@ -655,7 +662,7 @@ export class DeviceCaptureTests implements OnStart {
 				const events = padEvents([K.ButtonR2, K.ButtonL2, K.ButtonL1]);
 				const throttle = createThrottle().DeviceCapture.Actions.Throttle;
 				const captured = new Array<string>();
-				throttle.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				throttle.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				pad.SetTrigger(K.ButtonR2, 0.8);
 				eventuallyPad(
 					() => captured.size() === 1,
@@ -696,7 +703,7 @@ export class DeviceCaptureTests implements OnStart {
 				defer(() => input.Destroy());
 				const { Up, Pull, Field } = input.DevicePadPress.Actions;
 				const captured = new Array<Enum.KeyCode>();
-				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				const state = () =>
 					`captured ${captured.map((key) => key.Name).join("+")}, Up ${Up.IsPressed()}, Pull ${Pull.IsPressed()} (${events()})`;
 				// raw 0.52 is 0.467 past the deadzone: neither presses
@@ -711,7 +718,7 @@ export class DeviceCaptureTests implements OnStart {
 				eventuallyPad(() => !Up.IsPressed(), () => `the stick back: ${state()}`);
 				// a trigger's first move after plugging in, to about 0.45 to 0.6, raises nothing
 				// (measured): it starts at 0.3
-				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				pad.SetTrigger(K.ButtonR2, 0.3);
 				frames(3);
 				pad.SetTrigger(K.ButtonR2, 0.52);
@@ -746,7 +753,7 @@ export class DeviceCaptureTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				const captured = new Array<string>();
-				jump.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
+				jump.Capture((key, device) => captured.push(`${key?.Name ?? "cancelled"} on ${device}`));
 				pad.Tap(K.ButtonY);
 				eventually(() => captured.size() === 1, "ButtonY");
 				expectEqual(captured[0], "ButtonY on Gamepad");

@@ -244,6 +244,106 @@ export class ConflictsTests implements OnStart {
 				conflicts[0].Binding.Clear();
 				expectEqual(conflicts[0].Binding.Describe(), "");
 			});
+
+			test("Slot and Slots: the other binding's slots that hold the key; Clear(Slot) frees that key alone", () => {
+				const input = createConflicts();
+				const { Jump, Move, QuickSave, Sprint, QuickLoad, Throttle } = input.Play.Actions;
+				const slots = (conflict: InputActions.BindingConflict) =>
+					`${conflict.Path} ${conflict.Slot} ${conflict.Slots.join("+")}`;
+				// S captured for Jump: Move's Down, QuickSave's KeyCode, Throttle's Down
+				Jump.Bindings.KeyboardAndMouse.Set(K.S);
+				const conflicts = input.Play.FindConflicts(Jump.Bindings.KeyboardAndMouse);
+				expectArrayEqual(conflicts.map(slots), [
+					"Play/Move/KeyboardAndMouse Down Down",
+					"Play/QuickSave/KeyboardAndMouse KeyCode KeyCode",
+					"Play/Throttle/KeyboardAndMouse Down Down",
+				]);
+				// the pair form: each side's slots, in the order of Paths
+				const pair = input.Play.FindConflicts().find(
+					(found) =>
+						found.Paths[0] === "Play/Jump/KeyboardAndMouse" &&
+						found.Paths[1] === "Play/Move/KeyboardAndMouse",
+				);
+				expectTrue(pair !== undefined, "the Jump & Move pair");
+				expectArrayEqual(pair!.Slots[0], ["KeyCode"]);
+				expectArrayEqual(pair!.Slots[1], ["Down"]);
+				// the menu frees the key: the rest of each binding stays
+				for (const conflict of conflicts) conflict.Binding.Clear(conflict.Slot);
+				const move = Move.Bindings.KeyboardAndMouse.Instance;
+				expectEqual(move.Down, K.None, "S is free");
+				expectEqual(move.Up, K.W, "the other directions stay");
+				expectEqual(move.Left, K.A);
+				expectEqual(move.Right, K.D);
+				expectEqual(Throttle.Bindings.KeyboardAndMouse.Instance.Up, K.W);
+				expectEqual(QuickSave.Bindings.KeyboardAndMouse.Instance.PrimaryModifier, K.LeftControl);
+				expectArrayEqual(input.Play.FindConflicts(Jump.Bindings.KeyboardAndMouse).map(show), []);
+				// a key that is the other's modifier: its modifier slot
+				const onCtrl = input.Play.FindConflicts(Sprint.Bindings.KeyboardAndMouse);
+				expectArrayEqual(onCtrl.map(slots), [
+					"Play/QuickLoad/KeyboardAndMouse PrimaryModifier PrimaryModifier",
+				]);
+				onCtrl[0].Binding.Clear(onCtrl[0].Slot);
+				expectEqual(QuickLoad.Bindings.KeyboardAndMouse.Describe(), "L", "Ctrl+L became L");
+				// one key in several slots: every one of them, the first first
+				Move.Bindings.KeyboardAndMouse.Set({ Down: K.W });
+				const both = input.Play.FindConflicts(Throttle.Bindings.KeyboardAndMouse);
+				expectArrayEqual(both.map(slots), ["Play/Move/KeyboardAndMouse Up Up+Down"]);
+			});
+
+			test("a stick and a binding on one of its directions share the direction; a drag or a pinch and TouchPosition the drag or the pinch", () => {
+				const input = InputActions.Create(
+					InputActions.Schema({
+						Sticks: {
+							Actions: {
+								Move: InputActions.Direction2D({ Gamepad: K.Thumbstick1, Touch: K.TouchDelta }),
+								Peek: InputActions.Bool({ Gamepad: K.Thumbstick1Up, Touch: K.TouchPosition }),
+								Lean: InputActions.Direction1D({
+									Gamepad: { Up: K.Thumbstick1Right, Down: K.Thumbstick1Left },
+									Touch: K.TouchPinch,
+								}),
+								Look: InputActions.Direction2D({ Gamepad: K.Thumbstick2 }),
+								Point: InputActions.ViewportPosition({ Touch: K.TouchPosition }),
+							},
+						},
+					}),
+					{ Folder: newFolder(), ResetOnFocusLoss: false },
+				);
+				defer(() => input.Destroy());
+				const { Move, Peek, Lean, Point } = input.Sticks.Actions;
+				const keys = (conflict: InputActions.BindingConflict) =>
+					`${conflict.Path} ${conflict.Keys.map((key) => key.Name).join("+")} ${conflict.Slot}${conflict.Identical ? " identical" : ""}`;
+				expectArrayEqual(input.FindConflicts(Move.Bindings.Gamepad).map(keys), [
+					"Sticks/Lean/Gamepad Thumbstick1Right+Thumbstick1Left Up",
+					"Sticks/Peek/Gamepad Thumbstick1Up KeyCode",
+				]);
+				expectArrayEqual(input.FindConflicts(Peek.Bindings.Gamepad).map(keys), [
+					"Sticks/Move/Gamepad Thumbstick1Up KeyCode",
+				]);
+				// a drag holds a finger on the screen, as a pinch holds two
+				expectArrayEqual(input.FindConflicts(Peek.Bindings.Touch).map(keys), [
+					"Sticks/Lean/Touch TouchPinch KeyCode",
+					"Sticks/Move/Touch TouchDelta KeyCode",
+					"Sticks/Point/Touch TouchPosition KeyCode identical",
+				]);
+				expectArrayEqual(input.FindConflicts(Move.Bindings.Touch).map(keys), [
+					"Sticks/Peek/Touch TouchDelta KeyCode",
+					"Sticks/Point/Touch TouchDelta KeyCode",
+				]);
+				expectArrayEqual(input.FindConflicts(Point.Bindings.Touch).map(keys), [
+					"Sticks/Lean/Touch TouchPinch KeyCode",
+					"Sticks/Move/Touch TouchDelta KeyCode",
+					"Sticks/Peek/Touch TouchPosition KeyCode identical",
+				]);
+				// the other stick's, and a drag and a pinch, share nothing
+				expectArrayEqual(
+					input.FindConflicts(input.Sticks.Actions.Look.Bindings.Gamepad).map(keys),
+					[],
+				);
+				expectEqual(
+					input.FindConflicts(Lean.Bindings.Touch).map(keys).join("; "),
+					"Sticks/Peek/Touch TouchPinch KeyCode; Sticks/Point/Touch TouchPinch KeyCode",
+				);
+			});
 		});
 	}
 }

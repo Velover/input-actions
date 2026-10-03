@@ -76,6 +76,25 @@ export class ReadableErrorsTests implements OnStart {
 						"KeyboardAndMouse",
 						"a binding must be an Enum.KeyCode, an object or InputActions.Scriptable",
 					],
+					// a device with no key for the slot says so, rather than which keys its bindings take
+					[
+						"ViewportPosition",
+						K.MousePosition,
+						"Gamepad",
+						"MousePosition is a KeyboardAndMouse key, and no Gamepad key goes in KeyCode on a ViewportPosition action",
+					],
+					[
+						"Bool",
+						{ KeyCode: K.TouchPosition, PrimaryModifier: K.LeftShift },
+						"Touch",
+						"LeftShift is a KeyboardAndMouse key, and no Touch key goes in PrimaryModifier on a Bool action",
+					],
+					[
+						"Direction3D",
+						{ Up: K.W },
+						"Touch",
+						"W is a KeyboardAndMouse key, and no Touch key goes in Up on a Direction3D action",
+					],
 				];
 				for (const [actionType, spec, device, sentence] of cases) {
 					expectEqual(CheckBindingSpec(actionType, spec, device), sentence, sentence);
@@ -99,6 +118,38 @@ export class ReadableErrorsTests implements OnStart {
 				const sentence =
 					"Alt is not a property of a Bool binding; several bindings of one device go in { Main: <binding>, Alt: <binding> }";
 				expectTrue(message.find(sentence, 1, true)[0] !== undefined, message);
+				// a number under an unknown name is no binding: the sentence alone, as the compile error
+				const number = expectThrows(
+					() =>
+						InputActions.Schema({
+							Play: {
+								Actions: {
+									Jump: InputActions.Bool({
+										KeyboardAndMouse: { KeyCode: K.E, Scaling: 2 },
+									} as never),
+								},
+							},
+						}),
+					"a number beside the keys",
+				);
+				expectTrue(
+					number.find("Scaling is not a property of a Bool binding", 1, true)[0] !== undefined,
+					number,
+				);
+				expectTrue(number.find("several bindings", 1, true)[0] === undefined, number);
+			});
+
+			test("a context named after a member of the root handle is refused in the compile error's words", () => {
+				const message = expectThrows(
+					() => InputActions.Schema({ Destroy: { Actions: {} } } as never),
+					"Destroy",
+				);
+				const sentence =
+					"is a member of the root handle, which holds the contexts by name: name the context something else";
+				expectTrue(
+					message.find(`Destroy: "Destroy" ${sentence}`, 1, true)[0] !== undefined,
+					message,
+				);
 			});
 		});
 	}

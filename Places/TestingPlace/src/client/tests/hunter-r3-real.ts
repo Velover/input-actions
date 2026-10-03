@@ -82,7 +82,7 @@ export class HunterR3RealTests implements OnStart {
 				const jump = createTestInput().Gameplay.Actions.Jump;
 				const keys = jump.Bindings.KeyboardAndMouse;
 				const captured = new Array<Enum.KeyCode>();
-				const stop = keys.Capture("KeyCode", (key) => captured.push(key));
+				const stop = keys.Capture("KeyCode", (key) => captured.push(key ?? K.Unknown));
 				defer(stop);
 				real.Click(emptyPoint());
 				frames(6);

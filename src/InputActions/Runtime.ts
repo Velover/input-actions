@@ -32,7 +32,14 @@ import {
 } from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
-import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
+import {
+	Entries,
+	IRuntime,
+	JoinPath,
+	MarkReset,
+	NEUTRAL_VALUES,
+	ReleaseOnServer,
+} from "./Internal";
 import {
 	AddUser,
 	ClaimCopy,
@@ -139,6 +146,9 @@ function IsCopyReady(standIn: IStandIn, copy: Instance | undefined): copy is Inp
 function ResetIfHeld(action: InputAction) {
 	if (action.Parent === undefined || !action.Enabled) return;
 	if (action.GetState() === NEUTRAL_VALUES[action.Type.Name]) return;
+	// Noted first: the action is enabled again before a Deferred `Released` arrives, and another root
+	// handle's gestures must take that release for no player's (hunt HF-1)
+	MarkReset(action);
 	action.Enabled = false;
 	action.Enabled = true;
 }

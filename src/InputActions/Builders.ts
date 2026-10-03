@@ -7,7 +7,7 @@ import {
 	IsNamespace,
 } from "./BindingRules";
 import { Entries } from "./Internal";
-import { Device, IsDevice } from "./KeyGroups";
+import { Device, IsDevice, IsKeyCode } from "./KeyGroups";
 import { ActionSlots, ReservedSlotProblem, SlotCollision } from "./Tree";
 import type {
 	BindingSpec,
@@ -19,6 +19,7 @@ import type {
 	IInputSchema,
 	IScriptable,
 	ISchema,
+	RootMember,
 } from "./Types";
 
 /** The marker of a binding driven only from code (`Fire`) */
@@ -27,8 +28,8 @@ export const SCRIPTABLE = setmetatable(
 	{ __tostring: () => "InputActions.Scriptable" },
 ) as unknown as IScriptable;
 
-/** Members of the root handle: a context can't take one of these names */
-export const ROOT_MEMBERS = [
+/** Members of the root handle: a context can't take one of these names (the type `RootMember`) */
+export const ROOT_MEMBERS: readonly RootMember[] = [
 	"BindingsChanged",
 	"ExportBindings",
 	"ImportBindings",
@@ -46,7 +47,12 @@ function HasSlash(name: string) {
 
 /** Why a context can't have this name, if it can't */
 export function ContextNameProblem(name: string): string | undefined {
-	if (ROOT_MEMBERS.includes(name)) return "the name is taken by the root handle";
+	if ((ROOT_MEMBERS as readonly string[]).includes(name)) {
+		return (
+			`"${name}" is a member of the root handle, which holds the contexts by name: name the ` +
+			"context something else"
+		);
+	}
 	if (HasSlash(name)) return `a context name can't contain "/"`;
 	return undefined;
 }
@@ -91,10 +97,12 @@ function DeviceBindingProblem(
 	if (!IsNamespace(spec)) {
 		const problem = CheckBindingSpec(actionType, spec, device);
 		if (problem === undefined) return undefined;
-		// A property no binding has: likely a second binding of the device, written beside the keys
+		// A property no binding of any action type has, holding a key or a table: likely a second
+		// binding of the device, written beside the keys (the compile error says it alike)
 		if (typeIs(spec, "table")) {
-			for (const [name] of pairs(spec as Record<string, unknown>)) {
+			for (const [name, value] of pairs(spec as Record<string, unknown>)) {
 				if ((BINDING_PROPERTY_NAMES as readonly defined[]).includes(name)) continue;
+				if (!IsKeyCode(value) && !typeIs(value, "table")) continue;
 				if (problem !== `${tostring(name)} is not a property of a ${actionType} binding`) continue;
 				return {
 					Problem:

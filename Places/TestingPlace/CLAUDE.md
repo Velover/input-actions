@@ -56,9 +56,9 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `gestures` (`OnTap`, `OnDoubleTap`, `OnHold`, `OnLongPress` with real keys; a context or the
   action disabled, a request, a rebind, the focus-loss reset and the swap on a copy made by hand
   mid-gesture; `Destroy`; bad options) (client);
-  `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*` and
-  `hunter-devices*` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
-  are in `src/shared/fixtures/` (`schemas.ts`; `extras.ts`, the `device-extras` schema;
+  `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*`,
+  `hunter-devices*` and `hunter-features*` sections are reviewers' adversarial tests, kept as
+  regression tests. Fixtures are in `src/shared/fixtures/` (`schemas.ts`; `extras.ts`, the `device-extras` schema;
   `projects.ts`, what each project sets; `authority.ts`, the mode each project
   expects and the warnings' wording; and
   `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those

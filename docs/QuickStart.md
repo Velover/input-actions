@@ -121,11 +121,16 @@ context releases its held actions (on the server too, for Server Authority conte
 const jump = Input.Gameplay.Actions.Jump;
 const jumpKey = jump.Bindings.KeyboardAndMouse;
 jumpKey.Set(Enum.KeyCode.F);
-const cancel = jumpKey.Capture("KeyCode", (key) => print(`bound to ${key.Name}`));
+// the next key; undefined when a Cancel key ends the capture
+const cancel = jumpKey.Capture(
+	"KeyCode",
+	(key) => print(key !== undefined ? `bound to ${key.Name}` : "unchanged"),
+	{ Cancel: [Enum.KeyCode.Backspace] },
+);
 // or keys held together, such as Ctrl+Shift+J: up to two modifiers and a key
 jumpKey.CaptureChord((chord) => print(chord?.KeyCode), { Timeout: 5 });
 // one field per action: the first key pressed picks the device (keyboard or gamepad)
-jump.Capture((key, device) => print(`${key.Name} on ${device}`));
+jump.Capture((key, device) => print(`${key?.Name} on ${device}`));
 // the binding of the device the player uses ("KeyboardAndMouse", "Gamepad" or "Touch")
 print(jump.Bindings[InputActions.PreferredDevice()].Get());
 print(jump.Describe()); // that keybind as text: "Space", "Ctrl + S", "W / A / S / D"

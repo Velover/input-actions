@@ -76,7 +76,7 @@ function keysOf(binding: InputBinding) {
 interface ISlotCapture {
 	readonly Name: string;
 	readonly Instance: InputBinding;
-	Capture(slot: never, callback: (key: Enum.KeyCode) => void): () => void;
+	Capture(slot: never, callback: (key: Enum.KeyCode | undefined) => void): () => void;
 }
 
 /** A few frames in which nothing may arrive */
@@ -537,7 +537,7 @@ export class HunterDevices3Tests implements OnStart {
 				const field = (action: InputActions.CaptureAction, key: Enum.KeyCode) => {
 					const before = captured.size();
 					const stop = action.Capture((got, device) =>
-						captured.push(`${action.Name} ${got.Name} ${device}`),
+						captured.push(`${action.Name} ${got?.Name ?? "cancelled"} ${device}`),
 					);
 					defer(stop);
 					tapFor(real, key, () => captured.size() > before, `${action.Name} captures ${key.Name}`);
@@ -666,8 +666,12 @@ export class HunterDevices3Tests implements OnStart {
 				const nothing = new Array<string>();
 				const look = actions.Look.Bindings.KeyboardAndMouse;
 				const point = actions.Point.Bindings.Gamepad;
-				const stopLook = look.Capture("KeyCode", (key) => nothing.push(`Look ${key.Name}`));
-				const stopPoint = point.Capture("KeyCode", (key) => nothing.push(`Point ${key.Name}`));
+				const stopLook = look.Capture("KeyCode", (key) =>
+					nothing.push(`Look ${key?.Name ?? "cancelled"}`),
+				);
+				const stopPoint = point.Capture("KeyCode", (key) =>
+					nothing.push(`Point ${key?.Name ?? "cancelled"}`),
+				);
 				defer(stopLook);
 				defer(stopPoint);
 				real.Tap(K.H);
