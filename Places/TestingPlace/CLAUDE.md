@@ -34,7 +34,11 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
 - The sections: `schema`, `rules`, `sanitize`, `presets`, `authority-mode`
   (`IsServerAuthority`), `signal-behavior` (the project's signal mode; IAS's and the handles' events
   under it, on the client), `devices` (0.7.0: binding names, keys per device; the client's part:
-  the three device bindings on every action, `Set` and saves by device, `PreferredDevice`) (shared);
+  the three device bindings on every action, `Set` and saves by device, `PreferredDevice`),
+  `device-extras` (0.7.0's extra bindings per device: namespaces, reserved extra names, the extras'
+  binding names, `SanitizeBindings` with extra paths; the client's part: the handles and
+  `Extras()`, captures on extras with real keys, saves, adoption, root handles with other extras,
+  the fill, a held action, the swap on a copy made by hand) (shared);
   `create`, `actions`, `track-previous`, `contexts`,
   `attach-button`, `attach-label` (`AttachLabel`, `WhenLinkedToServer`), `rebinding`,
   `capture-chord` (`CaptureChord` with real keys), `device-capture` (device-locked captures and the
@@ -46,7 +50,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
   `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*` and
   `hunter-devices*` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
-  are in `src/shared/fixtures/` (`schemas.ts`; `projects.ts`, what each project sets; `authority.ts`, the mode each project
+  are in `src/shared/fixtures/` (`schemas.ts`; `extras.ts`, the `device-extras` schema;
+  `projects.ts`, what each project sets; `authority.ts`, the mode each project
   expects and the warnings' wording; and
   `validator-r4.ts`, `validator-r5.ts`, `validator-r6.ts` and `hunter-r2-fixture.ts` for those
   rounds' sections). Project-specific tests skip under the other projects (`getProject()`, then
