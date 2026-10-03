@@ -219,7 +219,13 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
   error (`Schema`'s parameter is generic, so the type checks excess keys itself, as `CheckBindings`
   does), and `Schema` throws on it at runtime, naming it, as on an option of the wrong type: a
   misspelt `ServerAuthority` would otherwise make the context local without a word. The preset's
-  options are checked the same way.
+  options are checked the same way. `Priority` must be a whole number an `InputContext` holds
+  (int32, -2147483648 to 2147483647): IAS reads `math.huge`, `NaN`, `1e12` or `2 ** 31` as
+  -2147483648, the lowest priority there is, and 2.5 as 2, without a word **(probed, hunt HD4-5)**,
+  so `Schema` refuses any other number rather than rounding it. An action's options are checked
+  too, for a definition made without the builders or through a cast: `DisplayName` a string,
+  `Enabled` and `TrackPrevious` booleans, each may be left out (hunt HD4-4: `DisplayName = {}`
+  threw in the middle of `Create`, `Enabled = "no"` read as true).
 - `InputActions.Create(schema, options?)` runs on the client only (throws on the server) and
   returns the typed handle. Options:
   - `Folder?: Instance`: where non-Server-Authority contexts are found or created. Default:
@@ -255,8 +261,17 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
     binding an earlier root handle made unbound (its schema left the device out: a *placeholder*,
     `ISharedEntry.Placeholder`), the later schema fills it: the shared defaults become that
     schema's binding (every handle on it shares the defaults table, so the earlier handle's
-    `Reset` and export follow), and the binding is written when it is still as it was made (a
-    player's rebind stays). The defaults are a reading either way: of the binding once written,
+    `Reset` and export follow). **The keys decide** what happens to the binding: one whose key
+    slots are as they were made gets the later schema's values written, with what the player
+    changed from the old defaults on top (a tuning or a name given with `Set` or a save's entry
+    without a key, applied as `CarryChanges` carries a stand-in's rebinds), so a save loaded before
+    the later `Create` ends as one loaded after it; one whose keys the player set (a rebind, a
+    capture) stays as the player left it. Before hunt HD4-1 any difference counted as a rebind: a
+    tuning or a name loaded first kept the binding unbound, and the export then saved
+    `KeyCode: None`, unbinding the key in later sessions. A save that unbinds the binding outright
+    (`KeyCode: None`, made in a session where it was bound) leaves the keys as they were made, so
+    loaded before the later `Create` the fill still binds it; loaded after, it unbinds it. The
+    defaults are a reading either way: of the binding once written,
     or, when the player rebound it, of a scratch binding the values are written onto, so a float a
     binding can't hold exactly (`PressedThreshold` 0.3) doesn't make `Reset` then the export save
     it (hunt HD-1). The earlier handle's `BindingsChanged` doesn't fire for it. The same
@@ -280,13 +295,25 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
   `InputContext`), so a `Create` that throws leaves the tree as it found it: it fills no other
   root handle's unbound binding, releases no held action (hunt HD-2), and makes no default folder
   (it is made once the checks pass).
-- `Create`'s parameter is `CheckedInputSchema<S>`: `IInputSchema<S>` with its `Contexts` checked
-  by `CheckContexts<S>`, so a misspelt option in `{ Contexts }` written without `Schema` is a
-  compile error too (hunt HD3-2). The exported `InputActions.InputSchema<S>` is that type: checking
-  `S` against `CheckContexts<S>` fails for a generic `S` (a mapped type to `never` can't be proved
-  of a type parameter), so a helper generic over the schema must take the checked type to pass it
-  on, and then does. `Schema`'s result, a preset, a schema kept in a variable and a widened
-  `InputSchema<Record<string, ContextSchema>>` all still compile.
+- `Create`, `ForPlayer`, `ProvideToPlayers` and `SanitizeBindings` take the schema the same way,
+  through two overloads. The first takes `ISchema<S>`, what `Schema` returns: `IInputSchema<S>`
+  branded, checked by `Schema` already, so nothing is checked again. The second takes
+  `ICheckedInputSchema<S>`: `IInputSchema<S>` whose `Contexts` is `S & CheckContexts<S>`, so a
+  misspelt option in `{ Contexts }` written without `Schema` is a compile error too (hunt HD3-2).
+  The exported `InputActions.InputSchema<S>` is that type: checking `S` against
+  `CheckContexts<S>` fails for a generic `S` (a mapped type to `never` can't be proved of a type
+  parameter), so a helper generic over the schema must take the checked type to pass it on, and
+  then does. `ICheckedInputSchema` is an interface, not an intersection, so `S` is inferred as it
+  is from one instantiation to another: from `IInputSchema<S> & { Contexts: CheckContexts<S> }` it
+  was inferred as `S & CheckContexts<S>`, which `ServerHandle<S>` (a mapped type with an `as`
+  clause) doesn't take, so a helper over `InputSchema<S>` couldn't return `ForPlayer`'s handles
+  (hunt HD4-2). The first overload is there for a `Schema` call written inside the call: with the
+  checked type as its context, a preset with no options in it (`UiNavigation()`) inferred its
+  options from that check instead of from its argument, an unreadable error (hunt HD4-3; `NoInfer`
+  didn't help). `Schema`'s result, written inside the call or kept in a variable, a preset, a
+  schema kept in a variable and a widened `InputSchema<Record<string, ContextSchema>>` all
+  compile; a misspelt option is refused inline, in a variable and through a helper. A call that
+  matches neither overload reports both.
 - An adopted binding whose keys break the §3 rules (another device's key included): `warn` with
   the path, and leave it as it is.
 - Instances in the folder that the schema doesn't mention: left alone (IAS still runs them), not
@@ -486,7 +513,13 @@ and it throws on them at runtime):
 Binding handle (non-Scriptable: a device's binding):
 
 - `Instance: InputBinding`, `Name` (the device).
-- `Get()`: the current binding as plain data in the schema's shape (for settings UIs).
+- `Get()`: the current binding as plain data in the schema's shape (for settings UIs), typed
+  `BindingData<A, D>`: the same forms as `BindingPart<A, D>`, so `Set(binding.Get())` compiles on
+  every device binding (a menu's Cancel giving back the snapshot it took). Where the device has a
+  key for none of the action type's forms (the gamepad's ViewportPosition binding), both are that
+  form as it is, which can hold only the display: every binding takes a `DisplayName` (hunt HD4-6:
+  `BindingData` kept the stick's form on the keyboard and mouse and touch, whose `ResponseCurve`
+  `BindingPart` refused, and `BindingPart` was `never` on the gamepad's ViewportPosition binding).
 - `Set(spec)`: typed as the action type's binding shape for the binding's device (§3), or part of
   one of its object forms (`BindingPart<A, D>`: every property optional, a stick's form only on
   the gamepad), validated at runtime (throws on a key or property the action type doesn't allow,
@@ -550,7 +583,10 @@ Binding handle (non-Scriptable: a device's binding):
   `callback(key)`. `options.Cancel?: Enum.KeyCode[]` keys that cancel. The returned function cancels.
   Uses `UserInputService.InputBegan`; ignores `gameProcessed` input (a GUI click, typing, a key a CAS
   binding sinks, such as an InputCatcher's or the legacy shift lock's: a CAS Sink blocks IAS for that
-  key, so a binding on it couldn't fire either), except a Cancel key, heard even then so the player
+  key, so a binding on it couldn't fire either; under the legacy player scripts the ControlModule
+  sinks the gamepad's `ButtonA` and `Thumbstick1` so, always: captures ignore them and IAS bindings
+  on them don't fire, **measured with the virtual pad, 2026-10-03**; under the IAS player scripts
+  bindings on `ButtonA`, `Thumbstick1` and `Thumbstick1Up` fire), except a Cancel key, heard even then so the player
   can always back out. Typing is no part of a capture: anything while a TextBox has focus, and within
   0.1 s after it lets go (however: a script's `ReleaseFocus` too, since the capture can't tell; hunt
   HC4-1) game-processed input (Return, Escape) and clicks or taps (a click away, which isn't
@@ -576,7 +612,12 @@ Binding handle (non-Scriptable: a device's binding):
 - **Sticks and triggers in captures (0.7.0).** Captures also follow a gamepad's `InputChanged`
   (`CaptureInput` in `Capture.ts`): a stick's axis past 0.5 (IAS's default `PressedThreshold`)
   counts as `Thumbstick<n>Up/Down/Left/Right` going down, back under 0.2 (the default
-  `ReleasedThreshold`) as it coming up. That fills composite slots and Bool/Direction1D `KeyCode`
+  `ReleasedThreshold`) as it coming up. Both are read as IAS reads them, past its deadzone
+  (`AnalogValues`): on a stick the radial one, `max(0, (|v| - 0.1) / 0.9)` on the stick's vector,
+  then each axis; on a trigger the linear one, `max(0, (z - 0.1) / 0.9)`. So a capture counts a
+  key exactly where IAS presses a binding on it, at a raw 0.55, and lets it come up where IAS
+  releases it, at a raw 0.28 (PAD-1: they compared the raw `Position`, so a push from raw 0.5 to
+  0.55 was captured but never pressed the action). That fills composite slots and Bool/Direction1D `KeyCode`
   slots (axis keys are legal there), and a chord can end on one. A Direction2D `KeyCode` slot of
   the Gamepad binding takes the whole stick (`Thumbstick1`/`Thumbstick2`) of the first stick pushed
   past 0.5 (`CapturedKey`). A stick's own `InputBegan`/`InputEnded`, if any, are ignored: only the
@@ -584,10 +625,13 @@ Binding handle (non-Scriptable: a device's binding):
   triggers (`ButtonL2`/`ButtonR2`) go down past halfway too (`Position.Z` past 0.5), at their
   `InputBegan` or an `InputChanged`, whichever shows it first: an `InputBegan` below halfway waits
   for an `InputChanged` past it, so a light pull is no key (hunt HD-4). They come up back under
-  0.2 or at their `InputEnded`, whichever comes first. **Unmeasured** which events Roblox sends
-  for a real pad's trigger, and where; this rule holds in either order. VirtualInput's `ButtonR2`
-  arrives as keyboard input, with no position: it goes down and up with its
-  `InputBegan`/`InputEnded`. The `device-capture` section prints what came, for the next probe.
+  0.2 or at their `InputEnded`, whichever comes first. **Measured with the virtual pad
+  (2026-10-03):** a trigger raises `InputChanged` at every change (`Position.Z`, raw),
+  `InputBegan` only at 1 and `InputEnded` only back at 0 (also after a pull that never reached 1),
+  so the `InputChanged` decides; a stick raises only `InputChanged` (`UserInputState.Change`), raw,
+  `y` positive up. VirtualInput's `ButtonR2` arrives as keyboard input, with no position: it goes
+  down and up with its `InputBegan`/`InputEnded`. The `device-capture` section's failure messages
+  carry the pad events that came.
   Mouse movement, the wheel and touch gestures still never count.
 - `CaptureChord(callback, options?): () => void` (0.6.1), on the KeyboardAndMouse and Gamepad
   bindings of Bool and Direction1D actions only (the types whose `KeyCode` takes keys that begin;
@@ -648,7 +692,9 @@ own actions.
     with a real pad. VirtualInput's `ButtonA` is keyboard input, which the selection doesn't take:
     with a button selected, a Gamepad binding's `Capture` takes it (`hunter-devices-2`).
   - Thumbstick deadzones are fixed: radial 0.1 with rescale on sticks, linear 0.1 on triggers;
-    `PressedThreshold` applies to the rescaled value. A stick moving on both axes can fire
+    `PressedThreshold` applies to the rescaled value (measured with the virtual pad: a Bool on
+    `ButtonR2` pressed at raw 0.561 and released at 0.251; a stick's direction pressed past raw
+    0.55 and released under 0.28; `UserInputService` reports the raw value). A stick moving on both axes can fire
     `StateChanged` twice in one frame, with an intermediate value first.
   - Changing a binding's keys while its action is held releases the action on a local context,
     and leaves it stuck under the player (see the binding handle above).
@@ -1124,4 +1170,9 @@ places, `SignalBehavior = Deferred`:
 | The virtual pad plugged in, with no input (2026-10-03, `default`, `ias`, `touch`) | `GamepadConnected` (Gamepad1), and `PreferredInput` switches to `Gamepad` within 0.3 s; unplugging switches back as fast. Under the simulated phone, after a tap, it stays `Touch` |
 | An empty InputBinding (no keys) beside bound ones (P3, 2026-10-03) | IAS never prefers it: empty `Gamepad`/`Touch` bindings beside a Space binding change nothing for `PreferredBinding` or an `InputActionLabel`; an empty `Touch` binding doesn't beat a `UIButton` binding under the simulated phone (the UIButton binding is preferred; its label reads `None`). A Space binding's label reads `" "` |
 | Touch injected through Windows (`InitializeTouchInjection`, the virtual-pad service's experimental `/touch`) | reaches Studio as `MouseButton1` and `MouseMovement`, never as touch; touch stays on the device simulator and VirtualInput |
-| Not measured yet (Steam Input for Xbox controllers was on): the virtual pad's buttons, sticks and triggers in Roblox (`InputBegan`/`InputChanged` for sticks and triggers, `Position`, `gameProcessed`), and the pad with Studio unfocused | the `device-capture` section's pad tests measure them once pad input is on (`VIRTUAL_PAD_INPUT=1`) |
+| The virtual pad's buttons (2026-10-03, Steam closed, Studio's run window focused; every project) | `InputBegan` with `Position.Z` 1 and `InputEnded` with 0, `UserInputType` `Gamepad1` |
+| The virtual pad's triggers (same) | `InputChanged` at every change, `Position.Z` raw (no deadzone); `InputBegan` only at 1 (none at 0.98); `InputEnded` only back at 0 (none at 0.02), also after a pull that never reached 1. A trigger's first move after the pad is plugged in, from rest to about 0.45 to 0.6, raises nothing (each trigger, every time; 0.05, 0.3, 0.8 and 1 arrive, and later moves into that range do; cause unknown) |
+| The virtual pad's sticks (same) | `InputChanged` only (`UserInputState.Change`), `Position` raw, `y` positive up; never `InputBegan` or `InputEnded` |
+| `gameProcessed` for the virtual pad (same) | under the legacy player scripts `ButtonA` and `Thumbstick1` arrive game-processed (the ControlModule's CAS sink), and IAS bindings on them don't fire; nothing else does, the right stick and the triggers included. Under the IAS player scripts nothing arrives game-processed, and IAS bindings on `ButtonA`, `Thumbstick1` and `Thumbstick1Up` fire |
+| IAS bindings on the virtual pad (same) | sticks: radial deadzone 0.1, rescaled (raw 0.3 reads 0.222, 0.6 reads 0.556); triggers: linear 0.1, rescaled (raw 0.6 reads 0.556); a Bool on `ButtonR2` pressed at raw 0.561 and released at 0.251; a Bool on `Thumbstick1Up` pressed by a move to raw 0.6 and released by one to 0.15 |
+| Not measured yet: the virtual pad with Studio's window unfocused | the pad runs so far had the run's window focused |

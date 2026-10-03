@@ -103,7 +103,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     a test holds. A test that holds keys and doesn't test that reset can create its input with
     `ResetOnFocusLoss: false`; `real.FocusNote()` adds to a failure message whether the window lost
     focus during the test.
-- **Real gamepad input (plugging in tried in Studio; no button or stick input yet):**
+- **Real gamepad input (buttons, sticks and triggers measured on 2026-10-03, with Steam closed and
+  Studio's run window focused; with the window unfocused, unmeasured):**
   `tools/virtual-pad` is a Rust service that plugs a virtual Xbox 360 pad into Windows through the
   ViGEmBus driver and sets its state over HTTP on `127.0.0.1:47110` (the API is at the top of its
   `src/main.rs`). `bun run test` starts it before the projects run and stops it after them
@@ -141,8 +142,28 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
       beat a UIButton binding (under `touch` the UIButton binding is preferred; its label reads
       `None`). A Space binding's label reads `" "`;
     - Steam's Xbox controller support is on here, so while Steam runs, its desktop configuration also
-      turns the pad's buttons and sticks into keys and mouse input for the focused window: no button
-      or stick input has been sent yet.
+      turns the pad's buttons and sticks into keys and mouse input for the focused window: pad input
+      runs only with Steam closed (check `Get-Process steam` first; never start Steam).
+  - Measured with pad input on (2026-10-03, Steam closed, the run's window focused; every project):
+    - buttons: `InputBegan` with `Position.Z` 1, `InputEnded` with 0, `UserInputType` `Gamepad1`;
+    - sticks: `InputChanged` only (`Change`), `Position` raw (no deadzone), y positive up;
+    - triggers: `InputChanged` at every change (`Position.Z`, raw), `InputBegan` only at 1,
+      `InputEnded` only back at 0 (also after a pull that never reached 1). A trigger's first move
+      after `Connect`, from rest to about 0.45 to 0.6, raises nothing: start a trigger at 0.3 or
+      0.8 (`SetTrigger`'s doc comment);
+    - the legacy player scripts (`default`, `immediate`) sink `ButtonA` and `Thumbstick1` through
+      CAS (the ControlModule): they arrive game-processed, captures ignore them and IAS bindings on
+      them don't fire. Pad tests use the right stick there (`freeStick()` in `device-capture.ts`).
+      Under the IAS player scripts nothing arrives game-processed, and IAS bindings on `ButtonA`,
+      `Thumbstick1` and `Thumbstick1Up` fire;
+    - IAS reads sticks past a radial deadzone of 0.1 and triggers past a linear 0.1, rescaled: a Bool
+      on `ButtonR2` pressed at raw 0.561 and released at 0.251. The captures read them the same way
+      (PAD-1), so test thresholds with margins: raw 0.52 is no key, 0.6 is;
+    - `padEvents()` and `eventuallyPad()` in `device-capture.ts` put the pad's last events in a
+      failure message.
+  - Run the pad sections with pad input from Git Bash:
+    `VIRTUAL_PAD_INPUT=1 bun run test --keep-awake --realm client --sections device-capture,devices,hunter-devices --project <files>`
+    (the project files, comma-separated, as `test:all` gives them).
 - **Touch from Windows (`POST /touch`, `POST /window`) reaches Studio as mouse input:** injected
   touches (InitializeTouchInjection) arrive as `MouseButton1` and `MouseMovement`, never as touch,
   whether injection started before Studio or during the session; `TouchEnabled` stays false; of two

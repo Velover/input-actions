@@ -12,7 +12,8 @@ import { InputActions } from "@rbxts/input-actions";
 import { UserInputService } from "@rbxts/services";
 import { createTestInput, frames, newFolder, recordSignal } from "./helpers";
 import { emptyPoint, RealInput, realInput, testGui } from "./virtual";
-import { VirtualPad, virtualPad } from "./virtual-pad";
+import { usesLegacyPlayerScripts } from "shared/fixtures/projects";
+import { PadStick, VirtualPad, virtualPad } from "./virtual-pad";
 
 const K = Enum.KeyCode;
 
@@ -66,6 +67,21 @@ const THROTTLE_SCHEMA = InputActions.Schema({
 	},
 });
 
+/**
+ * IAS bindings on a stick's direction and a trigger, beside a binding to capture into, in a context
+ * above the player scripts' and the template other sections leave enabled (CLAUDE.md)
+ */
+const PAD_PRESS_SCHEMA = InputActions.Schema({
+	DevicePadPress: {
+		Priority: 3000,
+		Actions: {
+			Up: InputActions.Bool({ Gamepad: K.Thumbstick2Up }),
+			Pull: InputActions.Bool({ Gamepad: K.ButtonR2 }),
+			Field: InputActions.Bool({ Gamepad: K.ButtonY }),
+		},
+	},
+});
+
 function createThrottle() {
 	const input = InputActions.Create(THROTTLE_SCHEMA, {
 		Folder: newFolder(),
@@ -82,6 +98,84 @@ function pluggedPad(): VirtualPad | string {
 	if (pad.Connect() === undefined) return "Roblox never listed the virtual pad";
 	frames(3);
 	return pad;
+}
+
+/** A stick and its four directions */
+interface IStick {
+	Stick: PadStick;
+	Up: Enum.KeyCode;
+	Down: Enum.KeyCode;
+	Left: Enum.KeyCode;
+	Right: Enum.KeyCode;
+}
+
+const LEFT_STICK: IStick = {
+	Stick: K.Thumbstick1,
+	Up: K.Thumbstick1Up,
+	Down: K.Thumbstick1Down,
+	Left: K.Thumbstick1Left,
+	Right: K.Thumbstick1Right,
+};
+const RIGHT_STICK: IStick = {
+	Stick: K.Thumbstick2,
+	Up: K.Thumbstick2Up,
+	Down: K.Thumbstick2Down,
+	Left: K.Thumbstick2Left,
+	Right: K.Thumbstick2Right,
+};
+
+/**
+ * A stick no player script takes: the left one, unless the legacy player scripts run. Their
+ * ControlModule binds the left stick (and ButtonA) through ContextActionService and sinks it: every
+ * InputChanged of it arrives game-processed, which captures ignore, and an IAS binding on it stays
+ * at rest past 0.3 (measured with the virtual pad under `default`, 2026-10-03). The legacy camera
+ * leaves the right stick unprocessed.
+ */
+function freeStick(): IStick {
+	return usesLegacyPlayerScripts() ? RIGHT_STICK : LEFT_STICK;
+}
+
+function round(value: number) {
+	return math.floor(value * 100 + 0.5) / 100;
+}
+
+/**
+ * What UserInputService saw of `keys` until the test ends, for failure messages: each event's
+ * kind (B, C, E), Position and whether it was game-processed; the last 16
+ */
+function padEvents(keys: Enum.KeyCode[]): () => string {
+	const events = new Array<string>();
+	const record = (kind: string) => (input: InputObject, gameProcessed: boolean) => {
+		if (!keys.includes(input.KeyCode)) return;
+		const position = input.Position;
+		events.push(
+			`${kind} ${input.KeyCode.Name} (${round(position.X)},${round(position.Y)},${round(position.Z)})${gameProcessed ? " gp" : ""}`,
+		);
+	};
+	const connections = [
+		UserInputService.InputBegan.Connect(record("B")),
+		UserInputService.InputChanged.Connect(record("C")),
+		UserInputService.InputEnded.Connect(record("E")),
+	];
+	defer(() => connections.forEach((connection) => connection.Disconnect()));
+	return () => {
+		const last = new Array<string>();
+		for (let index = math.max(0, events.size() - 16); index < events.size(); index++)
+			last.push(events[index]);
+		return `events: ${last.join(", ")}`;
+	};
+}
+
+/**
+ * As `eventually`, with the message read when it gives up, so that it holds the pad's events up to
+ * then (`eventually` takes a string, made before it waits)
+ */
+function eventuallyPad(predicate: () => boolean, what: () => string, timeout = 5) {
+	const deadline = os.clock() + timeout;
+	while (!predicate()) {
+		if (os.clock() >= deadline) error(`expected ${what()} within ${timeout} seconds`, 2);
+		task.wait();
+	}
 }
 
 /**
@@ -446,6 +540,7 @@ export class DeviceCaptureTests implements OnStart {
 			test("pad: a stick pushed past halfway is its direction; back under 0.2 it comes up", () => {
 				const pad = pluggedPad();
 				if (typeIs(pad, "string")) return skip(pad);
+				const events = padEvents([K.Thumbstick1, K.Thumbstick2]);
 				const input = createTestInput(newFolder(), { ResetOnFocusLoss: false });
 				const jump = input.Gameplay.Actions.Jump.Bindings.Gamepad;
 				const captured = new Array<Enum.KeyCode>();
@@ -453,9 +548,12 @@ export class DeviceCaptureTests implements OnStart {
 				// under the threshold: nothing
 				pad.SetStick(K.Thumbstick2, new Vector2(0, 0.3));
 				quiet();
-				expectEqual(captured.size(), 0, "a stick at 0.3");
+				expectEqual(captured.size(), 0, `a stick at 0.3 (${events()})`);
 				pad.SetStick(K.Thumbstick2, new Vector2(0, 0.9));
-				eventually(() => captured.size() === 1, "the stick up");
+				eventuallyPad(
+					() => captured.size() === 1,
+					() => `the stick up (${events()})`,
+				);
 				expectEqual(captured[0], K.Thumbstick2Up);
 				expectEqual(jump.Instance.KeyCode, K.Thumbstick2Up);
 				pad.SetStick(K.Thumbstick2, Vector2.zero);
@@ -464,10 +562,22 @@ export class DeviceCaptureTests implements OnStart {
 				const steer = createThrottle().DeviceCapture.Actions.Steer.Bindings.Gamepad;
 				const left = new Array<Enum.KeyCode>();
 				steer.Capture("Left", (key) => left.push(key));
-				pad.SetStick(K.Thumbstick1, new Vector2(-1, 0));
-				eventually(() => left.size() === 1, "the stick left");
-				expectEqual(left[0], K.Thumbstick1Left);
-				expectEqual(steer.Instance.Left, K.Thumbstick1Left);
+				if (usesLegacyPlayerScripts()) {
+					// the legacy ControlModule sinks the left stick: game-processed, ignored
+					pad.SetStick(K.Thumbstick1, new Vector2(-1, 0));
+					quiet();
+					expectEqual(left.size(), 0, `the left stick, game-processed (${events()})`);
+					pad.SetStick(K.Thumbstick1, Vector2.zero);
+					frames(3);
+				}
+				const stick = freeStick();
+				pad.SetStick(stick.Stick, new Vector2(-1, 0));
+				eventuallyPad(
+					() => left.size() === 1,
+					() => `the stick left (${events()})`,
+				);
+				expectEqual(left[0], stick.Left);
+				expectEqual(steer.Instance.Left, stick.Left);
 			});
 
 			test("pad: a Direction2D KeyCode takes the whole stick, from the first one pushed", () => {
@@ -489,17 +599,22 @@ export class DeviceCaptureTests implements OnStart {
 				if (typeIs(pad, "string")) return skip(pad);
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
+				const stick = freeStick();
+				const events = padEvents([K.ButtonL1, stick.Stick]);
 				const outcomes = new Array<IOutcome>();
 				jump.CaptureChord((chord, device) => outcomes.push({ chord, device }));
 				pad.Press(K.ButtonL1);
 				frames(3);
-				pad.SetStick(K.Thumbstick1, new Vector2(0, -1));
+				pad.SetStick(stick.Stick, new Vector2(0, -1));
 				frames(4);
-				expectEqual(outcomes.size(), 0, "nothing while held");
-				pad.SetStick(K.Thumbstick1, Vector2.zero);
-				eventually(() => outcomes.size() === 1, "the stick's release settles it");
+				expectEqual(outcomes.size(), 0, `nothing while held (${events()})`);
+				pad.SetStick(stick.Stick, Vector2.zero);
+				eventuallyPad(
+					() => outcomes.size() === 1,
+					() => `the stick's release settles it (${events()})`,
+				);
 				pad.Release(K.ButtonL1);
-				expectEqual(describe(outcomes[0]), "ButtonL1+-+Thumbstick1Down on Gamepad");
+				expectEqual(describe(outcomes[0]), `ButtonL1+-+${stick.Down.Name} on Gamepad`);
 			});
 
 			test("pad: a stick already pushed when the capture starts counts once it has come back", () => {
@@ -507,60 +622,122 @@ export class DeviceCaptureTests implements OnStart {
 				if (typeIs(pad, "string")) return skip(pad);
 				const keys = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions.Jump
 					.Bindings.Gamepad;
-				pad.SetStick(K.Thumbstick1, new Vector2(1, 0));
+				const stick = freeStick();
+				const events = padEvents([stick.Stick]);
+				pad.SetStick(stick.Stick, new Vector2(1, 0));
 				frames(4);
 				const captured = new Array<Enum.KeyCode>();
 				keys.Capture("KeyCode", (key) => captured.push(key));
 				frames(4);
-				pad.SetStick(K.Thumbstick1, new Vector2(0.9, 0));
+				pad.SetStick(stick.Stick, new Vector2(0.9, 0));
 				quiet();
-				expectEqual(captured.size(), 0, "held since the start");
-				pad.SetStick(K.Thumbstick1, Vector2.zero);
+				expectEqual(captured.size(), 0, `held since the start (${events()})`);
+				pad.SetStick(stick.Stick, Vector2.zero);
 				quiet();
-				expectEqual(captured.size(), 0, "its release is no part of it either");
-				pad.SetStick(K.Thumbstick1, new Vector2(1, 0));
-				eventually(() => captured.size() === 1, "pushed again");
-				expectEqual(captured[0], K.Thumbstick1Right);
+				expectEqual(captured.size(), 0, `its release is no part of it either (${events()})`);
+				pad.SetStick(stick.Stick, new Vector2(1, 0));
+				eventuallyPad(
+					() => captured.size() === 1,
+					() => `pushed again (${events()})`,
+				);
+				expectEqual(captured[0], stick.Right);
 			});
 
-			// Unmeasured: whether a trigger raises InputBegan or only InputChanged. The capture takes it
-			// either way; the test records which events came, for the design doc
+			// Measured with the virtual pad (2026-10-03): a trigger raises InputChanged at every change
+			// (Position.Z, raw: no deadzone), InputBegan only once all the way down (Z = 1, none at
+			// 0.98) and InputEnded only once all the way up (Z = 0, none at 0.02). So the capture takes
+			// it at the InputChanged past halfway; the messages carry the events that came. Pulled to
+			// 0.8, short of the InputBegan, and released to 0.1, short of the InputEnded, so that the
+			// InputChanged path does it all
 			test("pad: a trigger pulled past halfway is captured (whichever events Roblox sends)", () => {
 				const pad = pluggedPad();
 				if (typeIs(pad, "string")) return skip(pad);
-				const events = new Array<string>();
-				const watch = [
-					UserInputService.InputBegan.Connect((input) => {
-						if (input.KeyCode === K.ButtonR2) events.push(`began ${input.Position.Z}`);
-					}),
-					UserInputService.InputChanged.Connect((input) => {
-						if (input.KeyCode === K.ButtonR2)
-							events.push(`changed ${math.floor(input.Position.Z * 100) / 100}`);
-					}),
-					UserInputService.InputEnded.Connect((input) => {
-						if (input.KeyCode === K.ButtonR2) events.push("ended");
-					}),
-				];
-				defer(() => watch.forEach((connection) => connection.Disconnect()));
+				const events = padEvents([K.ButtonR2, K.ButtonL2, K.ButtonL1]);
 				const throttle = createThrottle().DeviceCapture.Actions.Throttle;
 				const captured = new Array<string>();
 				throttle.Capture((key, device) => captured.push(`${key.Name} on ${device}`));
-				pad.SetTrigger(K.ButtonR2, 1);
-				eventually(() => captured.size() === 1, `the trigger (events: ${events.join(", ")})`);
+				pad.SetTrigger(K.ButtonR2, 0.8);
+				eventuallyPad(
+					() => captured.size() === 1,
+					() => `the trigger (${events()})`,
+				);
 				pad.SetTrigger(K.ButtonR2, 0);
 				frames(4);
-				expectEqual(captured[0], "ButtonR2 on Gamepad", events.join(", "));
-				print(`device-capture: ButtonR2's events: ${events.join(", ")}`);
+				expectEqual(captured[0], "ButtonR2 on Gamepad", events());
 				const chordKeys = new Array<IOutcome>();
 				throttle.CaptureChord((chord, device) => chordKeys.push({ chord, device }));
 				pad.Press(K.ButtonL1);
 				frames(3);
-				pad.SetTrigger(K.ButtonL2, 1);
+				pad.SetTrigger(K.ButtonL2, 0.8);
 				frames(4);
-				pad.SetTrigger(K.ButtonL2, 0);
-				eventually(() => chordKeys.size() === 1, "the trigger's release settles the chord");
+				expectEqual(chordKeys.size(), 0, `nothing while held (${events()})`);
+				pad.SetTrigger(K.ButtonL2, 0.1);
+				eventuallyPad(
+					() => chordKeys.size() === 1,
+					() => `the trigger's release settles the chord (${events()})`,
+				);
 				pad.Release(K.ButtonL1);
-				expectEqual(describe(chordKeys[0]), "ButtonL1+-+ButtonL2 on Gamepad");
+				expectEqual(describe(chordKeys[0]), "ButtonL1+-+ButtonL2 on Gamepad", events());
+			});
+
+			// PAD-1 (pad test, fixed: the captures read a stick's distance and a trigger past IAS's
+			// deadzone of 0.1, rescaled, before the 0.5 and 0.2 thresholds, as IAS does): they compared
+			// the raw Position, so a push from raw 0.5 to 0.55 was captured but never pressed a binding
+			// on it (IAS pressed past raw 0.55, released under about 0.28; measured with the virtual pad)
+			test("pad: a capture counts a stick's direction and a trigger exactly where IAS presses a binding on it", () => {
+				const pad = pluggedPad();
+				if (typeIs(pad, "string")) return skip(pad);
+				const events = padEvents([K.Thumbstick2, K.ButtonR2, K.ButtonL1]);
+				// above the player scripts' contexts and the template other sections leave enabled
+				const input = InputActions.Create(PAD_PRESS_SCHEMA, {
+					Folder: newFolder(),
+					ResetOnFocusLoss: false,
+				});
+				defer(() => input.Destroy());
+				const { Up, Pull, Field } = input.DevicePadPress.Actions;
+				const captured = new Array<Enum.KeyCode>();
+				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				const state = () =>
+					`captured ${captured.map((key) => key.Name).join("+")}, Up ${Up.IsPressed()}, Pull ${Pull.IsPressed()} (${events()})`;
+				// raw 0.52 is 0.467 past the deadzone: neither presses
+				pad.SetStick(K.Thumbstick2, new Vector2(0, 0.52));
+				quiet();
+				expectEqual(`${captured.size()} ${Up.IsPressed()}`, "0 false", `a stick at raw 0.52: ${state()}`);
+				// raw 0.6 is 0.556: both
+				pad.SetStick(K.Thumbstick2, new Vector2(0, 0.6));
+				eventuallyPad(() => captured.size() === 1 && Up.IsPressed(), () => `a stick at raw 0.6: ${state()}`);
+				expectEqual(captured[0], K.Thumbstick2Up);
+				pad.SetStick(K.Thumbstick2, Vector2.zero);
+				eventuallyPad(() => !Up.IsPressed(), () => `the stick back: ${state()}`);
+				// a trigger's first move after plugging in, to about 0.45 to 0.6, raises nothing
+				// (measured): it starts at 0.3
+				Field.Bindings.Gamepad.Capture("KeyCode", (key) => captured.push(key));
+				pad.SetTrigger(K.ButtonR2, 0.3);
+				frames(3);
+				pad.SetTrigger(K.ButtonR2, 0.52);
+				quiet();
+				expectEqual(`${captured.size()} ${Pull.IsPressed()}`, "1 false", `a trigger at raw 0.52: ${state()}`);
+				pad.SetTrigger(K.ButtonR2, 0.6);
+				eventuallyPad(() => captured.size() === 2 && Pull.IsPressed(), () => `a trigger at raw 0.6: ${state()}`);
+				expectEqual(captured[1], K.ButtonR2);
+				pad.SetTrigger(K.ButtonR2, 0);
+				eventuallyPad(() => !Pull.IsPressed(), () => `the trigger back: ${state()}`);
+				// coming up: a chord settles when IAS lets go (under raw 0.28), not before
+				const chords = new Array<string>();
+				Field.Bindings.Gamepad.CaptureChord((chord) => chords.push(describe({ chord })));
+				pad.Press(K.ButtonL1);
+				frames(3);
+				pad.SetTrigger(K.ButtonR2, 0.8);
+				eventuallyPad(() => Pull.IsPressed(), () => `pulled again: ${state()}`);
+				// raw 0.32 is 0.244 past the deadzone: still down for both
+				pad.SetTrigger(K.ButtonR2, 0.32);
+				quiet();
+				expectEqual(`${chords.join(", ")} ${Pull.IsPressed()}`, " true", `a trigger back at raw 0.32: ${state()}`);
+				// raw 0.2 is 0.111: up for both
+				pad.SetTrigger(K.ButtonR2, 0.2);
+				eventuallyPad(() => chords.size() === 1 && !Pull.IsPressed(), () => `a trigger back at raw 0.2: ${chords.join(", ")} ${state()}`);
+				pad.Release(K.ButtonL1);
+				expectEqual(chords[0], "ButtonL1+-+ButtonR2");
 			});
 
 			test("pad: a gamepad button pressed for real is captured by the action's Capture", () => {

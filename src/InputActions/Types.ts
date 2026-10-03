@@ -138,11 +138,6 @@ export type BindingShape<
 /** What the builders' records take before the device checks: any device's keys, or Scriptable */
 export type BindingSpec<T extends Enum.InputActionType> = IBindingShapeMap[T["Name"]] | IScriptable;
 type PartialEach<U> = U extends unknown ? Partial<U> : never;
-/** A binding's current value as plain data in the schema's shape. An unbound binding has no keys */
-export type BindingData<
-	T extends Enum.InputActionType,
-	D extends Device = Device,
-> = D extends Device ? PartialEach<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
 /**
  * Each object form with every property optional, but only the forms whose `KeyCode` the device
  * has: a stick's form (`ResponseCurve`) only on the gamepad (hunt HD3-3)
@@ -153,6 +148,20 @@ type PartialForm<F> = F extends { KeyCode: infer Key }
 		: Partial<F>
 	: Partial<F>;
 /**
+ * Device `D`'s object forms of an action type, every property optional, as `PartialForm` keeps them.
+ * Where the device has a key for none of them (a ViewportPosition binding on the gamepad), the forms
+ * as they are, which hold only the display: every binding may take a `DisplayName` (hunt HD4-6)
+ */
+type DeviceParts<F> = [PartialForm<F>] extends [never] ? PartialEach<F> : PartialForm<F>;
+/**
+ * A binding's current value as plain data in the schema's shape (`Get`). An unbound binding has no
+ * keys. The same forms as `BindingPart`, so `Set(binding.Get())` takes it back (hunt HD4-6)
+ */
+export type BindingData<
+	T extends Enum.InputActionType,
+	D extends Device = Device,
+> = D extends Device ? DeviceParts<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
+/**
  * Part of an object form of device `D`'s binding, without the keys it doesn't name: `Set` merges it
  * into the binding (`{ PressedThreshold: 0.9 }`, `{ ResponseCurve: 2 }` on a stick). Its properties
  * are still the action type's
@@ -160,7 +169,7 @@ type PartialForm<F> = F extends { KeyCode: infer Key }
 export type BindingPart<
 	T extends Enum.InputActionType,
 	D extends Device = Device,
-> = D extends Device ? PartialForm<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
+> = D extends Device ? DeviceParts<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
 
 // Generic inference skips excess-property checks, so unknown properties are rejected here. A binding
 // named after a device takes that device's keys (`BindingShape<T, D>`), any other name only
@@ -282,13 +291,26 @@ export interface IInputSchema<S extends Record<string, IContextSchema>> {
 	readonly Contexts: S;
 }
 /**
- * A schema as `Create` takes it: what `Schema` returns, or `{ Contexts }` written without it, whose
- * misspelt context options are refused here, as `Schema`'s parameter refuses them (hunt HD3-2). A
- * generic `S` passes on as it is, so a helper over `InputActions.InputSchema<S>` can call `Create`
+ * A schema as `Create`, `ForPlayer`, `ProvideToPlayers` and `SanitizeBindings` take it: what
+ * `Schema` returns, or `{ Contexts }` written without it, whose misspelt context options are refused
+ * here, as `Schema`'s parameter refuses them (hunt HD3-2). A generic `S` passes on as it is, so a
+ * helper over `InputActions.InputSchema<S>` can call them. An interface, not an intersection: from
+ * one instantiation of it to another `S` is inferred as it is, where from an intersection it was
+ * inferred as `S & CheckContexts<S>`, which `ServerHandle<S>` doesn't take (hunt HD4-2)
  */
-export type CheckedInputSchema<S extends Record<string, IContextSchema>> = IInputSchema<S> & {
-	readonly Contexts: CheckContexts<S>;
-};
+export interface ICheckedInputSchema<S extends Record<string, IContextSchema>>
+	extends IInputSchema<S> {
+	readonly Contexts: S & CheckContexts<S>;
+}
+/**
+ * What `Schema` returns: a schema it checked. The functions that take a schema take this first, as
+ * it is, then `ICheckedInputSchema<S>`: checked again, its type would be the context a `Schema` call
+ * written inside them infers from, and a preset with no options there would infer its options from
+ * that check instead of from its argument (hunt HD4-3)
+ */
+export interface ISchema<S extends Record<string, IContextSchema>> extends IInputSchema<S> {
+	readonly _nominal_InputActionsSchema: unique symbol;
+}
 
 // ---- client handles
 

@@ -11,6 +11,7 @@ import type {
 	IContextSchema,
 	IInputSchema,
 	IScriptable,
+	ISchema,
 } from "./Types";
 
 /** The marker of a binding driven only from code (`Fire`) */
@@ -144,7 +145,21 @@ const CONTEXT_OPTIONS: Record<string, "boolean" | "number"> = {
 	Enabled: "boolean",
 };
 
-/** Why a context schema's options are wrong, if they are: a misspelt one would be ignored */
+/** The range of an InputContext's `Priority`, an int32: any other number lands on the lowest (probed) */
+const MIN_PRIORITY = -2147483648;
+const MAX_PRIORITY = 2147483647;
+
+/** Whether an InputContext holds this `Priority` as it is: a whole number in int32 range (not NaN) */
+function IsPriority(value: number): boolean {
+	return value === math.floor(value) && value >= MIN_PRIORITY && value <= MAX_PRIORITY;
+}
+
+/**
+ * Why a context schema's options are wrong, if they are: a misspelt one would be ignored, and a
+ * `Priority` an InputContext can't hold (not an integer in int32 range: `math.huge`, NaN, `2 ** 31`
+ * read as the lowest priority there is, 2.5 as 2) would put the context elsewhere without a word
+ * (hunt HD4-5)
+ */
 function ContextOptionsProblem(context: object): string | undefined {
 	for (const [key, value] of pairs(context as Record<string, unknown>)) {
 		if (key === "Actions") continue;
@@ -156,6 +171,34 @@ function ContextOptionsProblem(context: object): string | undefined {
 			);
 		}
 		if (!typeIs(value, expected)) return `${key} must be a ${expected}, not ${typeOf(value)}`;
+		if (key === "Priority" && !IsPriority(value as number)) {
+			return (
+				`Priority must be a whole number from ${MIN_PRIORITY} to ${MAX_PRIORITY}, not ` +
+				tostring(value)
+			);
+		}
+	}
+	return undefined;
+}
+
+/** The options of an action definition, and the type of each */
+const ACTION_OPTIONS: Record<string, "string" | "boolean"> = {
+	DisplayName: "string",
+	Enabled: "boolean",
+	TrackPrevious: "boolean",
+};
+
+/**
+ * Why an action definition's options are of the wrong type, if one is: a definition made without
+ * the builders may hold anything there, and `DisplayName = {}` would throw in the middle of `Create`,
+ * `Enabled = "no"` read as true (hunt HD4-4). Each may be left out
+ */
+function ActionOptionsProblem(action: object): string | undefined {
+	const record = action as Record<string, unknown>;
+	for (const [name, expected] of pairs(ACTION_OPTIONS)) {
+		const value = record[name];
+		if (value !== undefined && !typeIs(value, expected))
+			return `${name} must be a ${expected}, not ${typeOf(value)}`;
 	}
 	return undefined;
 }
@@ -168,9 +211,10 @@ export interface ISchemaProblem {
 
 /**
  * The first thing `Schema` refuses in these contexts, if any: a name the handles can't hold, a
- * context without `Actions`, an option misspelt or of the wrong type, something that isn't an
- * action, a binding that breaks the rules. `Create` runs it again, for a schema made without
- * `Schema` (hunts HD2-5, HD3-2)
+ * context without `Actions`, an option misspelt or of the wrong type, a `Priority` an InputContext
+ * can't hold, something that isn't an action, an action option of the wrong type, a binding that
+ * breaks the rules. `Create` runs it again, for a schema made without `Schema` (hunts HD2-5, HD3-2,
+ * HD4-4, HD4-5)
  */
 export function SchemaProblem(
 	contexts: Readonly<Record<string, IContextSchema>>,
@@ -192,6 +236,8 @@ export function SchemaProblem(
 					Problem: "not an action; use InputActions.Bool, Direction1D, ...",
 				};
 			}
+			const optionProblem = ActionOptionsProblem(action);
+			if (optionProblem !== undefined) return { Path: actionPath, Problem: optionProblem };
 			const bindings = Entries(action.Bindings as Record<string, unknown>);
 			for (const [slot, spec] of bindings) {
 				const slotPath = `${actionPath}/${slot}`;
@@ -214,8 +260,8 @@ export function SchemaProblem(
 /** Checks a schema at runtime (for values the types could not see, e.g. casts) and freezes it */
 export function Schema<S extends Record<string, IContextSchema>>(
 	contexts: S & CheckContexts<S>,
-): IInputSchema<S> {
+): ISchema<S> {
 	const found = SchemaProblem(contexts);
 	if (found !== undefined) error(`InputActions.Schema: ${found.Path}: ${found.Problem}`, 2);
-	return DeepFreeze({ Contexts: contexts });
+	return DeepFreeze({ Contexts: contexts }) as IInputSchema<S> as ISchema<S>;
 }

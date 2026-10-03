@@ -299,10 +299,12 @@ function ReadingOf(
  * A binding the package made unbound for a device its root handle's schema left out (a placeholder)
  * takes the defaults another root handle's schema gives that device: `Create` twice on one folder,
  * or a Server Authority swap onto bindings another handle made on the copy. Every handle on it
- * shares the new defaults (they are the same table). A binding still as it was made gets them
- * written; one a player rebound since keeps its keys. Either way the defaults are a reading, as
- * everywhere else, so `Reset` then `ExportBindings` saves nothing (hunt HD-1). Does nothing to any
- * other binding.
+ * shares the new defaults (they are the same table). Its keys decide: a binding whose keys are still
+ * as they were made gets the new defaults written, with what a player changed meanwhile on top (a
+ * tuning or a name given with `Set` or a save, as `CarryChanges` carries it), so the outcome doesn't
+ * depend on when the save loads (hunt HD4-1); one a player rebound keeps its keys and the rest.
+ * Either way the defaults are a reading, as everywhere else, so `Reset` then `ExportBindings` saves
+ * nothing (hunt HD-1). Does nothing to any other binding.
  * @param releasedThreshold how the write treats `ReleasedThreshold` (see `EReleasedThreshold`)
  */
 export function FillPlaceholder(
@@ -314,9 +316,17 @@ export function FillPlaceholder(
 	const current = entry?.Defaults;
 	if (entry === undefined || entry.Placeholder !== true || current === undefined) return;
 	entry.Placeholder = undefined;
-	const untouched = SameValues(ReadBinding(binding), current);
+	const now = ReadBinding(binding);
+	const untouched = SameValues(now, current);
+	const rebound = KEY_SLOTS.some((slot) => now[slot] !== current[slot]);
 	if (untouched) WriteBindings([[binding, defaults, releasedThreshold]]);
-	// A rebound one: what the binding as it was made would read with them
+	else if (!rebound) {
+		const values: IBindingValues = { ...defaults };
+		const changedReleased = ApplyChanges(values, now, current);
+		const write = changedReleased ? EReleasedThreshold.Read : releasedThreshold;
+		WriteBindings([[binding, values, write]]);
+	}
+	// What the binding as it was made would read with them: read back from one still as it was made
 	const filled = untouched ? ReadBinding(binding) : ReadingOf(current, defaults, releasedThreshold);
 	const target = current as unknown as Record<string, unknown>;
 	for (const [name, value] of pairs(filled as unknown as Record<string, unknown>))
@@ -396,6 +406,21 @@ export function CarryChanges(
 	target: InputBinding,
 ): BindingWrite {
 	const values = ReadBinding(target);
+	const changedReleased = ApplyChanges(values, current, defaults);
+	return [target, values, changedReleased ? EReleasedThreshold.Read : EReleasedThreshold.Keep];
+}
+
+/**
+ * Applies onto `values` what `current` changed from `defaults`, as an import of those changes would
+ * (one input source per binding), leaving the rest as it is (`CarryChanges`, `FillPlaceholder`)
+ * @returns whether `ReleasedThreshold` is among the changes: then the write gives the binding the
+ * reading, else the binding's stored value may stay
+ */
+function ApplyChanges(
+	values: IBindingValues,
+	current: IBindingValues,
+	defaults: IBindingValues,
+): boolean {
 	const saved = new Map<SavedProperty, SavedValue>();
 	for (const name of SAVED_PROPERTIES) {
 		if (current[name] !== defaults[name]) saved.set(name, current[name]);
@@ -406,10 +431,7 @@ export function CarryChanges(
 	if (current.DisplayName !== defaults.DisplayName) values.DisplayName = current.DisplayName;
 	if (current.DisplayImage.Uri !== defaults.DisplayImage.Uri)
 		values.DisplayImage = current.DisplayImage;
-	const releasedThreshold = saved.has("ReleasedThreshold")
-		? EReleasedThreshold.Read
-		: EReleasedThreshold.Keep;
-	return [target, values, releasedThreshold];
+	return saved.has("ReleasedThreshold");
 }
 
 const DEFAULT_SCALE = 1;

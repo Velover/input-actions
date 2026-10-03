@@ -57,7 +57,15 @@ export namespace InputActions {
 	 * server) and returns a clean save, e.g. to clean what a client sends before storing it.
 	 */
 	export function SanitizeBindings<S extends Record<string, T.IContextSchema>>(
-		schema: T.IInputSchema<S>,
+		schema: T.ISchema<S>,
+		json: string,
+	): string;
+	export function SanitizeBindings<S extends Record<string, T.IContextSchema>>(
+		schema: T.ICheckedInputSchema<S>,
+		json: string,
+	): string;
+	export function SanitizeBindings<S extends Record<string, T.IContextSchema>>(
+		schema: T.ICheckedInputSchema<S>,
 		json: string,
 	): string {
 		return SanitizeBindingsImpl(schema, json);
@@ -144,7 +152,7 @@ export namespace InputActions {
 	 * A schema: what `Schema` returns, or `{ Contexts }` written without it (a misspelt context
 	 * option is a compile error there too). A helper generic over it can pass it to `Create`
 	 */
-	export type InputSchema<S extends Record<string, T.IContextSchema>> = T.CheckedInputSchema<S>;
+	export type InputSchema<S extends Record<string, T.IContextSchema>> = T.ICheckedInputSchema<S>;
 	export type ActionDefinition<
 		A extends Enum.InputActionType,
 		B = unknown,

@@ -106,7 +106,26 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   is never captured: set touch keys with `Set`). `action.Capture` and `action.CaptureChord` (Bool
   and Direction1D actions) give a menu one field per action.
 - **Saves** keep their format: entries under the device names load as before; others are skipped
-  with a reason (`Mouse is not a device: ...`).
+  with a reason (`Mouse is not a device: ...`). To keep a 0.6 save's rebinds, rename its paths to
+  the device each old slot became before importing it, on the JSON string itself (one old slot per
+  device: two entries under one path keep only one); an entry whose keys aren't that device's is
+  still skipped, with a reason:
+
+  ```ts
+  const [renamed] = json.gsub('"([^"/]+/[^"/]+)/Keyboard":', '"%1/KeyboardAndMouse":');
+  const [migrated] = renamed.gsub('"([^"/]+/[^"/]+)/Pad":', '"%1/Gamepad":');
+  Input.ImportBindings(migrated);
+  ```
+- **Bindings in the folder or a template** are adopted by the new names only (`JumpKeyboardAndMouse`,
+  `JumpGamepad`, `JumpTouch`, or the bare device name). One named after an old slot (`JumpKeyboard`)
+  is no longer adopted: it keeps running beside the package's new binding, with only a warning in
+  Studio. Rename or delete such bindings.
+- **Types:** `InputActions.InputSchema<S>` is now the checked schema type (a misspelt context option
+  is a compile error there too): a helper generic over the schema takes `InputSchema<S>` to pass it
+  to `Create`, `ForPlayer`, `ProvideToPlayers` or `SanitizeBindings`; one typed `{ Contexts: S }`
+  no longer can. `InputActions.BindingHandle<A>` is the keyboard-and-mouse or gamepad binding (the
+  ones with `Capture`): type a variable that may hold the `Touch` one
+  `InputActions.BindingHandle<A, InputActions.Device>`.
 - The `UiNavigation` preset's `Scroll` is the wheel on the keyboard and mouse (its `Mouse` slot and
   the `PageUp`/`PageDown` composite are gone).
 

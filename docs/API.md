@@ -51,7 +51,11 @@ InputActions.Schema(contexts): { readonly Contexts }
 `{ ServerAuthority?: boolean; Priority?: number; Sink?: boolean; Enabled?: boolean; Actions }`. The
 defaults are the IAS ones (Priority 1000, Sink false, Enabled true). Any other key is a compile error,
 and `Schema` throws on it at runtime too (a misspelt `ServerAuthority` would make the context local),
-as on an option of the wrong type. `Schema` checks the bindings at runtime too (a key binding not
+as on an option of the wrong type, an action option of the wrong type (`DisplayName` not a string,
+`Enabled` or `TrackPrevious` not a boolean: a cast can put anything there), and a `Priority` an
+`InputContext` can't hold: it must be a whole number from -2147483648 to 2147483647 (IAS reads
+`math.huge`, `NaN` or `2 ** 31` as the lowest priority there is, and 2.5 as 2, without a word).
+`Schema` checks the bindings at runtime too (a key binding not
 named after a device, a Scriptable under a device's name, another device's key: each named in the
 message), and throws on names the handles can't hold: a context named like one of the root
 handle's five members, a name with `/`, or a slot whose binding would take the name of one the
@@ -79,7 +83,8 @@ the [root handle](#root-handle).
 
 Throws when an existing action's `Type` differs from the schema, when a child named like a
 context or action is not an `InputContext`/`InputAction`, and on anything `Schema` refuses, with
-its message (a schema made without `Schema`: a misspelt option, a name, a binding). It checks these
+its message (a schema made without `Schema`: a misspelt option, an option of the wrong type, a
+`Priority`, a name, a binding). It checks these
 before it changes anything: a `Create` that throws leaves the tree as it was, and makes no
 `ReplicatedStorage.Inputs`. A misspelt option in `{ Contexts }` written without `Schema` is a
 compile error too, as in `Schema`. See
@@ -184,9 +189,9 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.ContextHandle<C>` | a context handle |
 | `InputActions.Handle<S>` | what `Create` returns |
 | `InputActions.ServerHandle<S>`, `ServerAction<A>` | what `ForPlayer` returns |
-| `InputActions.ContextSchema`, `InputSchema<S>`, `ActionDefinition<A, B, TP>`, `ActionOptions` | schema data; `InputSchema<S>` refuses a misspelt context option, and a helper generic over it can pass it to `Create` |
+| `InputActions.ContextSchema`, `InputSchema<S>`, `ActionDefinition<A, B, TP>`, `ActionOptions` | schema data; `InputSchema<S>` refuses a misspelt context option, and a helper generic over it can pass it to `Create`, `ForPlayer`, `ProvideToPlayers` and `SanitizeBindings` (`ForPlayer` then returns `ServerHandle<S>`) |
 | `InputActions.ActionValue<A>` | `boolean`, `number`, `Vector2`, `Vector3` or `Vector2` |
-| `InputActions.BindingShape<A, D>`, `BindingPart<A, D>`, `BindingData<A, D>` | what `Set` takes (a shape, or part of an object shape without its key) and `Get` returns, for device `D` (any device's by default) |
+| `InputActions.BindingShape<A, D>`, `BindingPart<A, D>`, `BindingData<A, D>` | what `Set` takes (a shape, or part of an object shape without its key) and `Get` returns, for device `D` (any device's by default). `BindingData` and `BindingPart` are the same forms, so `Set(binding.Get())` gives a binding back what it had; a device with no key for the action type (the gamepad's ViewportPosition binding) has the display only |
 | `InputActions.CaptureSlot<A>`, `CaptureOptions` | `Capture`'s arguments |
 | `InputActions.Chord`, `ChordCaptureOptions` | what `CaptureChord` passes its callback, and its options |
 | `InputActions.ImportResult`, `SkippedBinding` | what `ImportBindings` returns |
@@ -286,7 +291,7 @@ press; they throw if called on it anyway):
 
 | Member | |
 | --- | --- |
-| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway, both as IAS reads them past its deadzone, so where a binding on them would press; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
 | `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the
@@ -336,7 +341,8 @@ The package writes it this way:
   read as **rates**: the amount over that frame's time, for one frame, then 0. Multiply by the
   frame's delta time. `Scale` and `Vector2Scale` apply to them; `ClampMagnitudeToOne` doesn't.
 - Thumbstick and trigger deadzones are fixed (radial 0.1 with rescaling on sticks, linear 0.1 on
-  triggers); `PressedThreshold` applies after them.
+  triggers); `PressedThreshold` applies after them, so the default thresholds press past a raw push
+  of about 0.55 and release under about 0.28 (`InputObject.Position` is the raw value).
 - A key with `PrimaryModifier`/`SecondaryModifier` doesn't block other bindings of the plain key.
   See [IAS behaviours to know](Advanced.md#ias-behaviours-to-know).
 

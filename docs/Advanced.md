@@ -61,7 +61,10 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   leaves what another still uses (instances, held input, requests). What the package made goes
   with the last handle. When a later schema names a device an earlier one left out, it fills that
   device's unbound binding: its keys become the defaults of every handle on it (a player's rebind
-  made meanwhile stays). A `Create` that gives an action a binding it didn't have (a Scriptable
+  made meanwhile stays). The keys decide: a tuning or a name given to the unbound binding meanwhile
+  (`Set({ PressedThreshold: 0.25 })`, a save's entry without a key) stays on top of what the schema
+  fills in, so a save loaded before the later `Create` ends as one loaded after it; a key the
+  player set keeps the binding as the player left it. A `Create` that gives an action a binding it didn't have (a Scriptable
   slot, or a template's binding) or fills one releases the action if it is held, as `AttachButton`
   does (see [IAS behaviours to know](#ias-behaviours-to-know)).
 - On an action another handle still uses, `Destroy` lets go of what the destroyed handle held
@@ -258,7 +261,12 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`gameProcessed`) is ignored: a click or tap on GUI, typing in a TextBox, and keys a
   ContextActionService binding sinks, such as an active `InputCatcher`'s or the legacy shift lock's
   on Shift (when the player turned shift lock on). Those keys couldn't drive an IAS binding either,
-  since a CAS sink blocks IAS. A `Cancel` key is heard even then, so the player can always back out.
+  since a CAS sink blocks IAS. Under the legacy player scripts
+  (`Workspace.PlayerScriptsUseInputActionSystem` off) the ControlModule sinks the gamepad's
+  `ButtonA` (jump) and left stick (`Thumbstick1`, movement) that way, always: a capture ignores
+  them, and an IAS binding on them doesn't fire (measured with a virtual pad); under the IAS player
+  scripts both reach IAS bindings (`ButtonA`, `Thumbstick1`, `Thumbstick1Up`) and captures. A
+  `Cancel` key is heard even then, so the player can always back out.
   Typing is no part of a capture, `Cancel` keys included: nothing counts while a TextBox has focus,
   and for 0.1 s after it loses focus, however it loses it (a script's `ReleaseFocus` too), clicks,
   taps and input the game processed don't count either, since what ends the typing (Return, Escape,
@@ -279,10 +287,13 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   (`UserInputService.InputBegan`), and on the gamepad its sticks and triggers. **A stick pushed past
   halfway** counts as its direction going down (`Thumbstick1Up`, `Thumbstick2Left`...), and back
   under 0.2 as it coming up: that fills a composite direction, a Bool or Direction1D `KeyCode`, or
-  ends a chord. A `Direction2D` `KeyCode` slot of the Gamepad binding takes the whole stick
-  (`Thumbstick1` or `Thumbstick2`) of the first one pushed. A stick already pushed when the capture
-  starts counts once it has come back. **The triggers** (`ButtonL2`, `ButtonR2`) count as they go
-  down past halfway (a lighter pull is no key), and come up back under 0.2. The mouse wheel, mouse
+  ends a chord. Halfway is as IAS reads the stick, past its deadzone (see
+  [IAS behaviours to know](#ias-behaviours-to-know)): a capture counts a direction exactly where a
+  binding on it would press, at a raw push of about 0.55, and lets it come up at about 0.28. A
+  `Direction2D` `KeyCode` slot of the Gamepad binding takes the whole stick (`Thumbstick1` or
+  `Thumbstick2`) of the first one pushed. A stick already pushed when the capture starts counts once
+  it has come back. **The triggers** (`ButtonL2`, `ButtonR2`) count as they go down past halfway the
+  same way (a lighter pull is no key), and come up back under 0.2. The mouse wheel, mouse
   movement, touch drags and trackpad pan and pinch only change, so a capture never takes them: a
   wheel notch doesn't land in a `Direction1D` slot
   (measured), and from keyboard and mouse a `Direction2D` `KeyCode` slot, which takes only those
@@ -772,8 +783,16 @@ IAS code, with or without this package. The package's tests run under both `Defe
   something is selected.
 - **Thumbstick deadzones are fixed:** a radial deadzone of 0.1 with rescaling on sticks, and a
   linear 0.1 on triggers; there is no property for them. `PressedThreshold` applies to the rescaled
-  value. A stick moving on both axes can fire `StateChanged` twice in one frame, with an
-  intermediate value first.
+  value, so the default thresholds press past a raw push of about 0.55 and release under about 0.28
+  (measured with a virtual pad: a Bool binding on `ButtonR2` pressed at 0.561 and released at
+  0.251). `UserInputService`'s `InputObject.Position` is the raw value. A stick moving on both axes
+  can fire `StateChanged` twice in one frame, with an intermediate value first.
+- **What Roblox sends for a pad** (measured with a virtual Xbox 360 pad, 2026-10-03): buttons an
+  `InputBegan` (`Position.Z` 1) and an `InputEnded` (0), from `Gamepad1`; a stick only
+  `InputChanged`, raw, `y` positive up; a trigger an `InputChanged` at every change (`Position.Z`,
+  raw), `InputBegan` only once all the way down and `InputEnded` only once back at 0, also after a
+  pull that never reached 1. So code that waits for a trigger's `InputBegan` misses a partial pull:
+  read `InputChanged`, or bind it with IAS.
 - `GetState()` updates synchronously after a `Fire`; the events (`Pressed`, `StateChanged`) are
   deferred under `SignalBehavior = Deferred`, and run inside the `Fire` call under `Immediate`.
   Under Server Authority (which requires Deferred), contexts under the player are simulated: the

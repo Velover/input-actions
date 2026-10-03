@@ -140,13 +140,24 @@ export class VirtualPad {
 		frames(2);
 	}
 
-	/** Moves a stick: each axis -1 to 1, y up (as XInput has it) */
+	/**
+	 * Moves a stick: each axis -1 to 1, y up (as XInput has it). Roblox raises InputChanged only,
+	 * with the same values in Position (y up, no deadzone), never InputBegan or InputEnded
+	 * (measured on 2026-10-03). The legacy player scripts' ControlModule sinks Thumbstick1 (and
+	 * ButtonA) through ContextActionService: game-processed there
+	 */
 	SetStick(stick: PadStick, position: Vector2) {
 		this._sticks.set(stick, position);
 		this.Send();
 	}
 
-	/** Pulls a trigger: 0 (released) to 1 (all the way) */
+	/**
+	 * Pulls a trigger: 0 (released) to 1 (all the way). Roblox raises InputChanged at each change
+	 * (Position.Z, no deadzone), InputBegan only at 1 and InputEnded on coming back to 0. A trigger's
+	 * first move after `Connect`, from rest to a value from about 0.45 to 0.6, raises nothing (each
+	 * trigger, every time; 0.05, 0.3, 0.8 and 1 arrive, and so do later moves into that range):
+	 * measured on 2026-10-03, cause unknown. Don't start a trigger there.
+	 */
 	SetTrigger(trigger: PadTrigger, value: number) {
 		this._triggers.set(trigger, value);
 		this.Send();

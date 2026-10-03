@@ -25,7 +25,10 @@ export function KeyFromInput(
 	return MOUSE_BUTTON_KEYS.get(inputType);
 }
 
-/** IAS's default `PressedThreshold` and `ReleasedThreshold`: where a stick's direction goes down and up */
+/**
+ * IAS's default `PressedThreshold` and `ReleasedThreshold`: where a stick's direction or a trigger
+ * goes down and up, on the value past the deadzone (`AnalogValues`)
+ */
 const PRESS_THRESHOLD = 0.5;
 const RELEASE_THRESHOLD = 0.2;
 
@@ -69,14 +72,35 @@ const GAMEPAD_INPUT_TYPES = new ReadonlySet<Enum.UserInputType>([
 	Enum.UserInputType.Gamepad8,
 ]);
 
-/** How far an analog input (a stick's direction, a trigger) is pushed: 0..1 */
+/**
+ * IAS's deadzone on a pad's sticks (radial: on the stick's distance from the centre) and triggers
+ * (linear): a value under it reads 0, and the rest is rescaled to 0..1, before `PressedThreshold` and
+ * `ReleasedThreshold` apply. Roblox's `InputObject.Position` is the raw value (measured with the
+ * virtual pad, 2026-10-03: a Bool binding on `ButtonR2` pressed at raw 0.561 and released at 0.251;
+ * stick directions pressed past raw 0.55 and released under 0.28)
+ */
+const PAD_DEADZONE = 0.1;
+
+/** A raw stick distance or trigger pull as IAS reads it once past its deadzone */
+function PastDeadzone(value: number): number {
+	return math.max(0, (value - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+}
+
+/**
+ * How far an analog input (a stick's direction, a trigger) is pushed, as IAS reads it: past its
+ * deadzone, rescaled, so the thresholds below count a key exactly where IAS presses a binding on it
+ * (a raw push between 0.5 and 0.55 is no key: PAD-1)
+ */
 function AnalogValues(input: InputObject): Array<[Enum.KeyCode, number]> {
 	const directions = STICK_DIRECTIONS.get(input.KeyCode);
 	if (directions !== undefined) {
-		const position = new Vector2(input.Position.X, input.Position.Y);
+		const raw = new Vector2(input.Position.X, input.Position.Y);
+		const distance = raw.Magnitude;
+		const position = distance > 0 ? raw.mul(PastDeadzone(distance) / distance) : raw;
 		return directions.map(([key, way]) => [key, position.Dot(way)]);
 	}
-	if (TRIGGER_KEYS.includes(input.KeyCode)) return [[input.KeyCode, input.Position.Z]];
+	if (TRIGGER_KEYS.includes(input.KeyCode))
+		return [[input.KeyCode, PastDeadzone(input.Position.Z)]];
 	return [];
 }
 
@@ -243,12 +267,14 @@ class DownAtStart {
 
 /**
  * The keys a capture hears, in the order they go down and come up. A stick is heard through
- * `InputChanged` only: each direction goes down past halfway (0.5, IAS's default
- * `PressedThreshold`) and comes up back under 0.2. A pad's trigger goes down past halfway too, at
- * its `InputBegan` or an `InputChanged`, whichever shows it there first (an `InputBegan` below
- * halfway waits for one: hunt HD-4), and comes up under 0.2 or at its `InputEnded`, whichever comes
- * first; which events Roblox sends for a trigger, and where, is unmeasured. A trigger's KeyCode
- * sent as keyboard input (VirtualInput) has no position, and goes down and up with its
+ * `InputChanged` only (Roblox sends nothing else for one: measured): each direction goes down past
+ * halfway (0.5, IAS's default `PressedThreshold`) and comes up back under 0.2, as IAS reads it past
+ * its deadzone (`AnalogValues`). A pad's trigger goes down past halfway too, at its `InputBegan` or
+ * an `InputChanged`, whichever shows it there first (an `InputBegan` below halfway waits for one:
+ * hunt HD-4), and comes up under 0.2 or at its `InputEnded`, whichever comes first. Measured with
+ * the virtual pad: an `InputChanged` at every change, `InputBegan` only all the way down, and
+ * `InputEnded` only back at rest, so the `InputChanged` decides. A trigger's KeyCode sent as
+ * keyboard input (VirtualInput) has no position, and goes down and up with its
  * `InputBegan`/`InputEnded`. Mouse movement, the wheel and touch drags change only, and are never
  * heard. Keys down when it starts are heard only once they have come up and gone down again.
  */
@@ -281,7 +307,7 @@ class CaptureInput {
 				if (TRIGGER_KEYS.includes(key)) {
 					if (this._analogDown.has(key)) return;
 					const pad = GAMEPAD_INPUT_TYPES.has(input.UserInputType);
-					if (pad && input.Position.Z <= PRESS_THRESHOLD) return;
+					if (pad && AnalogValues(input)[0][1] <= PRESS_THRESHOLD) return;
 					this._analogDown.add(key);
 				}
 				down(key, gameProcessed);

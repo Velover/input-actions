@@ -13,10 +13,11 @@ import {
 	WaitForChildren,
 } from "./Tree";
 import type {
+	ICheckedInputSchema,
 	IContextSchema,
 	IForPlayerOptions,
-	IInputSchema,
 	IProvideOptions,
+	ISchema,
 	IServerActionHandle,
 	ServerInputHandle,
 } from "./Types";
@@ -50,10 +51,19 @@ function AddMissingActions(context: InputContext, name: string, schema: IContext
  * enabled whatever the template or schema says: IAS on the server ignores the client's input for a
  * context or action the server disabled (probed), so the client owns `Enabled` and starts from the
  * template's or the schema's. Warns when the place doesn't run Server Authority
- * (`IsServerAuthority()` is `false`). Returns a function that stops providing.
+ * (`IsServerAuthority()` is `false`). Returns a function that stops providing. Takes a schema as
+ * `Create` does (hunt HD4-2)
  */
 export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
-	schema: IInputSchema<S>,
+	schema: ISchema<S>,
+	options?: IProvideOptions,
+): () => void;
+export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
+	options?: IProvideOptions,
+): () => void;
+export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
 	options?: IProvideOptions,
 ): () => void {
 	if (!RunService.IsServer()) error("InputActions.ProvideToPlayers runs on the server only", 2);
@@ -131,10 +141,21 @@ class ServerActionHandle implements IServerActionHandle<Enum.InputActionType> {
 
 /**
  * Server: typed read-only handles over one player's Server Authority contexts. Waits (up to
- * `Timeout`) for them when `ProvideToPlayers` has not placed them yet.
+ * `Timeout`) for them when `ProvideToPlayers` has not placed them yet. Takes a schema as `Create`
+ * does, so a helper generic over `InputActions.InputSchema<S>` gets `ServerHandle<S>` (hunt HD4-2)
  */
 export function ForPlayer<S extends Record<string, IContextSchema>>(
-	schema: IInputSchema<S>,
+	schema: ISchema<S>,
+	player: Player,
+	options?: IForPlayerOptions,
+): ServerInputHandle<S>;
+export function ForPlayer<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
+	player: Player,
+	options?: IForPlayerOptions,
+): ServerInputHandle<S>;
+export function ForPlayer<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
 	player: Player,
 	options?: IForPlayerOptions,
 ): ServerInputHandle<S> {

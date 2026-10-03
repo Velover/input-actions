@@ -57,12 +57,13 @@ import {
 	WithDevices,
 } from "./Tree";
 import type {
-	CheckedInputSchema,
+	ICheckedInputSchema,
 	IActionDefinition,
 	IContextSchema,
 	ICreateOptions,
 	IImportResult,
 	InputHandle,
+	ISchema,
 } from "./Types";
 
 type AnyDefinition = IActionDefinition<Enum.InputActionType, unknown, boolean>;
@@ -970,9 +971,20 @@ export class InputRuntime implements IRuntime {
 	}
 }
 
-/** `InputActions.Create`: builds the typed handle on the client */
+/**
+ * `InputActions.Create`: builds the typed handle on the client. `Schema`'s result first, as it is,
+ * then any schema, checked (see `ISchema`, hunt HD4-3)
+ */
 export function Create<S extends Record<string, IContextSchema>>(
-	schema: CheckedInputSchema<S>,
+	schema: ISchema<S>,
+	options?: ICreateOptions,
+): InputHandle<S>;
+export function Create<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
+	options?: ICreateOptions,
+): InputHandle<S>;
+export function Create<S extends Record<string, IContextSchema>>(
+	schema: ICheckedInputSchema<S>,
 	options?: ICreateOptions,
 ): InputHandle<S> {
 	if (!RunService.IsClient()) error("InputActions.Create runs on the client only", 2);
