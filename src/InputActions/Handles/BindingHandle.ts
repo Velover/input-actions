@@ -26,13 +26,18 @@ import type { ICaptureOptions, IChord, IChordCaptureOptions } from "../Types";
 
 /**
  * A device's binding of an action (`KeyboardAndMouse`, `Gamepad`, `Touch`): rebindable, saved by
- * ExportBindings, and holding only that device's keys
+ * ExportBindings, and holding only that device's keys. A device's main binding carries its extra
+ * bindings (0.7.0), each a handle of its own, as properties named after them: every member here is
+ * a name an extra can't take (`BINDING_HANDLE_MEMBERS`)
  */
 export class BindingHandle {
 	/** The InputBinding the handle wraps now (a Server Authority swap may point it at another) */
 	Instance: InputBinding;
-	/** The device, which is the binding's name in the schema */
+	/** The device, which is the binding's name in the schema; an extra's device too */
 	readonly Name: Device;
+
+	/** The device's extra bindings, by name, on its main binding's handle */
+	private readonly _extras: Record<string, BindingHandle> = {};
 
 	constructor(
 		private readonly _runtime: IRuntime,
@@ -60,6 +65,20 @@ export class BindingHandle {
 
 	GetDefaults(): IBindingValues {
 		return this._defaults;
+	}
+
+	/** The device's extra bindings the schema declares, by name; none on an extra */
+	Extras(): Readonly<Record<string, BindingHandle>> {
+		return this._extras;
+	}
+
+	/**
+	 * Hangs an extra binding of the device off this, its main binding's handle, by its name (which
+	 * `Schema` checked: no member of this class)
+	 */
+	AddExtra(name: string, extra: BindingHandle) {
+		this._extras[name] = extra;
+		(this as unknown as Record<string, unknown>)[name] = extra;
 	}
 
 	Get() {

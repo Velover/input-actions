@@ -329,6 +329,11 @@ export class ActionHandle {
 	LinkTo(target: InputAction, moved: ReadonlyMap<InputBinding, InputBinding>) {
 		for (const [, handle] of pairs(this.Bindings)) {
 			handle.Retarget(moved.get(handle.Instance) ?? handle.Instance);
+			// A device's extra bindings (0.7.0) hang off its main binding's handle
+			if (!(handle instanceof BindingHandle)) continue;
+			for (const [, extra] of pairs(handle.Extras())) {
+				extra.Retarget(moved.get(extra.Instance) ?? extra.Instance);
+			}
 		}
 		if (this._scriptBinding !== undefined) {
 			this._scriptBinding = moved.get(this._scriptBinding) ?? this._scriptBinding;

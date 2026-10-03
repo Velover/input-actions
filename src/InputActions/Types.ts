@@ -1,3 +1,4 @@
+import type { ReservedExtraName } from "./BindingRules";
 import type {
 	CapturableDevice,
 	Device,
@@ -12,6 +13,8 @@ import type {
 export interface IBindingDisplay {
 	/** Stops bare enum items from structurally matching all-optional shapes (e.g. composites) */
 	EnumType?: never;
+	/** Tells a binding from a device's namespace, `{ Main: <binding>, <Extra>: <binding> }` */
+	Main?: never;
 	DisplayName?: string;
 	/** An image URI, e.g. `rbxassetid://...` */
 	DisplayImage?: string;
@@ -135,8 +138,31 @@ export type BindingShape<
 	T extends Enum.InputActionType,
 	D extends Device = Device,
 > = D extends Device ? IBindingShapeMap<IDeviceKeyMap[D]>[T["Name"]] : never;
-/** What the builders' records take before the device checks: any device's keys, or Scriptable */
-export type BindingSpec<T extends Enum.InputActionType> = IBindingShapeMap[T["Name"]] | IScriptable;
+/** A binding with no keys, which a player can fill: `{}`, in a device's namespace */
+export interface IUnboundBinding {
+	readonly [property: string]: never;
+}
+/** What each binding of a device's namespace takes before the device checks */
+type NamespaceBindingSpec<T extends Enum.InputActionType> =
+	| IBindingShapeMap[T["Name"]]
+	| IScriptable
+	| IUnboundBinding;
+/**
+ * A device's bindings (0.7.0): its main binding, and extra bindings by names of your own, each with
+ * the device's keys, or `{}` for one with no keys (a player fills it, e.g. an Alternate column)
+ */
+export interface IBindingNamespace<T extends Enum.InputActionType> {
+	readonly Main: NamespaceBindingSpec<T>;
+	readonly [extra: string]: NamespaceBindingSpec<T>;
+}
+/**
+ * What the builders' records take before the device checks: any device's keys, a device's
+ * namespace, or Scriptable
+ */
+export type BindingSpec<T extends Enum.InputActionType> =
+	| IBindingShapeMap[T["Name"]]
+	| IScriptable
+	| IBindingNamespace<T>;
 type PartialEach<U> = U extends unknown ? Partial<U> : never;
 /**
  * Each object form with every property optional, but only the forms whose `KeyCode` the device
@@ -199,13 +225,55 @@ type CheckDeviceBinding<V, T extends Enum.InputActionType, D extends Device> = V
 		: IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]] & {
 				[P in Exclude<keyof V, AllKeys<IBindingObjectMap[T["Name"]]>>]: never;
 			};
+/** What a reserved extra name is checked against: no value has this property */
+interface IReservedExtraName {
+	readonly "an extra binding can't be named Main, after a binding handle's member or a binding property": never;
+}
+/** What an extra name with a "/" (it would split the save's path) or none at all is checked against */
+interface IExtraNameText {
+	readonly 'an extra binding is named by a string of at least one character, without "/"': never;
+}
+/**
+ * One binding of a device's namespace: as the device's binding (`CheckDeviceBinding`), or `{}`,
+ * one with no keys
+ */
+type CheckNamespaceBinding<V, T extends Enum.InputActionType, D extends Device> = V extends object
+	? [keyof V] extends [never]
+		? V
+		: CheckDeviceBinding<V, T, D>
+	: CheckDeviceBinding<V, T, D>;
+/**
+ * A device's namespace (0.7.0): `Main` and each extra checked as the device's bindings, and the
+ * extras' names against the reserved ones (`RESERVED_EXTRA_NAMES`: the main binding's handle they
+ * hang off, and a binding's properties), "/" and the empty name. Maps over the namespace's keys only
+ */
+type CheckNamespace<V, T extends Enum.InputActionType, D extends Device> = {
+	[E in keyof V]: E extends "Main"
+		? CheckNamespaceBinding<V[E], T, D>
+		: E extends ReservedExtraName
+			? IReservedExtraName
+			: E extends "" | `${string}/${string}`
+				? IExtraNameText
+				: E extends string
+					? CheckNamespaceBinding<V[E], T, D>
+					: IExtraNameText;
+};
+/**
+ * A device's value: a namespace (an object with `Main`, which no binding has: the shapes say
+ * `Main?: never`) or a binding. Distributes over a union, as `CheckDeviceBinding` does
+ */
+type CheckDeviceValue<V, T extends Enum.InputActionType, D extends Device> = V extends {
+	Main: unknown;
+}
+	? CheckNamespace<V, T, D>
+	: CheckDeviceBinding<V, T, D>;
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: inference fell back to the constraint (a key the action type can't take), whose
 	// error says so; or computed names, which `Schema` checks at runtime
 	[K in keyof B]: string extends K
 		? unknown
 		: K extends Device
-			? CheckDeviceBinding<B[K], T, K>
+			? CheckDeviceValue<B[K], T, K>
 			: IScriptable;
 };
 
@@ -319,15 +387,28 @@ export interface ICaptureOptions {
 	Cancel?: Enum.KeyCode[];
 }
 
+/** A device's extra bindings by name, as `Extras()` gives them (`H`: their handles' type) */
+export interface IExtraBindings<H> {
+	readonly [name: string]: H | undefined;
+}
+
 /**
  * A device's binding of an action (`KeyboardAndMouse`, `Gamepad`, `Touch`): every action has the
  * three, unbound when the schema leaves one out. `D` is the device; a union of devices is a handle
- * any of theirs is assignable to, whose `Set` takes any of their keys (checked at runtime)
+ * any of theirs is assignable to, whose `Set` takes any of their keys (checked at runtime). A
+ * device's extra bindings (0.7.0) are handles of this type too, hung off its main binding's handle
  */
 export interface IBindingHandle<T extends Enum.InputActionType, D extends Device = Device> {
 	readonly Instance: InputBinding;
-	/** The device: the binding's name in the schema */
+	/** The device: the binding's name in the schema (an extra's device too) */
 	readonly Name: D;
+	/**
+	 * The device's extra bindings its schema declares, by name: the same handles as the properties
+	 * named after them; none on an extra, nor on a device without extras. A table, so a handle picked
+	 * by a device at runtime can be asked for one by name (`Extras().Alt`); go through them with
+	 * `pairs`, in no order: sort the names for a menu
+	 */
+	Extras(): IExtraBindings<IBindingHandle<T, D>>;
 	/** The current binding as plain data in the schema's shape (`{}` when unbound) */
 	Get(): BindingData<T, D>;
 	/**
@@ -349,6 +430,7 @@ export interface ICaptureBindingHandle<
 	T extends Enum.InputActionType,
 	D extends CapturableDevice = CapturableDevice,
 > extends IBindingHandle<T, D> {
+	Extras(): IExtraBindings<ICaptureBindingHandle<T, D>>;
 	/**
 	 * Waits for the next key of this binding's device legal for `slot`, applies it, then calls
 	 * `callback`; other devices' keys are ignored (a `Cancel` key counts from any device). On the
@@ -389,6 +471,7 @@ export interface IChordBindingHandle<
 	T extends Enum.InputActionType,
 	D extends CapturableDevice = CapturableDevice,
 > extends ICaptureBindingHandle<T, D> {
+	Extras(): IExtraBindings<IChordBindingHandle<T, D>>;
 	/**
 	 * Waits for keys of this binding's device held together (up to three), and settles when the
 	 * first of them comes up: the last key down becomes `KeyCode`, the ones held before it
@@ -426,7 +509,7 @@ export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
 }
 /**
  * An action's bindings: the three devices' always (unbound when the schema leaves one out), and the
- * Scriptable ones the schema names
+ * Scriptable ones the schema names. The devices' extras are added by `ActionHandle` (`WithExtras`)
  */
 export type BindingHandles<T extends Enum.InputActionType, B> = {
 	readonly [K in Device]: BindingHandleOf<T, K>;
@@ -526,13 +609,34 @@ export interface ITrackedBoolAction extends ITrackedAction<Enum.InputActionType.
 	IsJustReleased(): boolean;
 }
 
+/** A device's extra bindings in a schema: the names beside `Main` in its namespace */
+type ExtraNames<V> = V extends { Main: unknown } ? Exclude<keyof V, "Main" | number | symbol> : never;
+/** Whether a device of the bindings `B` declares extras: their names, or never */
+type AnyExtraNames<B> = { [K in Device & keyof B]: ExtraNames<B[K]> }[Device & keyof B];
+/**
+ * The devices' extra bindings (0.7.0) as properties of their main binding's handle, each a handle of
+ * the device's binding. Added beside `IActionHandle<T, B>` rather than inside it: there `B` would be
+ * read through conditional types, which made `IBoolActionHandle<B>` no longer assignable to
+ * `IBoolActionHandle<unknown>` (`InputActions.BoolAction`)
+ */
+type WithExtras<T extends Enum.InputActionType, B> = [AnyExtraNames<B>] extends [never]
+	? unknown
+	: {
+			readonly Bindings: {
+				readonly [K in Device & keyof B]: {
+					readonly [E in ExtraNames<B[K]>]: BindingHandleOf<T, K>;
+				};
+			};
+		};
+
 export type ActionHandle<D> =
 	D extends IActionDefinition<infer T extends Enum.InputActionType, infer B, infer TP>
-		? [T] extends [Enum.InputActionType.Bool]
-			? IBoolActionHandle<B> & ([TP] extends [true] ? ITrackedBoolAction : unknown)
-			: IActionHandle<T, B> &
-					([T] extends [Enum.InputActionType.Direction1D] ? IActionCapture : unknown) &
-					([TP] extends [true] ? ITrackedAction<T> : unknown)
+		? ([T] extends [Enum.InputActionType.Bool]
+				? IBoolActionHandle<B> & ([TP] extends [true] ? ITrackedBoolAction : unknown)
+				: IActionHandle<T, B> &
+						([T] extends [Enum.InputActionType.Direction1D] ? IActionCapture : unknown) &
+						([TP] extends [true] ? ITrackedAction<T> : unknown)) &
+				WithExtras<T, B>
 		: never;
 
 export interface IImportResult {

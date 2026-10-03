@@ -32,7 +32,6 @@ import {
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import { Entries, IRuntime, JoinPath, NEUTRAL_VALUES, ReleaseOnServer } from "./Internal";
-import type { Device } from "./KeyGroups";
 import {
 	AddUser,
 	ClaimCopy,
@@ -43,6 +42,7 @@ import {
 	RemoveUser,
 } from "./Registry";
 import {
+	ActionSlots,
 	CheckPlayerFolderName,
 	CreateAction,
 	CreateContext,
@@ -51,10 +51,10 @@ import {
 	FindAction,
 	FindBinding,
 	FindContext,
+	ISlot,
 	IsPackageBindingName,
 	MatchesSlot,
 	WarnUnmentioned,
-	WithDevices,
 } from "./Tree";
 import type {
 	ICheckedInputSchema,
@@ -141,11 +141,16 @@ function ResetIfHeld(action: InputAction) {
 }
 
 /**
- * An action's binding names: the schema's, and the three devices', which every action has (a device
- * the schema leaves out gets an unbound binding)
+ * An action's bindings: the schema's, the devices' extras included, and the three devices', which
+ * every action has (a device the schema leaves out gets an unbound binding)
  */
-function SlotsOf(definition: AnyDefinition): string[] {
-	return WithDevices(Entries(definition.Bindings as Record<string, unknown>).map(([slot]) => slot));
+function SlotsOf(definition: AnyDefinition): ISlot[] {
+	return ActionSlots(definition.Bindings as Record<string, unknown>);
+}
+
+/** The names an action's bindings are found by (`S` or `<Action>S`) */
+function SlotNames(definition: AnyDefinition): string[] {
+	return SlotsOf(definition).map((slot) => slot.Name);
 }
 
 /**
@@ -570,7 +575,7 @@ export class InputRuntime implements IRuntime {
 				WarnUnmentioned(child);
 				continue;
 			}
-			const slots = SlotsOf(definition);
+			const slots = SlotNames(definition);
 			for (const binding of child.GetChildren()) {
 				if (binding.IsA("InputBinding") && !MatchesSlot(child.Name, binding.Name, slots)) {
 					WarnUnmentioned(binding);
@@ -823,6 +828,7 @@ export class InputRuntime implements IRuntime {
 		const path = JoinPath(contextHandle.Name, actionName);
 		// The slots' names were checked before anything was built (`CheckBuild`)
 		const slots = SlotsOf(definition);
+		const names = slots.map((slot) => slot.Name);
 		let action = FindAction(context, actionName, definition.Type, path);
 		const created = action === undefined;
 		if (action === undefined) {
@@ -842,25 +848,24 @@ export class InputRuntime implements IRuntime {
 		// A binding added to an action that is held makes IAS reset it (another root handle's, or
 		// the server's copy), and so does a fill that changes a binding's keys: it is let go of then
 		// (hunts HL4-4, HL4-5). Every device has a binding, unbound when the schema leaves it out
-		// (spec undefined)
+		// (spec undefined), and a device's extras (0.7.0) are added with the rest
 		const target = action;
-		const specs = definition.Bindings as Record<string, unknown>;
 		AddingBindings(target, () => {
 			for (const slot of slots) {
-				handle.Bindings[slot] = this.BuildBinding(
-					contextHandle,
-					target,
-					actionName,
-					slot,
-					specs[slot],
-					templateAction,
-				);
+				const binding = this.BuildBinding(contextHandle, target, actionName, slot, templateAction);
+				// An extra hangs off its device's main binding's handle, made before it (`ActionSlots`)
+				if (slot.Extra === undefined) handle.Bindings[slot.Name] = binding;
+				else
+					(handle.Bindings[slot.Device!] as BindingHandle).AddExtra(
+						slot.Extra,
+						binding as BindingHandle,
+					);
 			}
 
 			// Template bindings that fill no slot run beside the package's own ones, as in the template
 			if (templateAction !== undefined) {
 				for (const binding of templateAction.GetChildren()) {
-					if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, slots))
+					if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, names))
 						continue;
 					this.CloneOrAdopt(binding, target);
 				}
@@ -868,7 +873,7 @@ export class InputRuntime implements IRuntime {
 		});
 		if (warnExtras && !created) {
 			for (const binding of action.GetChildren()) {
-				if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, slots)) continue;
+				if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, names)) continue;
 				if (!IsPackageBindingName(actionName, binding.Name)) WarnUnmentioned(binding);
 			}
 		}
@@ -878,32 +883,38 @@ export class InputRuntime implements IRuntime {
 	}
 
 	/**
-	 * Gets or creates the binding of one slot.
-	 * @param spec the schema's binding; undefined for a device the schema leaves out, whose binding
-	 * is made unbound (a placeholder, which a later root handle's schema that names the device fills)
+	 * Gets or creates the binding of one slot: found as `S` or `<Action>S`, made as `<Action>S`, where
+	 * `S` is the device, `<Device><Extra>` for a device's extra, or the Scriptable slot's name. Its path
+	 * (saves, `BindingsChanged`) is `Context/Action/<Device or Slot>`, `.../<Device>/<Extra>` for an
+	 * extra. The slot's spec is undefined for a device the schema leaves out, whose binding is made
+	 * unbound (a placeholder, which a later root handle's schema that names the device fills); an
+	 * extra is always declared, and never one
 	 */
 	private BuildBinding(
 		contextHandle: ContextHandle,
 		action: InputAction,
 		actionName: string,
-		slot: string,
-		spec: unknown,
+		slot: ISlot,
 		templateAction: InputAction | undefined,
 	): BindingHandle | ScriptableBindingHandle {
-		const path = JoinPath(contextHandle.Name, actionName, slot);
+		const spec = slot.Spec;
+		const path =
+			slot.Extra !== undefined
+				? JoinPath(contextHandle.Name, actionName, slot.Device!, slot.Extra)
+				: JoinPath(contextHandle.Name, actionName, slot.Name);
 		// Its name was checked before anything was built (`CheckBuild`)
 		const scriptable = spec === SCRIPTABLE;
-		let binding = FindBinding(action, actionName, slot);
+		let binding = FindBinding(action, actionName, slot.Name);
 		// Found: the designer's, or one another root handle on this folder made
 		if (binding !== undefined) this.Use(binding);
 		else if (templateAction !== undefined) {
-			const template = FindBinding(templateAction, actionName, slot);
+			const template = FindBinding(templateAction, actionName, slot.Name);
 			if (template !== undefined) binding = this.CloneBinding(template, action);
 		}
 
 		if (binding === undefined) {
 			binding = new Instance("InputBinding");
-			binding.Name = actionName + slot;
+			binding.Name = actionName + slot.Name;
 			if (scriptable) binding.Type = Enum.InputBindingType.Scriptable;
 			else if (spec !== undefined) {
 				const values = ReadBinding(binding);
@@ -920,19 +931,19 @@ export class InputRuntime implements IRuntime {
 			);
 		} else if (!scriptable) {
 			if (spec !== undefined) FillSpecInto(binding, spec);
-			const problem = CheckBindingKeys(action.Type.Name, binding, slot as Device);
+			const problem = CheckBindingKeys(action.Type.Name, binding, slot.Device);
 			if (problem !== undefined)
 				warn(`InputActions: ${path}: ${binding.GetFullName()}: ${problem}; left as it is`);
 		}
 
 		if (scriptable) {
-			return new ScriptableBindingHandle(this, binding, slot, NEUTRAL_VALUES[action.Type.Name]);
+			return new ScriptableBindingHandle(this, binding, slot.Name, NEUTRAL_VALUES[action.Type.Name]);
 		}
-		// Every root handle on this binding shares the defaults the first one took. A key binding's
-		// slot is a device: BindingNameProblem refused any other name
+		// Every root handle on this binding shares the defaults the first one took. A key binding is
+		// a device's, main or extra: BindingNameProblem refused any other name
 		const entry = GetEntry(binding)!;
 		entry.Defaults ??= ReadBinding(binding);
-		const device = slot as Device;
+		const device = slot.Device!;
 		const handle = new BindingHandle(this, binding, path, action.Type.Name, device, entry.Defaults);
 		this._bindings.push(handle);
 		contextHandle.BindingHandles.push(handle);

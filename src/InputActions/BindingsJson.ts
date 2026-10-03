@@ -1,5 +1,5 @@
 import { HttpService } from "@rbxts/services";
-import { DecodeSavedEntry, SAVED_PROPERTIES } from "./BindingRules";
+import { DecodeSavedEntry, IsNamespace, SAVED_PROPERTIES } from "./BindingRules";
 import {
 	ApplySaved,
 	BindingWrite,
@@ -112,16 +112,26 @@ function DecodeSave(json: string): Record<string, unknown> | string {
 /**
  * Why a saved path matches no binding: another context's (a context handle's import), a binding not
  * named after a device (a save holds only device bindings, since 0.7.0: a 0.6 save's `Mouse` or
- * `Alternate` entry), or none at all
+ * `Alternate` entry), a device's extra the schema doesn't declare (`Context/Action/Device/Extra`),
+ * or none at all
+ * @param byPath the bindings the import has, by path
  */
-function UnknownPathReason(path: unknown, context: string | undefined): string {
+function UnknownPathReason(
+	path: unknown,
+	context: string | undefined,
+	byPath: ReadonlyMap<string, BindingHandle>,
+): string {
 	if (!typeIs(path, "string")) return "unknown path";
-	const [contextName, , slot, extra] = path.split("/");
+	const [contextName, actionName, slot, extra, beyond] = path.split("/");
 	if (context !== undefined && contextName !== context) return `not a binding of ${context}`;
-	if (slot !== undefined && extra === undefined && !IsDevice(slot)) {
+	if (slot === undefined || beyond !== undefined) return "unknown path";
+	if (!IsDevice(slot))
 		return `${slot} is not a device: a save holds the ${DEVICES.join(", ")} bindings`;
-	}
-	return "unknown path";
+	const device = JoinPath(contextName, actionName, slot);
+	if (extra === undefined || !byPath.has(device)) return "unknown path";
+	if (extra === "Main")
+		return `Main is the device's own binding, saved as ${device}, not ${device}/Main`;
+	return `${device} has no extra binding ${extra}: a device's extras are the ones its schema declares`;
 }
 
 /**
@@ -158,7 +168,7 @@ export function ImportBindings(
 				result.Skipped.push({ Path: tostring(path), Reason: reason });
 			const handle = typeIs(path, "string") ? byPath.get(path) : undefined;
 			if (handle === undefined) {
-				skip(UnknownPathReason(path, context));
+				skip(UnknownPathReason(path, context, byPath));
 				continue;
 			}
 			const saved = DecodeSavedEntry(
@@ -189,7 +199,8 @@ export function ImportBindings(
  * Input Action Manager's stick on a device the schema leaves out, hunt HD3-1). So a ResponseCurve
  * an entry doesn't settle with its own KeyCode or a composite direction stays on a Gamepad binding,
  * for the import to check against the binding it finds: what the client exports and loads, the
- * server keeps.
+ * server keeps. A device's extra bindings (0.7.0, `Context/Action/Device/Extra`) are kept where the
+ * schema declares them.
  */
 export function SanitizeBindings(
 	schema: IInputSchema<Record<string, IContextSchema>>,
@@ -200,13 +211,16 @@ export function SanitizeBindings(
 	if (typeIs(bindings, "string")) return EncodeSave(clean);
 	for (const [path, entry] of pairs(bindings)) {
 		if (!typeIs(path, "string")) continue;
-		const [contextName, actionName, slot, extra] = path.split("/");
+		const [contextName, actionName, slot, extra, beyond] = path.split("/");
 		// Every action has the three device bindings, unbound when its schema leaves one out
-		if (extra !== undefined || slot === undefined || !IsDevice(slot)) continue;
+		if (beyond !== undefined || slot === undefined || !IsDevice(slot)) continue;
 		const action = schema.Contexts[contextName]?.Actions[actionName];
 		if (action === undefined) continue;
 		const spec = (action.Bindings as Record<string, unknown>)[slot];
 		if (spec === SCRIPTABLE) continue;
+		// An extra exists where the device's namespace declares it (`Main` is the device's own path)
+		if (extra !== undefined && (extra === "Main" || !IsNamespace(spec) || spec[extra] === undefined))
+			continue;
 		const values = DecodeSavedEntry(action.Type.Name, entry, undefined, slot);
 		if (typeIs(values, "string")) continue;
 		const cleanEntry: Record<string, unknown> = {};

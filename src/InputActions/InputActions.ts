@@ -139,6 +139,11 @@ export namespace InputActions {
 	> = T.IChordBindingHandle<A, D>;
 	export type ScriptableBindingHandle<A extends Enum.InputActionType> =
 		T.IScriptableBindingHandle<A>;
+	/**
+	 * A device's extra bindings by name, as a binding handle's `Extras()` gives them (`H`: their
+	 * handles' type, the device's)
+	 */
+	export type ExtraBindings<H> = T.IExtraBindings<H>;
 	/** A context handle; Server Authority contexts add `IsLinkedToServer`, `LinkedToServer` and `WhenLinkedToServer` */
 	export type ContextHandle<C extends T.IContextSchema> = T.ContextHandle<C>;
 	/** The handle `Create` returns */

@@ -1,7 +1,14 @@
-import { BindingNameProblem, CheckBindingSpec } from "./BindingRules";
+import {
+	ActionTypeName,
+	BINDING_PROPERTY_NAMES,
+	BindingNameProblem,
+	CheckBindingSpec,
+	ExtraNameProblem,
+	IsNamespace,
+} from "./BindingRules";
 import { Entries } from "./Internal";
-import { IsDevice } from "./KeyGroups";
-import { ReservedSlotProblem, SlotCollision } from "./Tree";
+import { Device, IsDevice } from "./KeyGroups";
+import { ActionSlots, ReservedSlotProblem, SlotCollision } from "./Tree";
 import type {
 	BindingSpec,
 	CheckBindings,
@@ -60,6 +67,62 @@ export function SlotNameProblem(
 ): string | undefined {
 	if (HasSlash(slot)) return `a binding name can't contain "/"`;
 	return ReservedSlotProblem(actionName, slot) ?? BindingNameProblem(slot, spec === SCRIPTABLE);
+}
+
+/** What is wrong in a device's binding: in its namespace, the extra it is about (undefined: `Main`) */
+interface IDeviceBindingProblem {
+	readonly Extra?: string;
+	readonly Problem: string;
+}
+
+/**
+ * Why a device's binding in a schema is wrong, if it is: a binding that breaks the rules, or a
+ * namespace (`{ Main: <binding>, <Extra>: <binding> }`, 0.7.0) whose extra has a name it can't
+ * take or whose binding breaks the rules. Each binding of a namespace takes the device's keys, or
+ * `{}` (no keys); none is `InputActions.Scriptable`
+ */
+function DeviceBindingProblem(
+	actionType: ActionTypeName,
+	actionName: string,
+	device: Device,
+	spec: unknown,
+): IDeviceBindingProblem | undefined {
+	if (!IsNamespace(spec)) {
+		const problem = CheckBindingSpec(actionType, spec, device);
+		if (problem === undefined) return undefined;
+		// A property no binding has: likely a second binding of the device, written beside the keys
+		if (typeIs(spec, "table")) {
+			for (const [name] of pairs(spec as Record<string, unknown>)) {
+				if ((BINDING_PROPERTY_NAMES as readonly defined[]).includes(name)) continue;
+				if (problem !== `${tostring(name)} is not a property of a ${actionType} binding`) continue;
+				return {
+					Problem:
+						`${problem}; several bindings of one device go in ` +
+						`{ Main: <binding>, ${tostring(name)}: <binding> }`,
+				};
+			}
+		}
+		return { Problem: problem };
+	}
+	for (const [name, binding] of pairs(spec)) {
+		const extra = name === "Main" ? undefined : tostring(name);
+		if (extra !== undefined) {
+			const nameProblem =
+				ExtraNameProblem(name) ?? ReservedSlotProblem(actionName, device + extra, extra);
+			if (nameProblem !== undefined) return { Extra: extra, Problem: nameProblem };
+		}
+		if (binding === SCRIPTABLE) {
+			return {
+				Extra: extra,
+				Problem:
+					`a device's bindings hold keys, not InputActions.Scriptable: name a Scriptable ` +
+					`binding beside the devices`,
+			};
+		}
+		const problem = CheckBindingSpec(actionType, binding, device);
+		if (problem !== undefined) return { Extra: extra, Problem: problem };
+	}
+	return undefined;
 }
 
 function DeepFreeze<T extends object>(value: T): T {
@@ -238,19 +301,22 @@ export function SchemaProblem(
 			}
 			const optionProblem = ActionOptionsProblem(action);
 			if (optionProblem !== undefined) return { Path: actionPath, Problem: optionProblem };
-			const bindings = Entries(action.Bindings as Record<string, unknown>);
-			for (const [slot, spec] of bindings) {
+			const bindings = action.Bindings as Record<string, unknown>;
+			for (const [slot, spec] of Entries(bindings)) {
 				const slotPath = `${actionPath}/${slot}`;
 				const nameProblem = SlotNameProblem(actionName, slot, spec);
 				if (nameProblem !== undefined) return { Path: slotPath, Problem: nameProblem };
 				if (spec === SCRIPTABLE || !IsDevice(slot)) continue;
-				const problem = CheckBindingSpec(action.Type.Name, spec, slot);
-				if (problem !== undefined) return { Path: slotPath, Problem: problem };
+				const found = DeviceBindingProblem(action.Type.Name, actionName, slot, spec);
+				if (found === undefined) continue;
+				// A namespace's Main is named so: its binding's path in a save ends with the device
+				const where = found.Extra ?? (IsNamespace(spec) ? "Main" : undefined);
+				return {
+					Path: where !== undefined ? `${slotPath}/${where}` : slotPath,
+					Problem: found.Problem,
+				};
 			}
-			const collision = SlotCollision(
-				actionName,
-				bindings.map(([slot]) => slot),
-			);
+			const collision = SlotCollision(actionName, ActionSlots(bindings));
 			if (collision !== undefined) return { Path: actionPath, Problem: collision };
 		}
 	}

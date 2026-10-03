@@ -33,6 +33,85 @@ export const SAVED_PROPERTIES = [
 ] as const;
 export type SavedProperty = (typeof SAVED_PROPERTIES)[number];
 
+/** Every property a binding may have in a schema, and `EnumType`, which keeps enum items out of the shapes */
+export const BINDING_PROPERTY_NAMES = [
+	...SAVED_PROPERTIES,
+	"ClampMagnitudeToOne",
+	"DisplayName",
+	"DisplayImage",
+	"EnumType",
+] as const;
+
+/**
+ * The members of a device's binding handle (`BindingHandle`, the internal ones too). A device's extra
+ * bindings hang off its main binding's handle by their names, so an extra can't take one of these;
+ * the `device-extras` section checks the list against a live handle
+ */
+export const BINDING_HANDLE_MEMBERS = [
+	"Instance",
+	"Name",
+	"Path",
+	"ActionType",
+	"Get",
+	"Set",
+	"Reset",
+	"Clear",
+	"Capture",
+	"CaptureChord",
+	"Extras",
+	"AddExtra",
+	"Retarget",
+	"GetDefaults",
+	"ApplyChord",
+	"ApplyCapturedKey",
+	"ExportChanges",
+	"CapturableDevice",
+	"Write",
+	"_runtime",
+	"_defaults",
+	"_extras",
+] as const;
+
+/**
+ * The names a device's extra binding can't take (0.7.0): `Main`, the main binding's own; a member
+ * of the binding handle the extras hang off; a binding's property, which would make the namespace
+ * read as a binding
+ */
+export const RESERVED_EXTRA_NAMES = [
+	"Main",
+	...BINDING_HANDLE_MEMBERS,
+	...BINDING_PROPERTY_NAMES,
+] as const;
+export type ReservedExtraName = (typeof RESERVED_EXTRA_NAMES)[number];
+
+/**
+ * Whether a device's binding in a schema is a namespace, `{ Main: <binding>, <Extra>: <binding> }`:
+ * an object with a `Main` key (a binding has no such property)
+ */
+export function IsNamespace(spec: unknown): spec is Readonly<Record<string, unknown>> {
+	return typeIs(spec, "table") && (spec as { Main?: unknown }).Main !== undefined;
+}
+
+/** Why a device's extra binding can't have this name, if it can't (`Main` is the main binding) */
+export function ExtraNameProblem(name: unknown): string | undefined {
+	if (!typeIs(name, "string") || name === "")
+		return `an extra binding's name must be a string of at least one character, not ${tostring(name)}`;
+	if (name.find("/", 1, true)[0] !== undefined) return `an extra binding's name can't contain "/"`;
+	if ((BINDING_HANDLE_MEMBERS as readonly string[]).includes(name)) {
+		return (
+			`"${name}" is a member of a binding handle, which the device's extras hang off ` +
+			`(Bindings.<Device>.<Extra>): name the extra something else`
+		);
+	}
+	if ((BINDING_PROPERTY_NAMES as readonly string[]).includes(name)) {
+		return (
+			`"${name}" is a binding property, not an extra binding: { Main: <binding>, <Name>: <binding> } ` +
+			"holds the device's bindings by names of your own"
+		);
+	}
+	return undefined;
+}
+
 const COMPOSITES_OF: Record<ActionTypeName, readonly CompositeSlot[]> = {
 	Bool: [],
 	Direction1D: ["Up", "Down"],
