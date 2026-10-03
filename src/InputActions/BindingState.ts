@@ -154,6 +154,8 @@ export type BindingWrite = [
 
 /** The binding `WriteBindings` makes for a moment, to release an action on the server */
 const REBIND_RELEASE_NAME = "InputActionsRebindRelease";
+/** The binding `AddingBindings` makes for a moment, to release an action on the server */
+const ADD_RELEASE_NAME = "InputActionsAddRelease";
 
 /**
  * The value an action holds before its bindings change: its state, or, while that rests, the latest
@@ -204,13 +206,47 @@ export function WriteBindings(writes: readonly BindingWrite[]): Set<InputBinding
 	}
 	for (const action of rebound) {
 		const state = states.get(action);
-		if (state === undefined || state === NEUTRAL_VALUES[action.Type.Name]) continue;
-		for (const child of action.GetChildren()) {
-			if (child.IsA("InputBinding")) ClearHeldValue(child);
-		}
-		ReleaseOnServer(action, REBIND_RELEASE_NAME, state);
+		if (state !== undefined) ReleaseAfterReset(action, state, REBIND_RELEASE_NAME);
 	}
 	return changed;
+}
+
+/**
+ * Lets go of an action IAS reset while it was not at rest (`state`, read before the change): the
+ * package forgets the values it held on it, which IAS reset too, and on a copy under the player in a
+ * place that runs Server Authority it fires the pair of `ReleaseOnServer`, through a binding named
+ * `name` made for it
+ */
+function ReleaseAfterReset(action: InputAction, state: unknown, name: string) {
+	if (state === NEUTRAL_VALUES[action.Type.Name]) return;
+	for (const child of action.GetChildren()) {
+		if (child.IsA("InputBinding")) ClearHeldValue(child);
+	}
+	ReleaseOnServer(action, name, state);
+}
+
+/**
+ * Runs `add`, which may add bindings to `action`: `AttachButton`, a `Create` that adds a slot or a
+ * template's binding the action lacks, the swap moving a stand-in's bindings onto the copy. A binding
+ * added to an action makes IAS reset the action's bindings, as a change to their keys does (hunts
+ * HL4-4, HL4-5): on a local context the action is released at once, and a key still down holds it
+ * again only once pressed again; on a copy under the player in a place that runs Server Authority
+ * the client's state is pressed again and stays held, on the client and the server. So an action
+ * that was not at rest when `add` gave it a binding is let go of after it, as after a key change
+ * (`WriteBindings`), once for all the bindings `add` gave it.
+ */
+export function AddingBindings<T>(action: InputAction, add: () => T): T {
+	const state = HeldState(action);
+	if (state === NEUTRAL_VALUES[action.Type.Name]) return add();
+	const before = new Set(action.GetChildren());
+	const result = add();
+	for (const child of action.GetChildren()) {
+		if (child.IsA("InputBinding") && !before.has(child)) {
+			ReleaseAfterReset(action, state, ADD_RELEASE_NAME);
+			break;
+		}
+	}
+	return result;
 }
 
 /** Unbinds: the KeyCode and every composite direction become `None`, and the modifiers when asked */

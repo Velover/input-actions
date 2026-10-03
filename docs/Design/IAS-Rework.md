@@ -190,6 +190,8 @@ adopted from existing instances.
   - a context has one enabled state (base state and requests, §5), whichever handle changes it;
     each handle's requests end with it;
   - every handle on a binding has the same defaults (the first handle's snapshot);
+  - a `Create` that gives an action a binding it lacks (a slot, a template's binding) releases the
+    action if it is held, as any binding added does (§6, hunts HL4-4, HL4-5);
   - destroying one handle doesn't release input that another live handle's actions hold, but for
     the one case below. It lets go of what it holds itself, on a shared action too: a value its
     `Fire`/`Tap`/Scriptable slots left goes back to rest (the package records which root handles
@@ -198,10 +200,17 @@ adopted from existing instances.
     the same binding too is theirs as well (IAS ignored the repeat) and stays. When bindings that
     go with it (those it made that no other handle uses: its attached buttons, its own slots, a
     template's bindings it cloned) go while the action is not at rest and nothing another handle
-    fired holds it, a same-frame pair on `<Action>Script` releases the action: a destroyed held
-    binding would leave it stuck on (buttons since validator round 3, the other bindings since hunt
-    HL3-2). IAS doesn't tell which binding holds an action, so that also lets go of a key held
-    through a binding the other handles keep, until it is pressed again;
+    fired holds it, the action is released: a destroyed held binding would leave it stuck on
+    (buttons since validator round 3, the other bindings since hunt HL3-2). A value the other
+    handles fired holds it only while the action shows the latest one they fired: a key or a button
+    that wrote after it holds the action instead, and was left at its value (hunt HL4-1). IAS
+    doesn't tell which binding holds an action, so that also lets go of a key held through a
+    binding the other handles keep, until it is pressed again. On a copy under the player in a
+    place that runs Server Authority the release is a same-frame pair on `<Action>Script`, before
+    the bindings go. Anywhere else it is the `Enabled` toggle below, once they are gone: a pair
+    there needed `<Action>Script` made in that frame when no handle had fired the action, and
+    adding a binding to a held action releases it (§6), so the pair pressed and released it once
+    more, a press the other handles heard (hunt HL4-3);
   - a Server Authority template stays disabled (§8) until the last handle using it is destroyed.
 - `Input.Destroy()` disconnects everything, destroys what the package created, and leaves adopted
   instances in place. Adopted bindings get their defaults back (rebinds are undone, so a later
@@ -218,9 +227,10 @@ adopted from existing instances.
   package gave an extra action) leaves the action stuck on **(probed)**, whatever its type. So once
   the bindings are gone, every action that stays (adopted, or the server's copy) and that no other
   live root handle uses is reset when its state is not at rest: `Enabled` toggled off and back on
-  (one another root handle uses is released before, as above). Under Server Authority the release
-  pairs of §8 have let go of the server's copy already; the reset covers a local context, and the
-  copy in a place without Server Authority, where no pair is fired.
+  (one another root handle uses is released as above, by this toggle too off the server's copy).
+  Under Server Authority the release pairs of §8 have let go of the server's copy already; the
+  reset covers a local context, and the copy in a place without Server Authority, where no pair is
+  fired.
 - The root handle is a table of its own: the contexts by name beside the five public members, so a
   context name can shadow nothing internal. `Schema` (and `Create`) refuse those five names.
 
@@ -306,6 +316,11 @@ press would reach the server as no press at all), and:
   - **Destroying a held binding leaves the action stuck on (probed).** When the binding is removed
     while the action's state is `true`, reset the action (toggle `InputAction.Enabled` off and back
     on) so it releases.
+  - **Adding the binding releases a held action (probed, hunt HL4-5):** IAS resets an action's
+    bindings when one is added, as for a key change (below), and a key still down holds it again
+    only once pressed again. The package can't keep the press (a value fired in its place would
+    hold the action after the key comes up), so the docs say so. On the server's copy the action
+    is pressed again and stays held instead, and the package releases it (§8, hunt HL4-4).
   - The package contains **nothing React-specific**. A user project writes its own hook, e.g.:
     ```ts
     export function useInputButton(action: InputActions.BoolAction) {
@@ -368,7 +383,13 @@ Binding handle (non-Scriptable):
   the player in a place that runs Server Authority, fires the pair of §8 after the writes (not when
   `IsServerAuthority()` is `false`: the copy is local there, §8). States are read before any write
   of the batch, so one import releases an action once. A threshold, `Scale` or other tuning change
-  leaves a held action held **(probed)**.
+  leaves a held action held **(probed)**. Adding a binding to an action resets its bindings the
+  same way **(probed, hunts HL4-3 to HL4-5)**: `AttachButton`, a `Create` that gives an action a
+  binding it lacks, the swap moving a stand-in's binding onto a copy's action another root handle
+  uses, and a `<Action>Script` made for the first `Fire`. Each of the first three (`AddingBindings`)
+  reads the held value before its adds and, when it was not at rest, does as above after them:
+  forgets the package's held values, and fires the pair on such a copy. The first `Fire` is left
+  as it was: the value it fires follows the add.
 - `Reset()`: back to the defaults snapshot (§4). `Clear(slot?)`: with no slot, unbinds: KeyCode,
   composites and modifiers become `None`. With a slot (`"KeyCode"`, `"Up"`, ...,
   `"PrimaryModifier"`, typed as for `Capture`), clears only that one, e.g. `Clear("PrimaryModifier")`
@@ -548,7 +569,10 @@ client; the server only reads action state, which IAS replicates on its own.
     an import) is written onto the adopted one, which keeps its defaults, the first handle's
     snapshot (§4), so the stand-in handle's export reads the same after the swap. A value the
     stand-in held on a Scriptable binding that the adopted one already holds stays held by both
-    root handles (IAS ignores the repeated Fire), so destroying either leaves it to the other.
+    root handles (IAS ignores the repeated Fire), so destroying either leaves it to the other. A
+    binding moved onto a copy's action that is not at rest (another root handle's input holds it)
+    makes IAS reset it, as any binding added does (§6): the package lets go of it after the moves,
+    with the pair below on such a copy (hunt HL4-4).
   - A copy whose action has another `Type`: `warn` naming the path, and stay on the stand-in (it
     keeps working).
   - Context handles of Server Authority contexts add `IsLinkedToServer(): boolean` and
@@ -562,8 +586,12 @@ client; the server only reads action state, which IAS replicates on its own.
   - **Listeners inside the swap (Immediate signals).** The swap runs in this order: release the
     held Scriptable values on every action of the stand-in (its listeners run, everything still
     on the stand-in, the copy untouched); drop the root handles destroyed meanwhile, and stop when
-    none is left; claim the copy, move the bindings and point every handle at the copy, which runs
-    no listener; mark every handle linked; move the context's state (`EnabledChanged`, releases);
+    none is left; take what the Scriptable bindings hold then (the package's records stay through
+    the releases, so a value a listener fires there replaces the one it fires over and is carried
+    over, and one it fires at rest drops it: hunt HL4-2); claim the copy, move the bindings and
+    point every handle at the copy, which runs no listener (but the copy's own events, when a
+    binding moved onto an action another root handle's input holds releases it); mark every
+    handle linked; move the context's state (`EnabledChanged`, releases);
     move the labels and tell each handle's listeners the copy's state; destroy the stand-in; fire
     the held values again; `LinkedToServer`. So a listener that hears an event from the copy
     finds every handle on it and `IsLinkedToServer()` true (hunt HL2-2). A root handle a listener destroys takes no further
@@ -618,6 +646,13 @@ client; the server only reads action state, which IAS replicates on its own.
   key rebound, another binding rebound, a composite direction changed with its held key kept, a
   modifier added, a held Scriptable value), with one `Released` and no `Enabled` toggle. So the
   package fires it after the writes, on a binding made and destroyed in that frame.
+- **Adding a binding to a held action (probed, hunt HL4-4).** A binding added to an action of the
+  copy while it is held (`AttachButton`, a second `Create` adding a slot, the swap moving a
+  stand-in's binding onto a copy's action another root handle's input holds) resets it as a key
+  change does: `Released` then `Pressed`, and it stays held on both sides after the key comes up.
+  So the package fires the same pair after the add (`AddingBindings`), once per action for all the
+  bindings added in one go, with the value read before it, and forgets its held values on that
+  action. Not when `IsServerAuthority()` is `false`, where IAS has released the action already.
 - `Workspace.AuthorityMode` cannot be read by scripts **(probed)**, but the mode shows in an engine
   error message **(probed 2026-10-01, game scripts at identity 2, both realms)**:
   `workspace.Terrain:CanSetNetworkOwnership()` (security None; creates nothing) returns
@@ -845,4 +880,7 @@ places, `SignalBehavior = Deferred`:
 | `workspace.Terrain:CanSetNetworkOwnership()` from a `ReplicatedFirst` LocalScript before `game.Loaded` (hunt, 2026-10-01) | errors: `Terrain` is `nil`; once loaded, the `AuthorityMode` message |
 | A real click or tap on a GuiButton with `Active = false`, `Interactable = false` or `Visible = false`, with a `UIButton` binding, with and without an `InputCatcher` (hunt round 2, 2026-10-01) | `Active = false`: `Activated` doesn't fire, the binding still presses its action; `Interactable = false` or `Visible = false`: the binding doesn't press it |
 | A real key holds an action, its binding destroyed: a Bool (a template's extra on the server's copy, in places without Server Authority) and a Direction2D (composite `W` under an adopted action) (hunt round 4, 2026-10-01) | the action stays held after the key comes up, with no `Released`; an `Enabled` toggle releases it |
+| A real key (or a Scriptable binding) holds an action of a local context, and a binding is added to it: an `AttachButton` UIButton binding, a second `Create`'s slot, a Scriptable binding (label hunt HL4-5, 2026-10-03, every project) | released at once, one `Released` as the binding is parented; the key, still down, holds it again only once pressed again. A pair fired on a Scriptable binding made in that frame then presses and releases it once more (`R P R`, hunt HL4-3) |
+| The same under the player in a Server Authority place: the server's copy, and a context the client made in `LocalPlayer` (hunt HL4-4) | `Released` then `Pressed`: held on the client and the server after the key comes up; the pair after the add (value read before it, then the value at rest) releases it, once |
+| Under Immediate signals, a listener that fires a Scriptable binding while the swap releases the stand-in's held values (hunt HL4-2) | its value lands on the stand-in; a binding moved to the copy counts its next `Fire` again, whatever it held before the move |
 | Studio simulating the iPhone 14 (landscape): `GetGuiInset()`, the camera's viewport, ScreenGuis by `ScreenInsets` and `IgnoreGuiInset`, and where taps sent with `VirtualInput` land (hunt round 4, 2026-10-01) | inset (0, 58); viewport 749 x 368; `ScreenInsets = None` with `IgnoreGuiInset` at (-47, -58), 843 x 389 (the whole screen), every other setting at x = 0 (`TopbarSafeInsets`: 164); taps sent at (100, 150), (400, 150), (700, 300) land at `InputObject.Position` (53, 92), (353, 92), (653, 242): sent minus (47, 58). `GuiService:GetScreenResolution()` needs RobloxScript |

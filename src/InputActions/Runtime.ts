@@ -10,6 +10,7 @@ import { EveryFrame } from "../Internal/EveryFrame";
 import { WarnIfNotServerAuthority } from "./AuthorityMode";
 import { CheckBindingKeys } from "./BindingRules";
 import {
+	AddingBindings,
 	ApplySpec,
 	ReadBinding,
 	SpecReleasedThreshold,
@@ -24,6 +25,7 @@ import {
 	MoveBindings,
 	RefireHeldValues,
 	ReleaseHeldValues,
+	TakeHeldValues,
 } from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
@@ -32,7 +34,6 @@ import {
 	AddUser,
 	ClaimCopy,
 	GetEntry,
-	IHeldValue,
 	ISharedEntry,
 	IsPackageMade,
 	IsShared,
@@ -120,8 +121,9 @@ function IsCopyReady(standIn: IStandIn, copy: Instance | undefined): copy is Inp
  * Resets an action that `Destroy` left held: a binding destroyed while it holds its action leaves the
  * action stuck on (probed), and IAS resets a disabled action. Under Server Authority the release
  * pairs before have let go of the server's copy already (`ReleaseOnServer`); this covers a local
- * context, and a copy under the player in a place without Server Authority, where no pair is fired.
- * An action the package made and destroyed needs nothing.
+ * context, and a copy under the player in a place without Server Authority, where no pair is fired:
+ * also an action another root handle still uses, when `ReleaseOwn` says so (hunt HL4-3). An action
+ * the package made and destroyed needs nothing.
  */
 function ResetIfHeld(action: InputAction) {
 	if (action.Parent === undefined || !action.Enabled) return;
@@ -278,12 +280,14 @@ export class InputRuntime implements IRuntime {
 		// action stuck on (probed)
 		const actions = new Array<ActionHandle>();
 		const owned = new Array<ActionHandle>();
+		/** Actions another root handle uses that a key or a button of this one's bindings holds */
+		const shared = new Array<InputAction>();
 		for (const context of this._contexts) {
 			for (const [, action] of pairs(context.Actions)) {
 				actions.push(action);
 				// Another root handle still uses it: only what this one holds is let go
 				if (IsShared(action.Instance)) {
-					action.ReleaseOwn();
+					if (action.ReleaseOwn()) shared.push(action.Instance);
 					continue;
 				}
 				owned.push(action);
@@ -310,6 +314,7 @@ export class InputRuntime implements IRuntime {
 		// A key or button binding destroyed above while it held its action: the action stays held
 		for (const action of owned) ResetIfHeld(action.Instance);
 		for (const action of extras) ResetIfHeld(action);
+		for (const action of shared) ResetIfHeld(action);
 		for (const action of actions) action.Destroy();
 		this._bindingsChanged.Destroy();
 	}
@@ -512,9 +517,12 @@ export class InputRuntime implements IRuntime {
 			const templateAction = template.FindFirstChild(action.Name);
 			if (templateAction === undefined) continue;
 			this.UseExtraAction(action);
-			for (const binding of templateAction.GetChildren()) {
-				if (binding.IsA("InputBinding")) this.CloneOrAdopt(binding, action);
-			}
+			// Added to an action that is held, they make IAS reset it (hunt HL4-4)
+			AddingBindings(action, () => {
+				for (const binding of templateAction.GetChildren()) {
+					if (binding.IsA("InputBinding")) this.CloneOrAdopt(binding, action);
+				}
+			});
 		}
 	}
 
@@ -655,28 +663,35 @@ export class InputRuntime implements IRuntime {
 		// The held values are released first, on every action, before anything touches the copy:
 		// under Immediate signals the releases run listeners, which find everything on the stand-in
 		const source = standIn.Instance;
-		const releases = new Array<[InputAction, InputAction, Array<[InputBinding, IHeldValue]>]>();
+		const targets = new Array<[InputAction, InputAction]>();
 		for (const action of source.GetChildren()) {
 			if (!action.IsA("InputAction")) continue;
 			const target = copy.FindFirstChild(action.Name);
 			if (target === undefined || !target.IsA("InputAction")) continue;
-			releases.push([action, target, ReleaseHeldValues(action)]);
+			ReleaseHeldValues(action);
+			targets.push([action, target]);
 		}
 		// A root handle a listener destroyed takes no further part: its uses of the copy would
 		// outlive it (hunt HL2-3). With none left, the copy stays as the server made it, unclaimed:
 		// the next Create takes it up first, and a Create made by a listener has done so (HL3-1)
 		const live = links.filter((link) => !link.Runtime._destroyed);
 		if (live.isEmpty()) return;
+		// What the Scriptable bindings hold once every release ran: a value a listener fired during
+		// them is carried over too, and wins over the one it replaced (hunt HL4-2)
+		const carried = targets.map(([action]) => TakeHeldValues(action));
 		// Every action of the stand-in moves its bindings once, a template's extras included. The
 		// server's copy is enabled, and the client owns Enabled: the copy takes the stand-in's, unless
 		// another root handle took it up first
 		const moves = new Map<InputAction, IMovedBindings>();
 		ClaimCopy(copy);
-		for (const [action, target, held] of releases) {
+		targets.forEach(([action, target], index) => {
 			ClaimCopy(target);
-			moves.set(action, MoveBindings(action, target, GetEntry(target) === undefined, held));
-		}
-		// No listener runs from here until every handle is on the copy and marked linked
+			const carryEnabled = GetEntry(target) === undefined;
+			moves.set(action, MoveBindings(action, target, carryEnabled, carried[index]));
+		});
+		// No listener runs from here until every handle is on the copy and marked linked, but for the
+		// copy's own events when a binding moved onto one of its actions that another root handle's
+		// input holds lets go of it (`MoveBindings`)
 		const linked = new Array<ActionHandle>();
 		for (const link of live) {
 			const runtime = link.Runtime;
@@ -752,24 +767,30 @@ export class InputRuntime implements IRuntime {
 		}
 
 		const handle = new ActionHandle(this, action, actionName, definition.TrackPrevious);
-		for (const [slot, spec] of pairs(definition.Bindings as Record<string, unknown>)) {
-			handle.Bindings[slot] = this.BuildBinding(
-				contextHandle,
-				action,
-				actionName,
-				slot,
-				spec,
-				templateAction,
-			);
-		}
-
-		// Template bindings that fill no slot run beside the package's own ones, as in the template
-		if (templateAction !== undefined) {
-			for (const binding of templateAction.GetChildren()) {
-				if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, slots)) continue;
-				this.CloneOrAdopt(binding, action);
+		// A binding added to an action that is held makes IAS reset it (another root handle's, or
+		// the server's copy): it is let go of then (hunts HL4-4, HL4-5)
+		const target = action;
+		AddingBindings(target, () => {
+			for (const [slot, spec] of pairs(definition.Bindings as Record<string, unknown>)) {
+				handle.Bindings[slot] = this.BuildBinding(
+					contextHandle,
+					target,
+					actionName,
+					slot,
+					spec,
+					templateAction,
+				);
 			}
-		}
+
+			// Template bindings that fill no slot run beside the package's own ones, as in the template
+			if (templateAction !== undefined) {
+				for (const binding of templateAction.GetChildren()) {
+					if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, slots))
+						continue;
+					this.CloneOrAdopt(binding, target);
+				}
+			}
+		});
 		if (warnExtras && !created) {
 			for (const binding of action.GetChildren()) {
 				if (!binding.IsA("InputBinding") || MatchesSlot(actionName, binding.Name, slots)) continue;

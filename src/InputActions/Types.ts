@@ -325,7 +325,11 @@ export interface IBoolActionHandle<B> extends IActionHandle<Enum.InputActionType
 	 * context, `false` waits until the press shows in the state, so the server sees it
 	 */
 	Tap(): void;
-	/** Adds a UIButton binding for this button; the returned function removes it */
+	/**
+	 * Adds a UIButton binding for this button; the returned function removes it. Adding it releases
+	 * the action if it is held: IAS resets an action's bindings when one is added, and a key still
+	 * down holds it again only once pressed again
+	 */
 	AttachButton(button: GuiButton): () => void;
 }
 

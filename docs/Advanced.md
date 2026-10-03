@@ -53,7 +53,9 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   handles then share them: a context has one enabled state (base state and requests) whichever
   handle changes it, every handle on a binding has the same defaults, and destroying one handle
   leaves what another still uses (instances, held input, requests). What the package made goes
-  with the last handle.
+  with the last handle. A `Create` that gives an action a binding it didn't have (a slot, or a
+  template's binding) releases the action if it is held, as `AttachButton` does (see
+  [IAS behaviours to know](#ias-behaviours-to-know)).
 - On an action another handle still uses, `Destroy` lets go of what the destroyed handle held
   itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless the package
   fired a value after it (IAS shows the last write), even an equal one on another binding. A value
@@ -61,9 +63,13 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   is that handle's as well. Its attached buttons go too, and so do the bindings only it has (its
   own slots, the template's bindings it cloned). A binding destroyed while it holds its action
   would leave the action stuck on, so, as when a held button is detached, the action is released
-  if it is not at rest and nothing the other handles fired holds it. IAS doesn't tell which
-  binding holds an action, so that also lets go of a key held through a binding the other handles
-  keep, until the key is pressed again.
+  if it is not at rest and nothing the other handles fired holds it. A value they fired holds it
+  only while the action shows the last one they fired: a key or a button that wrote after it
+  holds the action instead. IAS doesn't tell which binding holds an action, so that also lets go
+  of a key held through a binding the other handles keep, until the key is pressed again. On the
+  server's copy the release is the pair of [Releasing on the server](#releasing-on-the-server);
+  elsewhere it is an `InputAction.Enabled` toggle once the bindings are gone, as below, after which
+  a value the other handles fired before counts again when fired again.
 - `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
   what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
@@ -110,7 +116,9 @@ detach(); // or destroy the button
 destroyed gets no binding, and the function returned does nothing. Destroying a binding while
 it holds the action leaves the action stuck on in IAS, so when the binding goes while the action is
 pressed, the package resets the action (toggles `InputAction.Enabled`, after releasing it on the
-server under Server Authority).
+server under Server Authority). Adding the binding releases an action that is held at that moment
+(IAS resets an action's bindings when one is added): a key still down holds it again only once it
+is pressed again (see [IAS behaviours to know](#ias-behaviours-to-know)).
 
 - The action is pressed while the mouse button (or the finger) is down on the button, and released
   when it comes up. A click on the button doesn't reach `MouseLeftButton` bindings.
@@ -396,7 +404,8 @@ swap's events run inside it: the copy's state, the held values fired again, the 
 `IsLinkedToServer()` is `true`. Before them come the releases of the held values, with everything
 still on the stand-in: a root handle a listener destroys there takes no part in the swap, and when
 none is left the copy stays untouched, for the next `Create` to take up with the template's or the
-schema's `Enabled`.
+schema's `Enabled`. A value a listener fires there through a Scriptable binding is carried over as
+well, and wins over the one it replaced; one it fires at rest stays at rest.
 
 A context marked `ServerAuthority: true` in a place without Server Authority still works on the
 client (the server's copy replicates either way), but the server never receives its state:
@@ -464,7 +473,9 @@ when you mark contexts this way. The package warns you when it can tell that you
   gained later) shares that handle's bindings of the same name instead of adding its own; attached
   buttons are renamed. Its rebinds and imports made on the stand-in are written onto the shared
   binding, which keeps the first handle's defaults, as with `Create` twice. A value both handles
-  hold on the same Scriptable binding stays held until neither does.
+  hold on the same Scriptable binding stays held until neither does. A binding of its own that it
+  brings onto an action the other handle's input holds releases that action, as `AttachButton`
+  does.
 - A server's copy whose action has another `Type` than the schema's: `Create` warns, naming the
   path, and the context stays on its (working) stand-in.
 
@@ -555,6 +566,13 @@ release before it would be undone by it; an import that changes several bindings
 releases it once. The values the package fired on that action are forgotten: IAS reset them too.
 Write keys through the binding handles: a key you write on the instance yourself leaves the action
 held.
+
+**Adding a binding to a held action** does the same on the server's copy (measured): IAS resets the
+action's bindings, and the client's state is pressed again and stays held, on both sides, after the
+key comes up. So the package fires the same pair after it adds a binding to an action that is held:
+`AttachButton`, a `Create` that gives an action a binding it lacked (a slot, a template's binding),
+and the swap moving a stand-in's binding onto an action another handle's input holds on the copy. A
+binding you add to the instance yourself leaves the action held.
 
 **In a place without Server Authority** (`IsServerAuthority()` is `false`), a context marked
 `ServerAuthority: true` still runs on the server's copy under the player, but that copy is an
@@ -652,6 +670,14 @@ IAS code, with or without this package. The package's tests run under both `Defe
 - A fired value persists until something changes it.
 - IAS applies no `Scale`, clamp or `Vector2Scale` to fired values.
 - Destroying a binding while it holds an action leaves the action stuck on, with no `Released`.
+- **Adding a binding to a held action releases it**, as a change to a binding's keys does: IAS
+  resets the action's bindings. On a local context the action is released at once, with one
+  `Released`; a key still down holds it again only once it is pressed again, and a value fired from
+  code must be fired again. `AttachButton` adds a binding, and so does a `Create` that gives an
+  action a slot or a template's binding it didn't have. The package can't keep the press: a value
+  it fired in its place would hold the action after the key comes up. On the server's copy of a
+  Server Authority context IAS keeps the action held instead, on the client and the server, so the
+  package releases it there (see [Releasing on the server](#releasing-on-the-server)).
 
 The full IAS reference the package was built against is in
 [Reference/RobloxInputActionSystem.md](Reference/RobloxInputActionSystem.md).
