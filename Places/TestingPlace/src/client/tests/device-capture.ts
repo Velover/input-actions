@@ -129,10 +129,10 @@ export class DeviceCaptureTests implements OnStart {
 				real.Click(emptyPoint());
 				quiet();
 				expectEqual(captured.size(), 0, `a key and a click${real.FocusNote()}`);
-				real.Tap(K.ButtonY);
-				eventually(() => captured.size() === 1, `ButtonY${real.FocusNote()}`);
-				expectEqual(captured[0], K.ButtonY);
-				expectEqual(pad.Instance.KeyCode, K.ButtonY);
+				real.Tap(K.ButtonX);
+				eventually(() => captured.size() === 1, `ButtonX${real.FocusNote()}`);
+				expectEqual(captured[0], K.ButtonX);
+				expectEqual(pad.Instance.KeyCode, K.ButtonX);
 				eventually(() => changes.includes("Gameplay/Jump/Gamepad"), "BindingsChanged");
 				expectEqual(
 					input.Gameplay.Actions.Jump.Bindings.KeyboardAndMouse.Instance.KeyCode,
@@ -156,9 +156,9 @@ export class DeviceCaptureTests implements OnStart {
 				// the keyboard's binding, cancelled from the gamepad
 				let keyCalls = 0;
 				jump.Bindings.KeyboardAndMouse.Capture("KeyCode", () => keyCalls++, {
-					Cancel: [K.ButtonB],
+					Cancel: [K.ButtonL1],
 				});
-				real.Tap(K.ButtonB);
+				real.Tap(K.ButtonL1);
 				real.Tap(K.G);
 				quiet();
 				expectEqual(keyCalls, 0, `cancelled${real.FocusNote()}`);
@@ -279,8 +279,8 @@ export class DeviceCaptureTests implements OnStart {
 				const jump = createTestInput(newFolder(), { ResetOnFocusLoss: false }).Gameplay.Actions
 					.Jump;
 				let calls = 0;
-				jump.Capture(() => calls++, { Cancel: [K.ButtonB] });
-				real.Tap(K.ButtonB);
+				jump.Capture(() => calls++, { Cancel: [K.ButtonL1] });
+				real.Tap(K.ButtonL1);
 				real.Tap(K.G);
 				quiet();
 				expectEqual(calls, 0, `cancelled${real.FocusNote()}`);
@@ -308,9 +308,9 @@ export class DeviceCaptureTests implements OnStart {
 				box.ReleaseFocus();
 				eventually(() => UserInputService.GetFocusedTextBox() === undefined, "focus released");
 				frames(3);
-				real.Tap(K.ButtonY);
+				real.Tap(K.ButtonX);
 				eventually(() => captured.size() === 1, `the next key${real.FocusNote()}`);
-				expectEqual(captured[0], "ButtonY on Gamepad");
+				expectEqual(captured[0], "ButtonX on Gamepad");
 			});
 
 			test("action.Capture on the phone: a tap is ignored, a key counts", () => {
@@ -381,10 +381,10 @@ export class DeviceCaptureTests implements OnStart {
 				real.ReleaseAll();
 				quiet();
 				expectEqual(outcomes.size(), 0, `four keys${real.FocusNote()}`);
-				hold(real, [K.ButtonY]);
-				lifted(real, K.ButtonY);
-				eventually(() => outcomes.size() === 1, `ButtonY${real.FocusNote()}`);
-				expectEqual(describe(outcomes[0]), "-+-+ButtonY on Gamepad");
+				hold(real, [K.ButtonX]);
+				lifted(real, K.ButtonX);
+				eventually(() => outcomes.size() === 1, `ButtonX${real.FocusNote()}`);
+				expectEqual(describe(outcomes[0]), "-+-+ButtonX on Gamepad");
 			});
 
 			test("action.CaptureChord: a Cancel key or a Timeout with nothing held ends it with undefined twice", () => {
@@ -394,9 +394,9 @@ export class DeviceCaptureTests implements OnStart {
 					.Jump;
 				const cancelled = new Array<IOutcome>();
 				jump.CaptureChord((chord, device) => cancelled.push({ chord, device }), {
-					Cancel: [K.ButtonB],
+					Cancel: [K.ButtonL1],
 				});
-				real.Tap(K.ButtonB);
+				real.Tap(K.ButtonL1);
 				eventually(() => cancelled.size() === 1, `the Cancel key${real.FocusNote()}`);
 				expectEqual(cancelled[0].chord, undefined);
 				expectEqual(cancelled[0].device, undefined);
@@ -416,11 +416,11 @@ export class DeviceCaptureTests implements OnStart {
 				throttle.CaptureChord((chord, device) => outcomes.push({ chord, device }), {
 					Timeout: 0.5,
 				});
-				hold(real, [K.ButtonL1, K.ButtonY]);
+				hold(real, [K.ButtonL1, K.ButtonX]);
 				eventually(() => outcomes.size() === 1, `the timeout${real.FocusNote()}`, 3);
 				real.ReleaseAll();
-				expectEqual(describe(outcomes[0]), "ButtonL1+-+ButtonY on Gamepad");
-				expectEqual(throttle.Bindings.Gamepad.Instance.KeyCode, K.ButtonY);
+				expectEqual(describe(outcomes[0]), "ButtonL1+-+ButtonX on Gamepad");
+				expectEqual(throttle.Bindings.Gamepad.Instance.KeyCode, K.ButtonX);
 				expectEqual(throttle.Bindings.KeyboardAndMouse.Instance.Up, K.PageUp, "untouched");
 			});
 
