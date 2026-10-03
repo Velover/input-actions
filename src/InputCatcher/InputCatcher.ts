@@ -5,6 +5,10 @@ function SinkKey() {
 	return Enum.ContextActionResult.Sink;
 }
 
+/**
+ * Blocks keyboard, mouse, gamepad and touch input to the game while it is active, through one
+ * ContextActionService sink (which blocks IAS bindings too); GUI still gets clicks and taps
+ */
 export class InputCatcher {
 	private _priority: number;
 	private _uuid = HttpService.GenerateGUID();

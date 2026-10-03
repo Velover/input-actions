@@ -14,93 +14,147 @@ import type {
 // ---- binding shapes (one input source per binding, as IAS enforces). Each takes the keys of one
 // device (`K`, see KeyGroups' IDeviceKeys); the default takes any device's.
 
+/** What every binding may set: how a keybind label or `Describe()` shows it */
 export interface IBindingDisplay {
 	/** Stops bare enum items from structurally matching all-optional shapes (e.g. composites) */
 	EnumType?: never;
 	/** Tells a binding from a device's namespace, `{ Main: <binding>, <Extra>: <binding> }` */
 	Main?: never;
+	/** The keybind's text: `Describe()` and an InputActionLabel show it instead of the keys */
 	DisplayName?: string;
 	/** An image URI, e.g. `rbxassetid://...` */
 	DisplayImage?: string;
 }
+/** A chord's modifiers: Button keys held before the key, in this order (Ctrl+S) */
 export interface IBindingModifiers<K extends IDeviceKeys = IAnyDeviceKeys> extends IBindingDisplay {
+	/** The first key held before the key (`LeftControl` for Ctrl+S) */
 	PrimaryModifier?: K["Modifier"];
+	/** The second key held before the key (`LeftShift` for Ctrl+Shift+S) */
 	SecondaryModifier?: K["Modifier"];
 }
+/** How an axis binding's value is scaled */
 export interface IAxisShaping {
+	/** Multiplies the value (1 by default) */
 	Scale?: number;
+	/** Keeps a composite's value at most 1 long, so diagonals aren't faster (default true); not the wheel or mouse movement */
 	ClampMagnitudeToOne?: boolean;
 }
 
+/** A Bool action's binding: a key, pressed past a threshold */
 export interface IBoolBinding<K extends IDeviceKeys = IAnyDeviceKeys> extends IBindingModifiers<K> {
+	/** The key, button, mouse button, trigger, stick direction or tap that presses the action */
 	KeyCode: K["Bool"];
+	/** How far an analog key must go to press the action (0..1, 0.5 by default) */
 	PressedThreshold?: number;
+	/** How far back it must come to release it (0.2 by default; IAS reads it as at most `PressedThreshold`) */
 	ReleasedThreshold?: number;
 }
 
+/** A Direction1D action's binding on one key: a trigger, a stick direction, the wheel, pinch */
 export interface IDirection1DKeyBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** The key that drives the value */
 	KeyCode: K["Direction1D"];
+	/** Not beside a `KeyCode`: one input source per binding */
 	Up?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Down?: never;
 }
+/** A Direction1D action's composite binding: a key for each direction (W / S) */
 export interface IDirection1DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** Not beside composite directions: one input source per binding */
 	KeyCode?: never;
+	/** The key for +1 */
 	Up?: K["Composite"];
+	/** The key for -1 */
 	Down?: K["Composite"];
 }
 
+/** A Direction2D action's binding on a thumbstick */
 export interface IDirection2DStickBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** `Thumbstick1` or `Thumbstick2` */
 	KeyCode: K["Stick"];
+	/** Bends the stick's response, from 1 (unchanged, the default) to 10: finer control near the centre */
 	ResponseCurve?: number;
+	/** Multiplies each axis (`new Vector2(1, -1)` inverts Y) */
 	Vector2Scale?: Vector2;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Up?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Down?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Left?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Right?: never;
 }
+/** A Direction2D action's binding on a delta: mouse movement, a touch drag, trackpad pan (rates) */
 export interface IDirection2DDeltaBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** `MouseDelta`, `TouchDelta` or `TrackpadPan` */
 	KeyCode: K["Delta2D"];
+	/** Thumbsticks only */
 	ResponseCurve?: never;
+	/** Multiplies each axis (`new Vector2(1, -1)` inverts Y) */
 	Vector2Scale?: Vector2;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Up?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Down?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Left?: never;
+	/** Not beside a `KeyCode`: one input source per binding */
 	Right?: never;
 }
+/** A Direction2D action's composite binding: a key for each direction (W / A / S / D) */
 export interface IDirection2DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** Not beside composite directions: one input source per binding */
 	KeyCode?: never;
+	/** Thumbsticks only */
 	ResponseCurve?: never;
+	/** Multiplies each axis (`new Vector2(1, -1)` inverts Y) */
 	Vector2Scale?: Vector2;
+	/** The key for +Y */
 	Up?: K["Composite"];
+	/** The key for -Y */
 	Down?: K["Composite"];
+	/** The key for -X */
 	Left?: K["Composite"];
+	/** The key for +X */
 	Right?: K["Composite"];
 }
 
+/** A Direction3D action's binding: a key for each of the six directions */
 export interface IDirection3DCompositeBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingModifiers<K>,
 		IAxisShaping {
+	/** The key for +Y */
 	Up?: K["Composite"];
+	/** The key for -Y */
 	Down?: K["Composite"];
+	/** The key for -X */
 	Left?: K["Composite"];
+	/** The key for +X */
 	Right?: K["Composite"];
+	/** The key for -Z (forward, in Roblox coordinates) */
 	Forward?: K["Composite"];
+	/** The key for +Z */
 	Backward?: K["Composite"];
+	/** Multiplies each axis */
 	Vector3Scale?: Vector3;
 }
 
+/** A ViewportPosition action's binding: where the pointer is, in pixels */
 export interface IViewportPositionBinding<K extends IDeviceKeys = IAnyDeviceKeys>
 	extends IBindingDisplay {
+	/** `MousePosition` or `TouchPosition` */
 	KeyCode: K["Position"];
 }
 
@@ -131,6 +185,7 @@ export interface IBindingShapeMap<K extends IDeviceKeys = IAnyDeviceKeys> {
 
 /** The marker of a binding driven only from code: `InputActions.Scriptable` */
 export interface IScriptable {
+	/** Only `InputActions.Scriptable` is one */
 	readonly _nominal_InputActionsScriptable: unique symbol;
 }
 
@@ -170,7 +225,9 @@ type NamespaceBindingSpec<T extends Enum.InputActionType> =
  * the device's keys, or `{}` for one with no keys (a player fills it, e.g. an Alternate column)
  */
 export interface IBindingNamespace<T extends Enum.InputActionType> {
+	/** The device's main binding: `Bindings.<Device>` is its handle */
 	readonly Main: NamespaceBindingSpec<T>;
+	/** An extra binding of the device, by a name of your own: `Bindings.<Device>.<Extra>` is its handle */
 	readonly [extra: string]: NamespaceBindingSpec<T>;
 }
 /**
@@ -202,7 +259,7 @@ type PartialForm<F> = F extends { KeyCode: infer Key }
 type DeviceParts<F> = [PartialForm<F>] extends [never] ? PartialEach<F> : PartialForm<F>;
 /**
  * A binding's current value as plain data in the schema's shape (`Get`). An unbound binding has no
- * keys. The same forms as `BindingPart`, so `Set(binding.Get())` takes it back (hunt HD4-6)
+ * keys. The same forms as `BindingPart`, so `Set(binding.Get())` takes it back
  */
 export type BindingData<
 	T extends Enum.InputActionType,
@@ -440,6 +497,11 @@ type CheckDeviceValue<V, T extends Enum.InputActionType, D extends Device> = V e
 /** Why a binding with keys can't have name `K`, as `BindingNameProblem` says it at runtime */
 type NotADevice<K> =
 	`${K & string} is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable`;
+/**
+ * What a builder's bindings `B` are checked against: each binding named after a device against that
+ * device's keys (a namespace binding by binding), any other against `InputActions.Scriptable`; what
+ * is refused is checked against a sentence saying why
+ */
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: computed names, which `Schema` checks at runtime
 	[K in keyof B]: string extends K
@@ -453,6 +515,7 @@ export type CheckBindings<B, T extends Enum.InputActionType> = {
 
 // ---- values
 
+/** The value of each action type: what `GetState()` returns and `Fire` takes */
 export interface IActionValueMap {
 	Bool: boolean;
 	Direction1D: number;
@@ -460,6 +523,7 @@ export interface IActionValueMap {
 	Direction3D: Vector3;
 	ViewportPosition: Vector2;
 }
+/** The value of an action type: boolean, number, Vector2, Vector3, or Vector2 (pixels) */
 export type ActionValue<T extends Enum.InputActionType> = IActionValueMap[T["Name"]];
 
 /** The slots `Capture` can fill, per action type */
@@ -485,23 +549,32 @@ export interface ICaptureSlotMap {
 		| "SecondaryModifier";
 	ViewportPosition: "KeyCode";
 }
+/** The key slots of a binding of action type `T`: what `Capture` and `Clear` take */
 export type CaptureSlot<T extends Enum.InputActionType> = ICaptureSlotMap[T["Name"]];
+/** Every key slot of any action type */
 export type BindingSlot = ICaptureSlotMap[keyof ICaptureSlotMap];
 
 // ---- schema
 
+/** An action in a schema, as a builder (`InputActions.Bool`...) returns it: plain, frozen data */
 export interface IActionDefinition<
 	T extends Enum.InputActionType,
 	B,
 	TP extends boolean = boolean,
 > {
+	/** The action type, which fixes the value type */
 	readonly Type: T;
+	/** The bindings, by name: the devices' (a binding or a namespace) and the Scriptable ones */
 	readonly Bindings: B;
+	/** Whether the handle tracks the previous frame's value */
 	readonly TrackPrevious: TP;
+	/** The `InputAction.DisplayName` of an action `Create` makes */
 	readonly DisplayName?: string;
+	/** The `InputAction.Enabled` of an action `Create` makes */
 	readonly Enabled?: boolean;
 }
 
+/** A builder's options: `InputActions.Bool(bindings, { TrackPrevious: true })` */
 export interface IActionOptions<TP extends boolean> {
 	/** Snapshot the value once per frame so GetPrevious/HasChanged (and IsJustPressed/IsJustReleased) exist */
 	TrackPrevious?: TP;
@@ -515,12 +588,17 @@ export interface IActionOptions<TP extends boolean> {
 	Enabled?: boolean;
 }
 
+/** A context in a schema: its options and its actions */
 export interface IContextSchema {
 	/** The server creates this context and its actions under each Player; the bindings stay on the client */
 	ServerAuthority?: boolean;
+	/** Orders the context against the others: higher goes first (IAS default 1000; a whole number) */
 	Priority?: number;
+	/** Keeps lower-priority contexts from the keys this context binds (default false) */
 	Sink?: boolean;
+	/** The base state of a context `Create` makes (default true) */
 	Enabled?: boolean;
+	/** The actions, by name, made with the builders */
 	Actions: { [name: string]: IActionDefinition<Enum.InputActionType, unknown, boolean> };
 }
 
@@ -537,16 +615,18 @@ export type CheckContexts<S> = {
 	};
 };
 
+/** A schema's data: the contexts by name */
 export interface IInputSchema<S extends Record<string, IContextSchema>> {
+	/** The contexts, by name */
 	readonly Contexts: S;
 }
 /**
  * A schema as `Create`, `ForPlayer`, `ProvideToPlayers` and `SanitizeBindings` take it: what
  * `Schema` returns, or `{ Contexts }` written without it, whose misspelt context options are refused
- * here, as `Schema`'s parameter refuses them (hunt HD3-2). A generic `S` passes on as it is, so a
- * helper over `InputActions.InputSchema<S>` can call them. An interface, not an intersection: from
- * one instantiation of it to another `S` is inferred as it is, where from an intersection it was
- * inferred as `S & CheckContexts<S>`, which `ServerHandle<S>` doesn't take (hunt HD4-2)
+ * here, as `Schema`'s parameter refuses them. A generic `S` passes on as it is, so a helper over
+ * `InputActions.InputSchema<S>` can call them. An interface, not an intersection: from one
+ * instantiation of it to another `S` is inferred as it is, where from an intersection it was
+ * inferred as `S & CheckContexts<S>`, which `ServerHandle<S>` doesn't take
  */
 export interface ICheckedInputSchema<S extends Record<string, IContextSchema>>
 	extends IInputSchema<S> {
@@ -556,16 +636,18 @@ export interface ICheckedInputSchema<S extends Record<string, IContextSchema>>
  * What `Schema` returns: a schema it checked. The functions that take a schema take this first, as
  * it is, then `ICheckedInputSchema<S>`: checked again, its type would be the context a `Schema` call
  * written inside them infers from, and a preset with no options there would infer its options from
- * that check instead of from its argument (hunt HD4-3)
+ * that check instead of from its argument
  */
 export interface ISchema<S extends Record<string, IContextSchema>> extends IInputSchema<S> {
+	/** Only `Schema` makes one */
 	readonly _nominal_InputActionsSchema: unique symbol;
 }
 
 // ---- client handles
 
+/** `Capture`'s options */
 export interface ICaptureOptions {
-	/** Keys that cancel the capture */
+	/** Keys that end the capture without a change, from any device; `Capture` doesn't call back then */
 	Cancel?: Enum.KeyCode[];
 }
 
@@ -581,6 +663,7 @@ export interface IExtraBindings<H> {
  * device's extra bindings (0.7.0) are handles of this type too, hung off its main binding's handle
  */
 export interface IBindingHandle<T extends Enum.InputActionType, D extends Device = Device> {
+	/** The InputBinding the handle wraps now (the Server Authority swap may point it at another) */
 	readonly Instance: InputBinding;
 	/** The device: the binding's name in the schema (an extra's device too) */
 	readonly Name: D;
@@ -621,13 +704,18 @@ export interface ICaptureBindingHandle<
 	T extends Enum.InputActionType,
 	D extends CapturableDevice = CapturableDevice,
 > extends IBindingHandle<T, D> {
+	/** The device's extra bindings its schema declares, by name (see `IBindingHandle.Extras`) */
 	Extras(): IExtraBindings<ICaptureBindingHandle<T, D>>;
 	/**
 	 * Waits for the next key of this binding's device legal for `slot`, applies it, then calls
-	 * `callback`; other devices' keys are ignored (a `Cancel` key counts from any device). On the
-	 * gamepad a stick pushed past halfway counts as its direction (`Thumbstick1Up`...), and a
-	 * Direction2D `KeyCode` takes the whole stick; a trigger counts once pulled past halfway.
-	 * Returns a cancel function
+	 * `callback`; other devices' keys are ignored (a `Cancel` key counts from any device, and ends
+	 * the capture without calling `callback`). On the gamepad a stick pushed past halfway counts as
+	 * its direction (`Thumbstick1Up`...), and a Direction2D `KeyCode` takes the whole stick; a
+	 * trigger counts once pulled past halfway. Returns a function that stops it
+	 * @example
+	 * Move.Bindings.KeyboardAndMouse.Capture("Up", (key) => print(`Forward is now ${key.Name}`), {
+	 * 	Cancel: [Enum.KeyCode.Backspace],
+	 * });
 	 */
 	Capture(
 		slot: CaptureSlot<T>,
@@ -637,14 +725,18 @@ export interface ICaptureBindingHandle<
 }
 /** What `CaptureChord` applied: the key, and the modifiers held before it, in the order they went down */
 export interface IChord {
+	/** The last key that went down */
 	readonly KeyCode: Enum.KeyCode;
+	/** The first key held before it, if any */
 	readonly PrimaryModifier?: Enum.KeyCode;
+	/** The second key held before it, if any */
 	readonly SecondaryModifier?: Enum.KeyCode;
 }
 
 /** The action types whose `KeyCode` takes keys that can be pressed, so that a chord can end on one */
 export type ChordActionName = "Bool" | "Direction1D";
 
+/** `CaptureChord`'s options */
 export interface IChordCaptureOptions extends ICaptureOptions {
 	/**
 	 * Seconds from the start of the capture. When they run out, the keys held then settle the chord,
@@ -662,6 +754,7 @@ export interface IChordBindingHandle<
 	T extends Enum.InputActionType,
 	D extends CapturableDevice = CapturableDevice,
 > extends ICaptureBindingHandle<T, D> {
+	/** The device's extra bindings its schema declares, by name (see `IBindingHandle.Extras`) */
 	Extras(): IExtraBindings<IChordBindingHandle<T, D>>;
 	/**
 	 * Waits for keys of this binding's device held together (up to three), and settles when the
@@ -693,9 +786,16 @@ export type BindingHandleOf<
 		? IChordBindingHandle<T, Exclude<D, "Touch">>
 		: ICaptureBindingHandle<T, Exclude<D, "Touch">>;
 
+/** A binding declared `InputActions.Scriptable`: driven only from code */
 export interface IScriptableBindingHandle<T extends Enum.InputActionType> {
+	/** The InputBinding the handle wraps now (the Server Authority swap may point it at another) */
 	readonly Instance: InputBinding;
+	/** The binding's name in the schema */
 	readonly Name: string;
+	/**
+	 * Sets the action's state through this binding. The value stays until something changes it: fire
+	 * the value at rest when your control lets go
+	 */
 	Fire(value: ActionValue<T>): void;
 }
 /**
@@ -708,17 +808,25 @@ export type BindingHandles<T extends Enum.InputActionType, B> = {
 	readonly [K in Exclude<keyof B, Device>]: IScriptableBindingHandle<T>;
 };
 
+/** The handle of an action: its state, events and bindings (`Input.Gameplay.Actions.Jump`) */
 export interface IActionHandle<T extends Enum.InputActionType, B> {
 	/** The InputAction the handle wraps now (a Server Authority stand-in's, then the server's copy's) */
 	readonly Instance: InputAction;
+	/** The action's name in the schema */
 	readonly Name: string;
+	/** The action type, which fixes the value type */
 	readonly Type: T;
 	/**
 	 * Forwards the action's `StateChanged`, from whichever instance the handle wraps; it never
 	 * repeats the value it passed on last (the Server Authority swap can bring such a repeat)
 	 */
 	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
+	/**
+	 * The binding handles: `KeyboardAndMouse`, `Gamepad` and `Touch` always (each its device's main
+	 * binding, with the extras its schema declares as properties), and the Scriptable ones by name
+	 */
 	readonly Bindings: BindingHandles<T, B>;
+	/** The value now: boolean, number, Vector2 or Vector3, by the action type */
 	GetState(): ActionValue<T>;
 	/**
 	 * Drives the action from code, through a Scriptable binding the package creates on first use.
@@ -726,13 +834,20 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	 * an action's bindings when one is added, as for `AttachButton`)
 	 */
 	Fire(value: ActionValue<T>): void;
+	/** Enables or disables the action (`InputAction.Enabled`); disabling releases it, on the server too */
 	SetEnabled(enabled: boolean): void;
+	/** Whether the action is enabled (its context may still be off) */
 	IsEnabled(): boolean;
+	/** The binding IAS prefers for the device in use (`InputAction.PreferredBinding`); never an unbound one */
 	GetPreferredBinding(): InputBinding | undefined;
 	/**
 	 * The keybind of `device` as text (`"Space"`, `"Ctrl + S"`, `"W / A / S / D"`): its main
 	 * binding's `Describe()`, `""` when that has no key. By default the device the player uses
-	 * (`InputActions.PreferredDevice()`)
+	 * (`InputActions.PreferredDevice()`): refresh a hint on `InputActions.PreferredDeviceChanged` and
+	 * the root handle's `BindingsChanged`
+	 * @example
+	 * hint.Text = `Jump: ${Jump.Describe()}`; // "Jump: Space", or "Jump: A" on a gamepad
+	 * Jump.Describe("Gamepad"); // "A"
 	 */
 	Describe(device?: Device): string;
 	/**
@@ -742,6 +857,11 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	 * takes it over. The returned function, the label's destruction or the root handle's `Destroy`
 	 * let go of it, which clears its `InputAction` unless it was pointed elsewhere meanwhile. Once
 	 * another `AttachLabel` took the label over, the function and `Destroy` leave it alone
+	 * @example
+	 * const label = new Instance("InputActionLabel");
+	 * label.Size = UDim2.fromOffset(120, 40);
+	 * label.Parent = hud;
+	 * const detach = Jump.AttachLabel(label);
 	 */
 	AttachLabel(label: InputActionLabel): () => void;
 }
@@ -755,8 +875,13 @@ export interface IActionCapture {
 	 * `KeyCode`; that key's device picks the binding, which becomes that key alone: its composite
 	 * directions and its modifiers give way, as with `CaptureChord` given one key (Ctrl+S captured
 	 * with F is F; a binding's `Capture("KeyCode", ...)` keeps the modifiers). Then calls `callback`
-	 * with the key and the device. Touch input is ignored; a `Cancel` key counts from any device.
-	 * Returns a cancel function
+	 * with the key and the device. Touch input is ignored; a `Cancel` key counts from any device, and
+	 * ends the capture without calling `callback` (`CaptureChord` calls back on it). Returns a
+	 * function that stops it
+	 * @example
+	 * const stop = Jump.Capture((key, device) => print(`Jump is now ${key.Name} on ${device}`), {
+	 * 	Cancel: [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB],
+	 * });
 	 */
 	Capture(
 		callback: (key: Enum.KeyCode, device: CapturableDevice) => void,
@@ -766,7 +891,13 @@ export interface IActionCapture {
 	 * Waits for keys held together, as a binding's `CaptureChord` does: the first key that goes
 	 * down picks the device, and the other device's keys are ignored while any key of the chord is
 	 * held (no Shift + ButtonA). The chord goes into that device's binding. `callback` gets the
-	 * chord and the device, or `undefined` twice when the capture ends with nothing applied
+	 * chord and the device, or `undefined` twice when the capture ends with nothing applied (a
+	 * `Cancel` key, or the `Timeout` with no keys held). One key pressed alone is a chord of that key
+	 * @example
+	 * QuickSave.CaptureChord(
+	 * 	(chord, device) => print(chord === undefined ? "unchanged" : `${QuickSave.Describe(device)} on ${device}`),
+	 * 	{ Cancel: [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB], Timeout: 5 },
+	 * );
 	 */
 	CaptureChord(
 		callback: (chord: IChord | undefined, device: CapturableDevice | undefined) => void,
@@ -774,11 +905,15 @@ export interface IActionCapture {
 	): () => void;
 }
 
+/** The handle of a Bool action: presses, releases, on-screen buttons and gestures */
 export interface IBoolActionHandle<B>
 	extends IActionHandle<Enum.InputActionType.Bool, B>,
 		IActionCapture {
+	/** Fires when the action is pressed; `Pressed` and `Released` always alternate */
 	readonly Pressed: RBXScriptSignal<() => void>;
+	/** Fires when the action is released, also by a reset (a context disabled, a rebind while held) */
 	readonly Released: RBXScriptSignal<() => void>;
+	/** Whether the action is pressed now */
 	IsPressed(): boolean;
 	/**
 	 * Fires `true`, then `false` on the next frame. On the server's copy of a Server Authority
@@ -788,7 +923,10 @@ export interface IBoolActionHandle<B>
 	/**
 	 * Adds a UIButton binding for this button; the returned function removes it. Adding it releases
 	 * the action if it is held: IAS resets an action's bindings when one is added, and a key still
-	 * down holds it again only once pressed again
+	 * down holds it again only once pressed again. The button presses the action while a finger or
+	 * the mouse is down on it; hide it, or set `Interactable = false`, to pause it
+	 * @example
+	 * const detach = Jump.AttachButton(jumpButton); // detach(), or destroying the button, removes it
 	 */
 	AttachButton(button: GuiButton): () => void;
 	/**
@@ -796,11 +934,16 @@ export interface IBoolActionHandle<B>
 	 * `WaitForDoubleTap`, only once `Window` (0.3 s) has passed after the release without a second
 	 * press, so a tap and an `OnDoubleTap` with the same `Window` exclude each other. Returns a
 	 * function that stops it; `Destroy` stops it too
+	 * @example
+	 * Interact.OnTap(() => print("look at it"));
+	 * Jump.OnTap(() => print("hop"), { WaitForDoubleTap: true }); // never half of a double tap
 	 */
 	OnTap(callback: () => void, options?: ITapOptions): () => void;
 	/**
 	 * Calls `callback` on a double tap, at its second press: a press within `Window` (0.3 s) after
 	 * a tap (a press released within `MaxDuration`, 0.25 s). Returns a function that stops it
+	 * @example
+	 * const stop = Jump.OnDoubleTap(() => print("double jump"));
 	 */
 	OnDoubleTap(callback: () => void, options?: IDoubleTapOptions): () => void;
 	/**
@@ -808,11 +951,19 @@ export interface IBoolActionHandle<B>
 	 * (hold-to-interact, a charge). `Progress` gets 0 at the press, then the fraction held each
 	 * frame, and 1 as it completes; `Cancelled` runs, after `Progress(0)`, when the press ends
 	 * first. Returns a function that stops it
+	 * @example
+	 * Interact.OnHold(() => print("door opened"), {
+	 * 	Duration: 0.8,
+	 * 	Progress: (fraction) => (bar.Size = UDim2.fromScale(fraction, 1)),
+	 * 	Cancelled: () => print("let go too soon"),
+	 * });
 	 */
 	OnHold(callback: () => void, options: IHoldOptions): () => void;
 	/**
 	 * Calls `callback` with the seconds held when a press held for at least `Duration` is released
 	 * (charge and release). Returns a function that stops it
+	 * @example
+	 * Shoot.OnLongPress((heldFor) => print(`charged shot: ${math.min(heldFor, 2)} s`), { Duration: 0.5 });
 	 */
 	OnLongPress(callback: (heldFor: number) => void, options: ILongPressOptions): () => void;
 }
@@ -831,12 +982,14 @@ export interface ITapOptions {
 	/** With `WaitForDoubleTap`: the double-tap window, as `OnDoubleTap`'s. Default 0.3 */
 	Window?: number;
 }
+/** `OnDoubleTap`'s options, in seconds */
 export interface IDoubleTapOptions {
 	/** Seconds from the first tap's release within which the second press counts. Default 0.3 */
 	Window?: number;
 	/** The longest press the first tap may be. Default 0.25 */
 	MaxDuration?: number;
 }
+/** `OnHold`'s options */
 export interface IHoldOptions {
 	/** Seconds held */
 	Duration: number;
@@ -845,6 +998,7 @@ export interface IHoldOptions {
 	/** The press ended (or was reset) before `Duration` */
 	Cancelled?: () => void;
 }
+/** `OnLongPress`'s options */
 export interface ILongPressOptions {
 	/** The shortest press that is a long press, in seconds */
 	Duration: number;
@@ -857,9 +1011,11 @@ export interface ITrackedAction<T extends Enum.InputActionType> {
 	/** Whether the value changed between the last two snapshots */
 	HasChanged(): boolean;
 }
+/** Only on Bool actions defined with TrackPrevious: true */
 export interface ITrackedBoolAction extends ITrackedAction<Enum.InputActionType.Bool> {
-	/** Also true for a press and release within one frame */
+	/** Whether the action was pressed since the last frame; also true for a press and release within one frame */
 	IsJustPressed(): boolean;
+	/** Whether the action was released since the last frame; also true for a press and release within one frame */
 	IsJustReleased(): boolean;
 }
 
@@ -883,6 +1039,11 @@ type WithExtras<T extends Enum.InputActionType, B> = [AnyExtraNames<B>] extends 
 			};
 		};
 
+/**
+ * The handle of action definition `D`: the members its type and options give it (`Pressed` and the
+ * gestures on Bool actions, the one-field captures on Bool and Direction1D, `IsJustPressed` with
+ * `TrackPrevious`), and its devices' extras on `Bindings`
+ */
 export type ActionHandle<D> =
 	D extends IActionDefinition<infer T extends Enum.InputActionType, infer B, infer TP>
 		? ([T] extends [Enum.InputActionType.Bool]
@@ -893,14 +1054,18 @@ export type ActionHandle<D> =
 				WithExtras<T, B>
 		: never;
 
+/** What `ImportBindings` did with a save */
 export interface IImportResult {
 	/** Paths (`Context/Action/Slot`) whose saved values were applied */
 	Applied: string[];
 	/** Entries that were not applied; those bindings stay at their defaults */
 	Skipped: ISkippedBinding[];
 }
+/** A save's entry that `ImportBindings` skipped */
 export interface ISkippedBinding {
+	/** The entry's path in the save, as written there */
 	Path: string;
+	/** Why it was skipped (`Mouse is not a device: ...`) */
 	Reason: string;
 }
 
@@ -926,43 +1091,78 @@ export interface IBindingConflict {
 }
 /** Two bindings of one device that share a key: what `FindConflicts()` lists, each pair once */
 export interface IConflictPair {
+	/** The two bindings' handles, in the order of `Paths` */
 	readonly Bindings: readonly [AnyBindingHandle, AnyBindingHandle];
 	/** Their paths, the first before the second in sorted order */
 	readonly Paths: readonly [string, string];
 	/** The first key they share, in the first binding's order */
 	readonly Key: Enum.KeyCode;
+	/** Every key they share */
 	readonly Keys: readonly Enum.KeyCode[];
+	/** A key presses both with the same modifiers; otherwise they only overlap (see `IBindingConflict`) */
 	readonly Identical: boolean;
 }
 
+/** The root handle's and the context handles' bindings: saves, resets and conflicts */
 export interface IBindingsOwner {
-	/** The rebinds (what differs from the defaults) as JSON */
+	/**
+	 * The rebinds (what differs from the defaults) as JSON, by path
+	 * (`{"Version":1,"Bindings":{}}` when nothing changed)
+	 * @example
+	 * saveRemote.FireServer(Input.ExportBindings()); // the server cleans it with SanitizeBindings
+	 */
 	ExportBindings(): string;
-	/** Resets to the defaults, then applies the saved rebinds. Never throws */
+	/**
+	 * Resets to the defaults, then applies the saved rebinds. Never throws: a bad entry is skipped
+	 * with a reason, and its binding stays at its default
+	 * @example
+	 * const result = Input.ImportBindings(save);
+	 * for (const skipped of result.Skipped) warn(`${skipped.Path} not loaded: ${skipped.Reason}`);
+	 */
 	ImportBindings(json: string): IImportResult;
+	/** Every binding back to its defaults: the tree right after `Create` */
 	ResetBindings(): void;
 	/**
 	 * The other bindings of `binding`'s device (on the root handle, in every context; on a context
 	 * handle, in its own) that share a key with it, in any of their key slots, by path. A rebinding
 	 * menu calls it after a capture to warn, swap or clear the other. Unbound bindings conflict with
 	 * nothing; which contexts are enabled or sink plays no part
+	 * @example
+	 * for (const conflict of Input.Gameplay.FindConflicts(Jump.Bindings.KeyboardAndMouse)) {
+	 * 	warn(`${conflict.Key.Name} is also ${conflict.Path}`); // or clear it: conflict.Binding.Clear()
+	 * }
 	 */
 	FindConflicts(binding: AnyBindingHandle): IBindingConflict[];
-	/** Every pair of bindings of one device that share a key, each pair once, by path */
+	/**
+	 * Every pair of bindings of one device that share a key, each pair once, by path
+	 * @example
+	 * for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Paths[1]} share ${pair.Key.Name}`);
+	 */
 	FindConflicts(): IConflictPair[];
 }
 
+/** The handle of a context: its enabled state, its actions, and its bindings' saves */
 export interface IContextHandle<C extends IContextSchema> extends IBindingsOwner {
 	/** The InputContext the handle wraps now: set Priority or Sink on it directly */
 	readonly Instance: InputContext;
+	/** The context's name in the schema */
 	readonly Name: string;
+	/** The action handles, by name */
 	readonly Actions: { readonly [A in keyof C["Actions"]]: ActionHandle<C["Actions"][A]> };
+	/** Fires with the effective state when it changes */
 	readonly EnabledChanged: RBXScriptSignal<(enabled: boolean) => void>;
 	/** Sets the base state */
 	SetEnabled(enabled: boolean): void;
 	/** The effective state: base state overridden by requests (any `false` request wins) */
 	IsEnabled(): boolean;
-	/** Holds the context enabled or disabled until the returned function is called */
+	/**
+	 * Holds the context enabled or disabled until the returned function is called (a second call
+	 * does nothing). A `false` request wins over `true` ones and the base state; disabling releases
+	 * the context's held actions
+	 * @example
+	 * const resumeGameplay = Input.Gameplay.Request(false); // while a menu is open
+	 * resumeGameplay();
+	 */
 	Request(enabled: boolean): () => void;
 }
 
@@ -995,10 +1195,12 @@ export interface IServerAuthorityContextHandle {
 export type ContextHandle<C extends IContextSchema> = IContextHandle<C> &
 	(C extends { ServerAuthority: true } ? IServerAuthorityContextHandle : unknown);
 
+/** The root handle `Create` returns: a context handle per context, by name, and the root's members */
 export type InputHandle<S extends Record<string, IContextSchema>> = {
 	readonly [C in keyof S]: ContextHandle<S[C]>;
 } & IInputRoot;
 
+/** `Create`'s options */
 export interface ICreateOptions {
 	/** Where contexts are found or created. Default: `ReplicatedStorage.Inputs` */
 	Folder?: Instance;
@@ -1015,40 +1217,56 @@ export interface ICreateOptions {
 
 // ---- server
 
+/** `ProvideToPlayers`' options */
 export interface IProvideOptions {
 	/** Where the templates are. Default: `ReplicatedStorage.Inputs` */
 	Folder?: Instance;
-	/** Default: `"Inputs"` */
+	/** The folder under each player that gets the Server Authority contexts. Default: `"Inputs"` */
 	PlayerFolderName?: string;
 }
+/** `ForPlayer`'s options */
 export interface IForPlayerOptions {
-	/** Default: `"Inputs"` */
+	/** The folder under the player that holds the Server Authority contexts. Default: `"Inputs"` */
 	PlayerFolderName?: string;
-	/** Seconds to wait for the player's contexts. Default: 10 */
+	/** Seconds to wait for the player's contexts, then throw. Default: 10 */
 	Timeout?: number;
 }
 
+/** A server handle on one action of a player's Server Authority context: read only */
 export interface IServerActionHandle<T extends Enum.InputActionType> {
+	/** The player's InputAction */
 	readonly Instance: InputAction;
+	/** The action's name */
 	readonly Name: string;
+	/** The action's `StateChanged`, as the client's state arrives */
 	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
+	/** The state the client sent: read it in `RunService.BindToSimulation` */
 	GetState(): ActionValue<T>;
 }
+/** A server handle on a Bool action: adds `Pressed` and `Released` */
 export interface IServerBoolActionHandle extends IServerActionHandle<Enum.InputActionType.Bool> {
+	/** The action's `Pressed` */
 	readonly Pressed: RBXScriptSignal<() => void>;
+	/** The action's `Released` */
 	readonly Released: RBXScriptSignal<() => void>;
 }
+/** The server handle of action definition `D` */
 export type ServerActionHandle<D> =
 	D extends IActionDefinition<infer T extends Enum.InputActionType, unknown, boolean>
 		? [T] extends [Enum.InputActionType.Bool]
 			? IServerBoolActionHandle
 			: IServerActionHandle<T>
 		: never;
+/** A server handle on one of a player's Server Authority contexts */
 export interface IServerContextHandle<C extends IContextSchema> {
+	/** The player's InputContext */
 	readonly Instance: InputContext;
+	/** The context's name */
 	readonly Name: string;
+	/** The action handles, by name */
 	readonly Actions: { readonly [A in keyof C["Actions"]]: ServerActionHandle<C["Actions"][A]> };
 }
+/** What `ForPlayer` returns: a handle per context marked `ServerAuthority: true` */
 export type ServerInputHandle<S extends Record<string, IContextSchema>> = {
 	readonly [C in keyof S as S[C] extends { ServerAuthority: true }
 		? C

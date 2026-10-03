@@ -1,9 +1,14 @@
 import { Bool, Direction1D, Direction2D } from "./Builders";
 
+/** `UiNavigation`'s options: the context's, as in a schema */
 export interface IUiNavigationOptions {
+	/** The server reads the menu's state (see `IContextSchema.ServerAuthority`) */
 	ServerAuthority?: boolean;
+	/** The context's priority (IAS default 1000) */
 	Priority?: number;
+	/** Keeps lower-priority contexts from the menu's keys */
 	Sink?: boolean;
+	/** The base state of a context `Create` makes; a menu usually starts `false` */
 	Enabled?: boolean;
 }
 

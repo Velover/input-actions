@@ -23,6 +23,14 @@ hand-rolling it: `InputActions.PreferredDeviceChanged`, `Describe()` (a keybind 
 `FindConflicts` for rebinding menus, gestures on Bool actions (`OnTap`, `OnDoubleTap`, `OnHold`,
 `OnLongPress`) (§6), and compile errors that say why in words (§3).
 
+**User docs** (0.7.0). `docs/README.md` indexes them: `Guide.md` (the model, then a recipe per
+everyday task and a short "don't" list), `QuickStart.md`, `Introduction.md`, `Advanced.md` (each
+feature in full), `EdgeCases.md` (several root handles on one folder, held actions whose bindings
+change, `Destroy` with events on their way, the Server Authority swap step by step), `API.md` and
+`Components/`. They state behaviour, not its history: hunt IDs and measurement dates stay in this
+spec and in the tests. The Guide's snippets compile against the package as written (imports and
+schema included).
+
 ## 1. What stays, what goes
 
 | Now | After |

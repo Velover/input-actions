@@ -25,6 +25,10 @@ function RemoveFirst(list: number[], value: number) {
 	if (index !== -1) list.remove(index);
 }
 
+/**
+ * Controls the mouse lock (`UserInputService.MouseBehavior` and `MouseIconEnabled`) through
+ * priority stacks, so several systems can ask for different behaviours and the highest priority wins
+ */
 export namespace MouseController {
 	//the stacks should be sorted by priority all the time
 	const lockedCenterPrioritiesStack: number[] = [];
@@ -45,6 +49,10 @@ export namespace MouseController {
 		[EMouseLockAction.None]: [],
 	};
 
+	/**
+	 * A request for a mouse behaviour at a priority (by default the action's
+	 * `EMouseLockActionPriority`): `SetActive(true)` pushes it, `false` removes it
+	 */
 	export class MouseLockAction {
 		private _active = false;
 
@@ -53,6 +61,7 @@ export namespace MouseController {
 			private _priority: number = DEFAULT_MOUSE_LOCK_ACTION_PRIORITIES[_action],
 		) {}
 
+		/** Moves the request to another priority, active or not */
 		AdjustPriority(newPriority: number) {
 			if (this._priority === newPriority) return;
 			const wasActive = this._active;
@@ -61,6 +70,7 @@ export namespace MouseController {
 			if (wasActive) this.SetActive(true);
 		}
 
+		/** Pushes the request onto its action's stack, or removes it */
 		SetActive(active: boolean) {
 			if (this._active === active) return;
 			this._active = active;
@@ -86,6 +96,10 @@ export namespace MouseController {
 		[EMouseLockAction.None]: false,
 	};
 
+	/**
+	 * Strict (the default for every action): the behaviour is written every frame, over other
+	 * scripts. Not strict: only when the applied action changes
+	 */
 	export function SetMouseLockActionStrictMode(
 		action: Exclude<EMouseLockAction, EMouseLockAction.None>,
 		value: boolean,
@@ -165,11 +179,13 @@ export namespace MouseController {
 		SetMouseLockAction(GetCurrentMouseLockAction());
 	}
 
+	/** Pauses or resumes applying the current action */
 	export function SetEnabled(value: boolean) {
 		enabled = value;
 	}
 
 	let initialized = false;
+	/** Starts applying the current action every frame, on the client; calling it again does nothing */
 	export function Initialize() {
 		if (initialized) return;
 		initialized = true;

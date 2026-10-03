@@ -145,6 +145,7 @@ export namespace RawInputHandler {
 		else controlModule?.Enable(value);
 	}
 
+	/** Turns the camera input (`GetRotation`, `GetZoomDelta`) on or off */
 	export function MouseInputSetEnabled(value: boolean) {
 		mouseInputEnabled = value;
 		// The legacy fork owns its CAS bindings; the IAS path only gates what it returns
@@ -152,10 +153,12 @@ export namespace RawInputHandler {
 			GetCameraInput().setInputEnabled(value);
 	}
 
+	/** This frame's camera rotation input */
 	export function GetRotation() {
 		return lastRotation;
 	}
 
+	/** This frame's camera zoom input */
 	export function GetZoomDelta() {
 		return lastZoomDelta;
 	}
@@ -171,6 +174,7 @@ export namespace RawInputHandler {
 	}
 
 	/**
+	 * The character's move input, `X` right and `-Z` forward
 	 * @param relativeCamera rotates the vector by the camera's yaw
 	 * @param normalized returns the unit vector
 	 * @param followFullRotation also applies the camera's pitch and roll

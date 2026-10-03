@@ -3,48 +3,43 @@
 A typed wrapper over Roblox's [Input Action System](https://create.roblox.com/docs/input/input-action-system)
 (IAS) for roblox-ts. You describe your contexts, actions and bindings once as a schema; the package
 gets or creates the `InputContext` / `InputAction` / `InputBinding` instances and hands back typed
-handles. Its extras: rebinding with a JSON save format, per-frame "just pressed" tracking, context
-requests, on-screen buttons, keybind labels and Server Authority support.
+handles. On top of IAS it adds rebinding with a JSON save format, rebind-menu helpers, gestures,
+per-frame "just pressed" tracking, context requests, on-screen buttons, keybind labels and Server
+Authority support.
+
+**New here? Read the [Guide](docs/Guide.md)**: the model in a few lines, then a recipe for each
+everyday task. All the docs: [docs/README.md](docs/README.md).
 
 - **Typed from the schema.** `Move.GetState()` is a `Vector2`, `Jump.Pressed` exists only on Bool
-  actions, and a binding IAS can't use (a mouse delta on a Bool action, Escape, a thumbstick as a
-  composite direction) is a compile error that says why, in words:
+  actions, and a binding IAS can't use is a compile error that says why:
   `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys`.
 - **Device bindings.** An action's bindings are named after the devices, `KeyboardAndMouse`,
-  `Gamepad` and `Touch`, and each takes only its device's keys (a keyboard key on the gamepad's
-  binding is a compile error). Every action has the three, so a player can give a gamepad button to
-  an action the game bound on the keyboard only. `InputActions.PreferredDevice()` names the device
-  in use. A device takes several bindings through a namespace, `{ Main: WASD, Arrows: ARROWS }`:
-  WASD plus the arrows, the stick plus the D-pad, or an Alternate column, each extra a typed
-  handle of its own (`Move.Bindings.KeyboardAndMouse.Arrows`).
-- **Works with the Input Action Manager.** Contexts the Manager made in `ReplicatedStorage.Inputs`
-  are adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
-- **Rebinding:** `Set`, `Reset`, `Clear`, `Capture` (one key), `CaptureChord` (keys held together,
-  such as Ctrl+Shift+J, with an optional timeout), each on one device's binding and taking that
-  device's keys, sticks and triggers included; a one-field `action.Capture` where the first key
-  pressed picks the device; and `ExportBindings` / `ImportBindings` that save only what the player
-  changed. `SanitizeBindings` cleans a save on the server.
-- **Rebinding menus:** `Describe()` gives a keybind as text (`"Ctrl + S"`, `"W / A / S / D"`, in
-  the player's keyboard layout, with readable names for mouse, gamepad and touch keys);
-  `FindConflicts` lists the bindings that share a key with one just captured, to warn, swap or clear;
-  `InputActions.PreferredDeviceChanged` fires when the player switches device, to re-render.
-- **Gestures** on Bool actions: `OnTap`, `OnDoubleTap` (the two can exclude each other),
-  `OnHold` (with a progress fraction each frame, for a bar) and `OnLongPress` (charge and release),
-  each a function that stops it.
+  `Gamepad` and `Touch`, each taking only its device's keys, and every action has the three, so a
+  player can give a gamepad button to an action bound on the keyboard only. A device takes extra
+  bindings through a namespace, `{ Main: WASD, Arrows: ARROWS }`, each a typed handle
+  (`Move.Bindings.KeyboardAndMouse.Arrows`). `InputActions.PreferredDevice()` names the device in
+  use.
+- **Works with the Input Action Manager.** Contexts it made in `ReplicatedStorage.Inputs` are
+  adopted by name (`JumpKeyboardAndMouse`, `JumpGamepad`...), and what the designer set wins.
+- **Rebinding:** `Set`, `Reset`, `Clear`, `Capture` (one key) and `CaptureChord` (keys held
+  together, such as Ctrl+Shift+J), on one device's binding and with its keys, sticks and triggers
+  included; a one-field `action.Capture` where the first key pressed picks the device;
+  `ExportBindings` / `ImportBindings`, which save only what the player changed, and
+  `SanitizeBindings` to clean a save on the server.
+- **Rebind menus:** `Describe()` gives a keybind as text (`"Ctrl + S"`, `"W / A / S / D"`, in the
+  player's keyboard layout); `FindConflicts` lists the bindings that share a key with one just
+  captured; `InputActions.PreferredDeviceChanged` fires when the player switches device.
+- **Gestures** on Bool actions: `OnTap`, `OnDoubleTap`, `OnHold` (with a progress fraction each
+  frame) and `OnLongPress`.
 - **UI:** `AttachButton` turns a GuiButton into an on-screen button for a Bool action, and
-  `AttachLabel` points Roblox's `InputActionLabel` at any action to show its keybind for the device
-  in use. Both return a function that undoes them; nothing React-specific is in the package.
+  `AttachLabel` points Roblox's `InputActionLabel` at any action. Nothing React-specific.
 - **Contexts:** a base state plus `Request(true | false)` holds; focus loss (TextBox, window, menu)
   releases held keys.
 - **Server Authority:** opt in per context with `ServerAuthority: true`. The server provides those
-  contexts to each player and reads the state; the keybinds stay on the client. Until the server's
-  copy arrives the client runs on a local stand-in; `WhenLinkedToServer` calls back once it has.
-  `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority.
-  Scripts can't read `Workspace.AuthorityMode`, so it reads the error message
-  `workspace.Terrain:CanSetNetworkOwnership()` gives, which names the mode. It answers `undefined`
-  when it can't tell: on the client before the game has loaded (there is no `Terrain` yet), or if
-  Roblox rewords the message. `Create` and `ProvideToPlayers` warn when a marked context meets a
-  place without it ([details](docs/Advanced.md#is-server-authority-on)).
+  contexts to each player and reads the state; the keybinds stay on the client.
+  `InputActions.IsServerAuthority()` tells, best-effort, whether the place runs Server Authority,
+  and `Create` and `ProvideToPlayers` warn when a marked context meets a place without it
+  ([details](docs/Advanced.md#is-server-authority-on)).
 - Kept from 0.5: `MouseController`, `InputCatcher`, `RawInputHandler`.
 
 ## Installation
@@ -126,24 +121,23 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   Jump: InputActions.Bool({ KeyboardAndMouse: { Main: K.Space, Alternate: K.F } }),
   ```
 
-  `Move.Bindings.Arrows` becomes `Move.Bindings.KeyboardAndMouse.Arrows`, and
-  `Move.Bindings.KeyboardAndMouse` is still `Main`'s handle. An extra takes its device's keys; it
-  can't be named `Main`, after a binding handle's member (`Get`, `Set`, `Capture`...) or a binding
-  property (`KeyCode`, `Up`...). See [Several bindings per device](docs/Advanced.md#several-bindings-per-device).
+  `Move.Bindings.Arrows` becomes `Move.Bindings.KeyboardAndMouse.Arrows`; `Move.Bindings.KeyboardAndMouse`
+  is still `Main`'s handle. An extra can't be named `Main`, after a binding handle's member (`Get`,
+  `Set`, `Capture`...) or a binding property (`KeyCode`, `Up`...). See
+  [Several bindings per device](docs/Advanced.md#several-bindings-per-device).
 - **Every other binding is `InputActions.Scriptable`** (driven from code); a Scriptable under a
   device's name is refused.
 - **Every action has the three device bindings**, unbound when the schema leaves one out:
   `Bindings.Gamepad` exists on a keyboard-only action, and `Get()` returns `{}` there.
-- **Captures are per device.** `Bindings.Gamepad.Capture` takes gamepad keys only (VirtualInput's
-  and real ones), `Bindings.KeyboardAndMouse.Capture` keyboard and mouse keys; other devices' keys
-  are ignored, and `Cancel` keys count from any device. The `Touch` binding has no `Capture` (a tap
-  is never captured: set touch keys with `Set`). `action.Capture` and `action.CaptureChord` (Bool
-  and Direction1D actions) give a menu one field per action.
-- **Saves** keep their format: entries under the device names load as before; others are skipped
+- **Captures are per device.** `Bindings.Gamepad.Capture` takes gamepad keys only,
+  `Bindings.KeyboardAndMouse.Capture` keyboard and mouse keys; another device's keys are ignored,
+  and `Cancel` keys count from any device.
+  The `Touch` binding has no `Capture`: set touch keys with `Set`. `action.Capture` and
+  `action.CaptureChord` (Bool and Direction1D actions) give a menu one field per action.
+- **Saves** keep their format. Entries under the device names load as before; others are skipped
   with a reason (`Mouse is not a device: ...`). An extra saves at `Context/Action/Device/Extra`. To
-  keep a 0.6 save's rebinds, rename its paths to the device (or the device's extra) each old slot
-  became before importing it, on the JSON string itself; an entry whose keys aren't that device's
-  is still skipped, with a reason:
+  keep a 0.6 save's rebinds, rename its paths on the JSON string before importing it (an entry whose
+  keys aren't that device's is still skipped):
 
   ```ts
   const [renamed] = json.gsub('"([^"/]+/[^"/]+)/Keyboard":', '"%1/KeyboardAndMouse":');
@@ -153,24 +147,24 @@ const release = Input.Ui.Request(true); // open the menu context until release()
   ```
 - **Bindings in the folder or a template** are adopted by the new names only (`JumpKeyboardAndMouse`,
   `JumpGamepad`, `JumpTouch`, or the bare device name; an extra as `<Action><Device><Extra>`,
-  `MoveKeyboardAndMouseArrows`). One named after an old slot (`JumpKeyboard`, `MoveArrows`) is no
-  longer adopted: it keeps running beside the package's new binding, with only a warning in Studio.
-  Rename or delete such bindings.
-- **Types:** `InputActions.InputSchema<S>` is now the checked schema type (a misspelt context option
-  is a compile error there too): a helper generic over the schema takes `InputSchema<S>` to pass it
-  to `Create`, `ForPlayer`, `ProvideToPlayers` or `SanitizeBindings`; one typed `{ Contexts: S }`
-  no longer can. `InputActions.BindingHandle<A>` is the keyboard-and-mouse or gamepad binding (the
-  ones with `Capture`): type a variable that may hold the `Touch` one
+  `MoveKeyboardAndMouseArrows`). One named after an old slot (`JumpKeyboard`, `MoveArrows`) keeps
+  running beside the package's new binding, with a warning in Studio: rename or delete it.
+- **Types:** `InputActions.InputSchema<S>` is now the checked schema type: a helper generic over the
+  schema takes `InputSchema<S>` to pass it to `Create`, `ForPlayer`, `ProvideToPlayers` or
+  `SanitizeBindings` (one typed `{ Contexts: S }` no longer can). `InputActions.BindingHandle<A>` is
+  the keyboard-and-mouse or gamepad binding; type a variable that may hold the `Touch` one
   `InputActions.BindingHandle<A, InputActions.Device>`.
 - The `UiNavigation` preset's `Scroll` is the wheel on the keyboard and mouse (its `Mouse` slot and
   the `PageUp`/`PageDown` composite are gone; for both, declare the action yourself with an extra).
 
 ## Documentation
 
-- [Introduction](docs/Introduction.md): the model, and what changed from 0.5
-- [Quick start](docs/QuickStart.md): a schema, the handle, reading input
-- [Advanced](docs/Advanced.md): contexts, rebinding and saves, on-screen buttons, TrackPrevious,
-  Server Authority, and the IAS behaviours to know
+- [Guide](docs/Guide.md): the model, and a recipe for each everyday task. Start here.
+- [Quick start](docs/QuickStart.md): a schema, the handle, reading input, step by step
+- [Introduction](docs/Introduction.md): how the package sits on IAS, and what changed from 0.5
+- [Advanced](docs/Advanced.md): each feature in full, and the IAS behaviours to know
+- [Edge cases](docs/EdgeCases.md): several `Create`s on one folder, held actions whose bindings
+  change, the Server Authority swap step by step
 - [API reference](docs/API.md)
 - Kept utilities: [MouseController](docs/Components/MouseController.md),
   [InputCatcher](docs/Components/InputCatcher.md), [RawInputHandler](docs/Components/RawInputHandler.md)

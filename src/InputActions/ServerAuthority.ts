@@ -52,7 +52,7 @@ function AddMissingActions(context: InputContext, name: string, schema: IContext
  * context or action the server disabled (probed), so the client owns `Enabled` and starts from the
  * template's or the schema's. Warns when the place doesn't run Server Authority
  * (`IsServerAuthority()` is `false`). Returns a function that stops providing. Takes a schema as
- * `Create` does (hunt HD4-2)
+ * `Create` does
  */
 export function ProvideToPlayers<S extends Record<string, IContextSchema>>(
 	schema: ISchema<S>,
@@ -142,7 +142,7 @@ class ServerActionHandle implements IServerActionHandle<Enum.InputActionType> {
 /**
  * Server: typed read-only handles over one player's Server Authority contexts. Waits (up to
  * `Timeout`) for them when `ProvideToPlayers` has not placed them yet. Takes a schema as `Create`
- * does, so a helper generic over `InputActions.InputSchema<S>` gets `ServerHandle<S>` (hunt HD4-2)
+ * does, so a helper generic over `InputActions.InputSchema<S>` gets `ServerHandle<S>`
  */
 export function ForPlayer<S extends Record<string, IContextSchema>>(
 	schema: ISchema<S>,

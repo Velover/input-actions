@@ -998,8 +998,9 @@ export class InputRuntime implements IRuntime {
 }
 
 /**
- * `InputActions.Create`: builds the typed handle on the client. `Schema`'s result first, as it is,
- * then any schema, checked (see `ISchema`, hunt HD4-3)
+ * `InputActions.Create`: gets or creates the contexts, actions and bindings on the client, and
+ * returns the typed root handle. Takes `Schema`'s result first, as it is, then any schema, checked
+ * (see `ISchema`)
  */
 export function Create<S extends Record<string, IContextSchema>>(
 	schema: ISchema<S>,

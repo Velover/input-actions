@@ -1,5 +1,8 @@
 # API reference
 
+Every member, option and type. For the everyday tasks as recipes, see the [Guide](Guide.md); for
+each feature in full, [Advanced](Advanced.md).
+
 ```ts
 import { InputActions, MouseController, EMouseLockAction, InputCatcher, RawInputHandler } from "@rbxts/input-actions";
 ```
@@ -278,7 +281,7 @@ What `Create` returns: one property per context, by name, plus:
 | `ResetBindings()` | every binding back to its defaults |
 | `FindConflicts(binding): BindingConflict[]` | the other bindings of `binding`'s device, in every context, that share a key with it, by path: `{ Binding, Path, Key, Keys, Identical }` (see [Conflicts](Advanced.md#conflicts)) |
 | `FindConflicts(): ConflictPair[]` | every pair of bindings of one device that share a key, each pair once: `{ Bindings, Paths, Key, Keys, Identical }` |
-| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held and doesn't show the last value the other handles fired (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
+| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held and doesn't show the last value the other handles fired (see [Several root handles on one folder](EdgeCases.md#several-root-handles-on-one-folder)) |
 
 ### Context handle
 
@@ -314,7 +317,7 @@ All action types:
 | `Instance: InputAction`, `Name: string`, `Type: Enum.InputActionType` | `Instance` is the action it wraps now |
 | `GetState(): V` | the current value (`boolean`, `number`, `Vector2`, `Vector3`) |
 | `StateChanged: RBXScriptSignal<(value: V) => void>` | forwards the IAS signal; never repeats the value it passed on last (the Server Authority swap can bring such a repeat, which is dropped) |
-| `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use. Made while the action is held, that binding releases it before the value lands, as `AttachButton` does (see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
+| `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use. Made while the action is held, that binding releases it before the value lands, as `AttachButton` does (see [Held actions and binding changes](EdgeCases.md#held-actions-and-binding-changes)) |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
 | `Describe(device?): string` | the keybind of `device` as text: its main binding's `Describe()` (`"Space"`, `"Ctrl + S"`, `"W / A / S / D"`, `""` when it has no key). By default the device the player uses (`InputActions.PreferredDevice()`); a name that isn't a device throws |
@@ -325,7 +328,7 @@ Bool and Direction1D actions add (the others don't have them, and they throw if 
 
 | Member | |
 | --- | --- |
-| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which becomes that key alone (its composite directions and modifiers give way, as with `CaptureChord` given one key: Ctrl+S captured with F is F), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture`, which keeps the modifiers |
+| `Capture(callback: (key, device) => void, options?): () => void` | a one-field rebind: waits for the next key a `KeyboardAndMouse` or `Gamepad` binding of the action can hold in its `KeyCode`; the key's device picks the binding, which becomes that key alone (its composite directions and modifiers give way, as with `CaptureChord` given one key: Ctrl+S captured with F is F), then `callback(key, device)`. Touch input is ignored, and so is a key no binding of its device can take. Options and rules as for the binding's `Capture`, which keeps the modifiers; `callback` isn't called when a `Cancel` key ends it |
 | `CaptureChord(callback: (chord, device) => void, options?): () => void` | as the binding's `CaptureChord`, on the binding of the device whose key goes down first; the other device's keys are ignored while any key of the chord is held (no Shift + ButtonA). `callback(undefined, undefined)` when it ends with nothing applied |
 
 `device` is `"KeyboardAndMouse"` or `"Gamepad"`. Both write the device's main binding, never one of
@@ -338,7 +341,7 @@ Bool actions add:
 | `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals; they always alternate (a repeat of the last one, which IAS can send on a Server Authority copy, is dropped) |
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
-| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none. Adding the binding releases the action if it is held (IAS resets an action's bindings when one is added; see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
+| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none. Adding the binding releases the action if it is held (IAS resets an action's bindings when one is added; see [Held actions and binding changes](EdgeCases.md#held-actions-and-binding-changes)) |
 | `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? }?): () => void` | a press released within `MaxDuration` (0.25 s). With `WaitForDoubleTap`, once `Window` (0.3 s) has passed after it without a second press |
 | `OnDoubleTap(callback, { Window?, MaxDuration? }?): () => void` | at the second press, within `Window` (0.3 s) after a tap (released within `MaxDuration`, 0.25 s) |
 | `OnHold(callback, { Duration, Progress?, Cancelled? }): () => void` | once a press has lasted `Duration`, while still held; `Progress(fraction)` each frame while held, from 0 to 1; `Cancelled()` (after `Progress(0)`) when it ends first |
@@ -371,7 +374,7 @@ press; they throw if called on it anyway):
 
 | Member | |
 | --- | --- |
-| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway, both as IAS reads them past its deadzone, so where a binding on them would press; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device |
+| `Capture(slot, callback, options?): () => void` | waits for the next key of the binding's device legal for `slot` that goes down (keys, buttons, mouse buttons; on the gamepad also a stick pushed past halfway, as its direction `Thumbstick1Up`..., or the whole stick for a Direction2D `KeyCode`, and a trigger pulled past halfway, both as IAS reads them past its deadzone, so where a binding on them would press; never the wheel, mouse movement or a tap), applies it (a `KeyCode` keeps the binding's modifiers), calls `callback(key)`. Other devices' keys are ignored; `options.Cancel` keys stop it, from any device, without calling `callback` (the returned function too) |
 | `CaptureChord(callback, options?): () => void` | Bool and Direction1D bindings only. Waits for up to three keys of the binding's device held together and settles when the first comes up (or when `options.Timeout` seconds run out, with the keys held then): the last key down is `KeyCode`, the ones before it the modifiers, in order. Other devices' keys are no part of it. Applies it in one write and calls `callback(chord)`; `callback(undefined)` when it ends with nothing applied (a `Cancel` key, or the timeout). See [Capturing a chord](Advanced.md#capturing-a-chord) |
 
 Only what changes is written. A change to a binding's keys while its action is held releases the

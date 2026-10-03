@@ -151,5 +151,5 @@ hint.Text = `Jump: ${Input.Gameplay.Actions.Jump.Describe()}`;
 InputActions.PreferredDeviceChanged.Connect(() => (hint.Text = `Jump: ${Input.Gameplay.Actions.Jump.Describe()}`));
 ```
 
-Next: [Advanced](Advanced.md) for rebinding UIs, saves, on-screen buttons, TrackPrevious and Server
-Authority.
+Next: the [Guide](Guide.md) has a recipe for each everyday task (a rebind menu, saves, buttons,
+labels, Server Authority...), and [Advanced](Advanced.md) explains each feature in full.

@@ -83,4 +83,4 @@ now a rewrite on IAS, and most of the old API is gone:
 | `InputCatcher` | kept, unchanged |
 | `RawInputHandler` | kept, same API; it reads the IAS PlayerModule when the place uses it |
 
-Next: [Quick start](QuickStart.md).
+Next: the [Guide](Guide.md), or the [Quick start](QuickStart.md) step by step.
