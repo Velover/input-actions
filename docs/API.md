@@ -7,7 +7,8 @@ import { InputActions, MouseController, EMouseLockAction, InputCatcher, RawInput
 - [InputActions](#inputactions)
   - [Builders](#builders) · [Schema](#schema) · [Create](#create) · [Server](#server) ·
     [IsServerAuthority](#isserverauthority) · [SanitizeBindings](#sanitizebindings) ·
-    [PreferredDevice](#preferreddevice) · [Presets](#presets) · [Types](#types)
+    [PreferredDevice](#preferreddevice) · [PreferredDeviceChanged](#preferreddevicechanged) ·
+    [Presets](#presets) · [Types](#types)
 - [Handles](#handles): [root](#root-handle) · [context](#context-handle) · [action](#action-handle) ·
   [binding](#binding-handle) · [server](#server-handles)
 - [Binding shapes](#binding-shapes) · [Keys per device](#keys-per-device) · [Key groups](#key-groups)
@@ -34,6 +35,9 @@ InputActions.Scriptable
   keys the action type can't use, another device's keys, a key binding under another name and a
   Scriptable under a device's name are compile errors. Every action gets the three device bindings
   at `Create`, unbound when left out here.
+- **The compile errors say why**, in the words of the runtime's messages: what a refused binding is
+  checked against is a sentence, so the error ends on it (see
+  [Readable compile errors](#readable-compile-errors)).
 - A device takes one binding, or several through a **namespace**: `{ Main: <binding>, <Extra>:
   <binding>, ... }`, an object with a `Main` key (no binding has that property). `Main` is the
   device's main binding, the one the direct form gives; the others are **extras**, named as you
@@ -67,7 +71,7 @@ as on an option of the wrong type, an action option of the wrong type (`DisplayN
 `Schema` checks the bindings at runtime too (a key binding not
 named after a device, a Scriptable under a device's name, another device's key: each named in the
 message), and throws on names the handles can't hold: a context named like one of the root
-handle's five members, a name with `/`, or a slot whose binding would take the name of one the
+handle's six members, a name with `/`, or a slot whose binding would take the name of one the
 package makes itself (`Script`, `UIButton<n>`, `<Action>Script`, `<Action>UIButton<n>`: see
 [`Fire`](#action-handle) and `AttachButton`), or two slots `S` and `<Action>S` on one action (both
 would find the binding `<Action>S`; the device bindings count, being always there, so a Scriptable
@@ -77,6 +81,36 @@ beside the `KeyboardAndMouse` extra `Arrows` is refused. A namespace is checked 
 each binding against its device's keys and each extra's name against the reserved ones, the message
 naming `Context/Action/Device/Main` or `Context/Action/Device/<Extra>`. The result is frozen and
 creates no instances: require it on both realms.
+
+#### Readable compile errors
+
+What the types refuse in a schema (the builders' bindings, a device's namespace, a context's
+options) is checked against a sentence that says why, in the runtime's words, so the error ends on
+it:
+
+```
+InputActions.Bool({ Gamepad: Enum.KeyCode.Space })
+// Type 'Space' is not assignable to type 'Space & "Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys"'.
+```
+
+| Written | The sentence |
+| --- | --- |
+| another device's key, also as a modifier or a direction | `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys` |
+| a key the slot never takes | `MouseDelta is not allowed in KeyCode on a Bool action` |
+| keys under another name | `Keys is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable` |
+| `InputActions.Scriptable` under a device | `Gamepad is a device: its bindings hold keys, not InputActions.Scriptable; name a Scriptable binding beside the devices` |
+| an extra named after a handle's member, or a binding property | `Get is a member of a binding handle, ...`, `KeyCode is a binding property, not an extra binding: ...` |
+| an extra name with `/` | `a/b: an extra binding's name can't contain /` |
+| a property the action type lacks (a key there: likely a second binding) | `Alt is not a property of a Bool binding; several bindings of one device go in { Main: <binding>, Alt: <binding> }` |
+| `KeyCode` beside a direction | `KeyCode and composite directions can't share a binding` |
+| `ResponseCurve` without a thumbstick | `ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode` |
+| a misspelt context option | `unknown option ServerAuthorty; a context has ServerAuthority, Priority, Sink, Enabled and Actions` |
+
+A number, a boolean or a string is checked against an object named by the sentence
+(`Type '1' is not assignable to type '1 & { readonly "Typo is not a property of a Bool binding": never; }'`).
+`Set` on a binding handle keeps TypeScript's own message (the keys it takes, listed): its parameter
+isn't generic, so that handles of different devices still compare (`BindingHandle<A, Device>`
+takes any of the three), and it checks again at runtime with the sentence.
 
 ### Create
 
@@ -177,6 +211,20 @@ is plugged in, before any of its buttons is pressed. A rebinding menu shows
 `action.Bindings[InputActions.PreferredDevice()]`, and has nothing to capture on `"Touch"`. See
 [Rebinding](Advanced.md#rebinding).
 
+### PreferredDeviceChanged
+
+```ts
+InputActions.PreferredDeviceChanged: RBXScriptSignal<(device: InputActions.Device) => void>
+InputActions.PreferredDeviceChanged.Connect((device) => renderMenu(device));
+```
+
+Client. Fires with the new device each time `PreferredDevice()` changes: a key pressed after a tap,
+a tap after a key, a gamepad plugged in or out. `MicroGamepad` and `Gamepad` both read
+`"Gamepad"`, so a switch between them fires nothing, and it never fires the same device twice in a
+row. It listens to `UserInputService.PreferredInput` from the first time it is read, once for the
+game, and it is the same signal on every read. On the server it never fires. Under Deferred
+signals it arrives a moment after `PreferredInput` changed: read the device from its argument.
+
 ### Presets
 
 ```ts
@@ -210,6 +258,8 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.CaptureSlot<A>`, `CaptureOptions` | `Capture`'s arguments |
 | `InputActions.Chord`, `ChordCaptureOptions` | what `CaptureChord` passes its callback, and its options |
 | `InputActions.ImportResult`, `SkippedBinding` | what `ImportBindings` returns |
+| `InputActions.BindingConflict`, `ConflictPair` | what `FindConflicts(binding)` and `FindConflicts()` list |
+| `InputActions.TapOptions`, `DoubleTapOptions`, `HoldOptions`, `LongPressOptions` | the [gestures](#action-handle)' options |
 | `InputActions.CreateOptions`, `ProvideOptions`, `ForPlayerOptions` | options |
 | `InputActions.ButtonKey`, `MouseButtonKey`, `AxisKey`, `StickKey`, `Delta1DKey`, `Delta2DKey`, `PositionKey`, `BoolKey`, `Direction1DKey`, `Direction2DKey`, `CompositeKey`, `ModifierKey` | the [key groups](#key-groups) |
 | `InputActions.KeyboardAndMouseKey`, `GamepadKey`, `TouchKey` | the [keys per device](#keys-per-device) |
@@ -226,6 +276,8 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |
+| `FindConflicts(binding): BindingConflict[]` | the other bindings of `binding`'s device, in every context, that share a key with it, by path: `{ Binding, Path, Key, Keys, Identical }` (see [Conflicts](Advanced.md#conflicts)) |
+| `FindConflicts(): ConflictPair[]` | every pair of bindings of one device that share a key, each pair once: `{ Bindings, Paths, Key, Keys, Identical }` |
 | `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held and doesn't show the last value the other handles fired (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
 
 ### Context handle
@@ -239,7 +291,7 @@ What `Create` returns: one property per context, by name, plus:
 | `IsEnabled(): boolean` | the effective state |
 | `Request(enabled): () => void` | holds the context on or off until the returned function is called; a `false` request wins |
 | `EnabledChanged: RBXScriptSignal<(enabled: boolean) => void>` | the effective state changed |
-| `ExportBindings()`, `ImportBindings(json)`, `ResetBindings()` | as on the root, for this context's bindings |
+| `ExportBindings()`, `ImportBindings(json)`, `ResetBindings()`, `FindConflicts(binding?)` | as on the root, for this context's bindings |
 
 Contexts marked `ServerAuthority: true` add:
 
@@ -265,6 +317,7 @@ All action types:
 | `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use. Made while the action is held, that binding releases it before the value lands, as `AttachButton` does (see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
+| `Describe(device?): string` | the keybind of `device` as text: its main binding's `Describe()` (`"Space"`, `"Ctrl + S"`, `"W / A / S / D"`, `""` when it has no key). By default the device the player uses (`InputActions.PreferredDevice()`); a name that isn't a device throws |
 | `AttachLabel(label: InputActionLabel): () => void` | points the label at the action, which then shows its keybind; it follows the Server Authority swap. A label is on one action at a time: the last `AttachLabel` takes it over. The function, destroying the label, or `Destroy` lets go and clears `label.InputAction` (unless it was pointed elsewhere); once the label was taken over, they leave it alone. See [Keybind labels](Advanced.md#keybind-labels) |
 | `Bindings` | the binding handles: `KeyboardAndMouse`, `Gamepad` and `Touch` always (unbound when the schema leaves one out), each its main binding's with the extras its schema declares as properties (`Bindings.KeyboardAndMouse.Arrows`), and the schema's Scriptable slots by name |
 
@@ -286,6 +339,15 @@ Bool actions add:
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
 | `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none. Adding the binding releases the action if it is held (IAS resets an action's bindings when one is added; see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
+| `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? }?): () => void` | a press released within `MaxDuration` (0.25 s). With `WaitForDoubleTap`, once `Window` (0.3 s) has passed after it without a second press |
+| `OnDoubleTap(callback, { Window?, MaxDuration? }?): () => void` | at the second press, within `Window` (0.3 s) after a tap (released within `MaxDuration`, 0.25 s) |
+| `OnHold(callback, { Duration, Progress?, Cancelled? }): () => void` | once a press has lasted `Duration`, while still held; `Progress(fraction)` each frame while held, from 0 to 1; `Cancelled()` (after `Progress(0)`) when it ends first |
+| `OnLongPress(callback: (heldFor) => void, { Duration }): () => void` | on the release of a press that lasted at least `Duration`, with the seconds held |
+
+The gestures' functions stop them, and so does `Destroy`. Durations are positive, finite seconds
+(anything else throws). A release the package or IAS makes (the context or the action disabled,
+the focus-loss reset, a rebind or a binding added while held, the Server Authority swap) ends a
+gesture without completing it. See [Gestures](Advanced.md#gestures).
 
 Actions with `TrackPrevious: true` add `GetPrevious(): V` and `HasChanged(): boolean`; tracked Bool
 actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](Advanced.md#trackprevious).
@@ -299,6 +361,7 @@ A device's binding (`KeyboardAndMouse`, `Gamepad`, `Touch`), its main one or an 
 | `Instance: InputBinding`, `Name` | `Name` is the device, an extra's too |
 | `Extras(): InputActions.ExtraBindings<H>` | the device's extras its schema declares, by name: the same handles as its properties (`Extras().Arrows === Bindings.KeyboardAndMouse.Arrows`), each typed as the device's handle. A table: read one by name, also on a handle picked by a device at runtime (`Bindings[device].Extras().Alt`), or go through them with `pairs`, in no order. Empty on an extra, and on a device without extras |
 | `Get(): BindingData<A, D>` | the binding as plain data in the schema's shape; `{}` when unbound |
+| `Describe(): string` | the binding as text: its `DisplayName` when it has one; else its modifiers then its key, joined by `" + "` (`"Ctrl + S"`), or its composite directions in reading order (Up, Left, Down, Right, Forward, Backward) joined by `" / "` (`"W / A / S / D"`; with modifiers, `"Shift + (W / A / S / D)"`); `""` when it has no key. See [Keybinds as text](Advanced.md#keybinds-as-text) |
 | `Set(binding: BindingShape<A, D> \| BindingPart<A, D>)` | rebinds; objects merge, so one may leave the key out (`Set({ PressedThreshold: 0.9 })` tunes the key the binding has); throws on what the action type doesn't allow, on another device's key, on a `ResponseCurve` when the binding doesn't end on a thumbstick after the merge, and on a number a float can't hold (beyond ±3.4e38) |
 | `Reset()` | back to the binding right after `Create` (unbound when the schema left the device out) |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |

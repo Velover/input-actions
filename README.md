@@ -8,7 +8,8 @@ requests, on-screen buttons, keybind labels and Server Authority support.
 
 - **Typed from the schema.** `Move.GetState()` is a `Vector2`, `Jump.Pressed` exists only on Bool
   actions, and a binding IAS can't use (a mouse delta on a Bool action, Escape, a thumbstick as a
-  composite direction) is a compile error.
+  composite direction) is a compile error that says why, in words:
+  `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys`.
 - **Device bindings.** An action's bindings are named after the devices, `KeyboardAndMouse`,
   `Gamepad` and `Touch`, and each takes only its device's keys (a keyboard key on the gamepad's
   binding is a compile error). Every action has the three, so a player can give a gamepad button to
@@ -23,6 +24,13 @@ requests, on-screen buttons, keybind labels and Server Authority support.
   device's keys, sticks and triggers included; a one-field `action.Capture` where the first key
   pressed picks the device; and `ExportBindings` / `ImportBindings` that save only what the player
   changed. `SanitizeBindings` cleans a save on the server.
+- **Rebinding menus:** `Describe()` gives a keybind as text (`"Ctrl + S"`, `"W / A / S / D"`, in
+  the player's keyboard layout, with readable names for mouse, gamepad and touch keys);
+  `FindConflicts` lists the bindings that share a key with one just captured, to warn, swap or clear;
+  `InputActions.PreferredDeviceChanged` fires when the player switches device, to re-render.
+- **Gestures** on Bool actions: `OnTap`, `OnDoubleTap` (the two can exclude each other),
+  `OnHold` (with a progress fraction each frame, for a bar) and `OnLongPress` (charge and release),
+  each a function that stops it.
 - **UI:** `AttachButton` turns a GuiButton into an on-screen button for a Bool action, and
   `AttachLabel` points Roblox's `InputActionLabel` at any action to show its keybind for the device
   in use. Both return a function that undoes them; nothing React-specific is in the package.

@@ -91,6 +91,10 @@ RunService.RenderStepped.Connect((deltaTime) => {
 	if (Crouch.IsJustPressed()) print("crouch"); // needs TrackPrevious: true
 });
 
+// gestures, on Bool actions: each returns a function that stops it
+Jump.OnDoubleTap(() => print("double jump"));
+Jump.OnHold(() => print("charged"), { Duration: 1, Progress: (fraction) => print(fraction) });
+
 // driving actions from code
 Dash.Fire(true);
 Dash.Tap(); // true now, false next frame
@@ -124,6 +128,9 @@ jumpKey.CaptureChord((chord) => print(chord?.KeyCode), { Timeout: 5 });
 jump.Capture((key, device) => print(`${key.Name} on ${device}`));
 // the binding of the device the player uses ("KeyboardAndMouse", "Gamepad" or "Touch")
 print(jump.Bindings[InputActions.PreferredDevice()].Get());
+print(jump.Describe()); // that keybind as text: "Space", "Ctrl + S", "W / A / S / D"
+// after a capture: the other bindings that now share the key
+for (const conflict of Input.FindConflicts(jumpKey)) print(`also ${conflict.Path}`);
 
 const save = Input.ExportBindings(); // store it (DataStore through a remote, etc.)
 Input.ImportBindings(save); // on the next join
@@ -139,6 +146,9 @@ a gamepad button. Touch has no keys to press, so the `Touch` binding has no `Cap
 const label = new Instance("InputActionLabel"); // Roblox shows the keybind for the device in use
 label.Parent = hints;
 Input.Gameplay.Actions.Jump.AttachLabel(label); // returns a function that lets go
+// or as text, for the device in use, refreshed when the player switches device
+hint.Text = `Jump: ${Input.Gameplay.Actions.Jump.Describe()}`;
+InputActions.PreferredDeviceChanged.Connect(() => (hint.Text = `Jump: ${Input.Gameplay.Actions.Jump.Describe()}`));
 ```
 
 Next: [Advanced](Advanced.md) for rebinding UIs, saves, on-screen buttons, TrackPrevious and Server

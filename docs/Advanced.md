@@ -5,6 +5,7 @@
 - [Driving actions from code](#driving-actions-from-code)
 - [On-screen buttons](#on-screen-buttons)
 - [TrackPrevious](#trackprevious)
+- [Gestures](#gestures)
 - [Rebinding](#rebinding)
 - [Saving keybinds](#saving-keybinds)
 - [Several bindings per device](#several-bindings-per-device)
@@ -212,6 +213,64 @@ them is a compile error.
   next frame.
 - Actions without `TrackPrevious` do no per-frame work.
 
+## Gestures
+
+Bool actions have four gestures, each a callback on a pattern of presses:
+
+```ts
+const { Interact, Dash, Charge } = Input.Gameplay.Actions; // Bool actions
+Interact.OnHold(() => openDoor(), {
+	Duration: 0.8, // seconds held
+	Progress: (fraction) => (bar.Size = UDim2.fromScale(fraction, 1)), // 0 at the press, 1 when done
+	Cancelled: () => print("let go too soon"),
+});
+Dash.OnDoubleTap(() => dash());
+Dash.OnTap(() => step(), { WaitForDoubleTap: true }); // a tap that isn't half of a double tap
+const stop = Charge.OnLongPress((heldFor) => shoot(math.min(heldFor, 2)), { Duration: 0.3 });
+stop(); // each returns a function that stops it; Input.Destroy() stops them all
+```
+
+- `OnTap(callback, { MaxDuration?, WaitForDoubleTap?, Window? })`: a press released within
+  `MaxDuration` (default 0.25 s). With `WaitForDoubleTap`, it waits until `Window` (default 0.3
+  s, as `OnDoubleTap`'s) has passed after the release without a second press; a tap that waits is
+  dropped when the action or its context is disabled by then.
+- `OnDoubleTap(callback, { Window?, MaxDuration? })`: fires at the second press, when it comes within
+  `Window` (0.3 s) after a tap (a press released within `MaxDuration`, 0.25 s). The second press
+  starts nothing new: a fourth quick press is the next double tap's second.
+- `OnHold(callback, { Duration, Progress?, Cancelled? })`: fires once, while the press is still
+  held, when it has lasted `Duration` (hold to interact, a charge that goes off by itself).
+  `Progress` gets 0 at the press, then the fraction of `Duration` held each frame, and 1 as it
+  completes; it is then left at 1 until the next press. When the press ends first, `Progress(0)`
+  then `Cancelled()`.
+- `OnLongPress(callback, { Duration })`: fires on the release of a press that lasted at least
+  `Duration`, with the seconds it lasted (charge and release). A shorter press is no long press, and
+  may be a tap.
+- Durations are positive, finite seconds; anything else throws, and so does a callback that isn't a
+  function. On a Direction1D, Direction2D, Direction3D or ViewportPosition action they are compile
+  errors (and throw). The server's handles (`ForPlayer`) have none: read `Pressed` and
+  `Released` there.
+- They are built on the handle's own `Pressed` and `Released`, which always alternate, timed with
+  `os.clock` as each arrives. A gesture starts with the next press: a press already in progress when
+  you connect it is no part of it. Presses from code count too: `Tap()` is a tap, and `Fire(true)`
+  then `Fire(false)` a press that long. There is no per-frame work, but a Hold's `Progress` while
+  it is held.
+- **Several gestures on one action** are independent: each sees every press. A quick press is a tap
+  and begins a hold that it cancels (`Cancelled` runs); a long one is a hold and a long press, and
+  no tap. A plain `OnTap` hears both taps of a double tap; with `WaitForDoubleTap` and the same
+  `Window` as `OnDoubleTap`, the two exclude each other: a tap fires only once the window has
+  passed without a second press, and the double tap's second press is no tap.
+- **A release nobody made ends a gesture without completing it:** the context disabled
+  (`SetEnabled`, `Request`, the focus-loss reset), the action disabled, a rebind or a binding added
+  while it is held (IAS resets the action), and the Server Authority swap when the server's copy
+  doesn't carry the press. No tap, double tap or long press comes of it, and a hold in progress calls
+  `Cancelled`. The package tells such a release by the action being disabled when it arrives, or by
+  a reset it made itself since the press began. At the swap, a press the copy carries goes on (a
+  hold keeps running), and a value a Scriptable binding held is fired again on the copy, which is a
+  new press. A release IAS makes on its own when the window loses focus counts as the player's
+  while `ResetOnFocusLoss` is off.
+- The function a gesture returns and `Destroy` stop it without calling anything, a hold in progress
+  included. After `Destroy`, a new gesture does nothing.
+
 ## Rebinding
 
 ```ts
@@ -363,7 +422,82 @@ else highlightColumn(device);
 ```
 
 Roblox counts a gamepad as preferred as soon as one is plugged in, before any of its buttons is
-pressed. `examples/RebindingMenu.ts` in the repository has both menus.
+pressed. **Re-render on `InputActions.PreferredDeviceChanged`**, which fires with the new device
+when the player switches (a key after a tap, a gamepad plugged in), never twice in a row for the
+same device; `MicroGamepad` and `Gamepad` both read `"Gamepad"`. On the server it never fires.
+
+```ts
+InputActions.PreferredDeviceChanged.Connect((device) => {
+	if (device === "Touch") hideRebinding();
+	else highlightColumn(device);
+});
+```
+
+`examples/RebindingMenu.ts` in the repository has both menus.
+
+### Keybinds as text
+
+```ts
+const { Jump, QuickSave, Move } = Input.Gameplay.Actions;
+Jump.Bindings.KeyboardAndMouse.Describe(); // "Space"
+QuickSave.Bindings.KeyboardAndMouse.Describe(); // "Ctrl + S"
+Move.Bindings.KeyboardAndMouse.Describe(); // "W / A / S / D"
+Move.Bindings.KeyboardAndMouse.Arrows.Describe(); // "Up / Left / Down / Right"
+Jump.Describe(); // the device the player uses; Jump.Describe("Gamepad") is "A"
+```
+
+- `binding.Describe()` gives the binding's `DisplayName` when it has one (the schema's, or
+  `Set({ DisplayName })`); else its modifiers then its key, joined by `" + "`, or its composite
+  directions in reading order (Up, Left, Down, Right, then Forward, Backward) joined by `" / "`, with
+  modifiers as `"Shift + (W / A / S / D)"`; and `""` when it has no key. It reads the binding as it
+  is now, after any rebind.
+- `action.Describe(device?)` describes the device's **main** binding (not an extra), on every action
+  type; by default the device the player uses (`InputActions.PreferredDevice()`), so a hint follows
+  the device. Refresh it on `PreferredDeviceChanged` and `BindingsChanged`.
+- Key names: a key that types a character reads as on the player's keyboard layout
+  (`UserInputService:GetStringForKeyCode`: Q reads "A" on AZERTY). For every other key that function
+  gives the enum's name (measured in Studio, every KeyCode), so they have readable names of their
+  own: `Enter`, `Ctrl`, `Shift`, `Alt` (`Right Ctrl`...), `Caps Lock`, `Page Up`, `Num 1`...;
+  `Left Click`, `Right Click`, `Middle Click`, `Mouse Wheel`, `Mouse Movement`; `Touch`, `Drag`,
+  `Pinch`; gamepad keys by their Xbox names, as the KeyCodes are: `A`, `B`, `X`, `Y`, `LB`, `RB`,
+  `LT`, `RT`, `D-Pad Up`, `Left Stick`, `Left Stick Up`, `Left Stick Press`... `F5`, `Tab`, `Home`
+  keep their names.
+- For the platform's gamepad icons, pass the keys of `binding.Get()` to
+  `UserInputService:GetImageForKeyCode`, or let an `InputActionLabel` show the keybind
+  ([Keybind labels](#keybind-labels)).
+
+### Conflicts
+
+After a capture, a menu asks which other bindings now share the key, then warns, swaps or clears:
+
+```ts
+jump.Capture((key, device) => {
+	for (const conflict of Input.FindConflicts(jump.Bindings[device])) {
+		// conflict: { Binding, Path, Key, Keys, Identical }
+		warn(`${conflict.Key.Name} is also ${conflict.Path}`);
+		conflict.Binding.Clear(); // or swap: conflict.Binding.Set(<the key this binding had>)
+	}
+});
+for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Paths[1]} share ${pair.Key.Name}`);
+```
+
+- `FindConflicts(binding)` lists the other bindings of the binding's device that share a key with it,
+  by path: on the root handle in every context, on a context handle in its own. They share a key
+  when a key presses both (in a `KeyCode` or a composite direction: plain W and WASD), or one's key is
+  the other's modifier (Ctrl+S presses a binding on Ctrl, which goes down first). Two chords that
+  only share a modifier (Ctrl+S, Ctrl+D) don't: neither presses the other.
+- Each entry has the other binding's handle (`Binding`, any action type's: `Get`, `Set`, `Reset`,
+  `Clear`, `Describe`), its `Path` (`Context/Action/Device`, or `.../Device/Extra`), the first key
+  they share (`Key`, in the given binding's order) and all of them (`Keys`), and `Identical`: true
+  when a key presses both with the same modifiers, so every press of it presses both; false when
+  they only overlap: a chord and its plain key (IAS presses both when the chord is pressed: a chord
+  doesn't block its plain key), two chords on one key, or a key that is the other's modifier.
+- `FindConflicts()` with no argument lists every pair once, sorted by path:
+  `{ Bindings, Paths, Key, Keys, Identical }`.
+- Only keys count: not whether the contexts are enabled or sink (a menu context's Accept and
+  gameplay's Jump both on Space conflict on the root handle; ask the context handle for one
+  context). Unbound bindings conflict with nothing, nor do Scriptable bindings, attached buttons,
+  the bindings the schema doesn't mention, or another root handle's.
 
 ### Capturing a chord
 

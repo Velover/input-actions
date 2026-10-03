@@ -1,8 +1,8 @@
-// A settings screen: a column per device with the current keys, a Primary and an Alternate key per
-// device (an `Alt` extra the schema declares), a one-field rebind per action, capturing a key or a
-// chord into one device's binding, and saving and loading the rebinds.
+// A settings screen: a column per device with the current keys as text (Describe), a Primary and an
+// Alternate key per device (an `Alt` extra the schema declares), a one-field rebind per action,
+// capturing a key or a chord into one device's binding, the keys it then shares with other actions
+// (FindConflicts), and saving and loading the rebinds.
 import { InputActions } from "@rbxts/input-actions";
-import { UserInputService } from "@rbxts/services";
 
 const InputSchema = InputActions.Schema({
 	Gameplay: {
@@ -62,28 +62,15 @@ function CellBinding(
 /** Keys that close a capture without a change, from either device */
 const CANCEL = [Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB];
 
-function KeyLabel(key: Enum.KeyCode | undefined) {
-	return key === undefined ? "(unbound)" : UserInputService.GetStringForKeyCode(key);
-}
-
-/** The keys of a Bool or Direction1D binding, as its `Get()` returns them */
-interface IRowKeys {
-	KeyCode?: Enum.KeyCode;
-	Up?: Enum.KeyCode;
-	Down?: Enum.KeyCode;
-	PrimaryModifier?: Enum.KeyCode;
-	SecondaryModifier?: Enum.KeyCode;
-}
-
-/** "Ctrl + S": the modifiers, then the key; "W / S" for a composite's Up and Down */
-function ChordLabel(keys: IRowKeys) {
-	const parts = new Array<string>();
-	if (keys.PrimaryModifier !== undefined) parts.push(KeyLabel(keys.PrimaryModifier));
-	if (keys.SecondaryModifier !== undefined) parts.push(KeyLabel(keys.SecondaryModifier));
-	if (keys.KeyCode === undefined && (keys.Up !== undefined || keys.Down !== undefined))
-		parts.push(`${KeyLabel(keys.Up)} / ${KeyLabel(keys.Down)}`);
-	else parts.push(KeyLabel(keys.KeyCode));
-	return parts.join(" + ");
+/**
+ * A cell's text: "Ctrl + S", "W / S", "LT" (Describe reads the binding as it is now, in the player's
+ * keyboard layout); "(unbound)" for a binding without keys. For the gamepad's icons, pass the keys of
+ * `binding.Get()` to `UserInputService.GetImageForKeyCode`
+ */
+function CellText(binding: InputActions.BindingHandle<Enum.InputActionType, InputActions.Device> | undefined) {
+	if (binding === undefined) return "-";
+	const text = binding.Describe();
+	return text === "" ? "(unbound)" : text;
 }
 
 /** The rows: one per action with a one-field capture (Bool and Direction1D actions) */
@@ -93,26 +80,31 @@ const ROWS: Array<[string, InputActions.CaptureAction]> = [
 	["Throttle", Throttle],
 ];
 
-// Text labels refresh whenever a binding changes, whatever changed it, an Alternate key included.
-// Each row shows its keys on both devices, Primary / Alternate; the column of the device the player
-// uses is marked
+// Text labels refresh whenever a binding changes, whatever changed it, an Alternate key included,
+// and when the player switches device. Each row shows its keys on both devices, Primary /
+// Alternate; the column of the device the player uses is marked, and every key another action
+// also uses is flagged
 function RefreshLabels() {
 	const preferred = InputActions.PreferredDevice();
+	const shared = new Set<string>();
+	for (const pair of Input.Gameplay.FindConflicts()) {
+		shared.add(pair.Paths[0]);
+		shared.add(pair.Paths[1]);
+	}
 	for (const [name, action] of ROWS) {
 		const cells = COLUMNS.map((device) => {
-			const primary = ChordLabel(action.Bindings[device].Get());
+			const primary = action.Bindings[device];
 			const alternate = CellBinding(action, device, "Alternate");
-			const keys = `${primary} / ${alternate !== undefined ? ChordLabel(alternate.Get()) : "-"}`;
+			const keys = `${CellText(primary)} / ${CellText(alternate)}`;
 			return device === preferred ? `[${keys}]` : keys;
 		});
 		print(`${name}: ${cells.join(" | ")}`);
 	}
-	print(
-		`Forward: ${KeyLabel(Move.Bindings.KeyboardAndMouse.Get().Up)} | ${KeyLabel(Move.Bindings.Gamepad.Get().KeyCode)}`,
-	);
+	print(`Move: ${Move.Describe("KeyboardAndMouse")} | ${Move.Describe("Gamepad")}`);
+	if (shared.size() > 0) print(`keys used twice: ${[...shared].join(", ")}`);
 }
 Input.BindingsChanged.Connect(RefreshLabels);
-UserInputService.GetPropertyChangedSignal("PreferredInput").Connect(RefreshLabels);
+InputActions.PreferredDeviceChanged.Connect(RefreshLabels);
 RefreshLabels();
 
 /** Whether the menu offers rebinding at all: on a phone there are no keys to capture */
@@ -123,11 +115,22 @@ export function CanRebind() {
 // One field per action: "Press a key or a button for Jump". The first key pressed picks the
 // device, and that device's binding becomes the key alone (Quick save's Ctrl+S captured with F is
 // F); the other device's binding is left alone. On a gamepad, unselect the menu's button while the
-// capture runs (GuiService.SelectedObject = undefined): Roblox's UI navigation takes ButtonA meanwhile
+// capture runs (GuiService.SelectedObject = undefined): Roblox's UI navigation takes ButtonA
+// meanwhile. Then the menu looks for the other bindings that now share the key, and clears them (or
+// swaps: `conflict.Binding.Set(<the key this binding had>)`). `Identical` is false when they only
+// overlap: a chord and its plain key, which IAS both presses (a chord doesn't block its plain key)
 export function RebindAction(action: InputActions.CaptureAction): () => void {
-	return action.Capture((key, device) => print(`${action.Name} is now ${key.Name} on ${device}`), {
-		Cancel: CANCEL,
-	});
+	return action.Capture(
+		(key, device) => {
+			print(`${action.Name} is now ${key.Name} on ${device}`);
+			for (const conflict of Input.FindConflicts(action.Bindings[device])) {
+				const how = conflict.Identical ? "the same keys" : "overlapping keys";
+				warn(`${conflict.Key.Name} was also ${conflict.Path} (${how}): cleared there`);
+				conflict.Binding.Clear();
+			}
+		},
+		{ Cancel: CANCEL },
+	);
 }
 
 // One cell of the menu, Primary or Alternate: only that device's keys count, the other device's are
@@ -162,7 +165,7 @@ export function RebindQuickSave(): () => void {
 		(chord, device) => {
 			resumeGameplay();
 			if (chord === undefined || device === undefined) print("Quick save unchanged");
-			else print(`Quick save is now ${ChordLabel(QuickSave.Bindings[device].Get())} on ${device}`);
+			else print(`Quick save is now ${QuickSave.Bindings[device].Describe()} on ${device}`);
 		},
 		{ Cancel: CANCEL, Timeout: 5 },
 	);

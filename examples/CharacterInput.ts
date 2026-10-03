@@ -27,6 +27,7 @@ export const InputSchema = InputActions.Schema({
 				Virtual: InputActions.Scriptable, // fed by an on-screen stick
 			}),
 			Throttle: InputActions.Direction1D({ Gamepad: Enum.KeyCode.ButtonR2 }),
+			Interact: InputActions.Bool({ KeyboardAndMouse: Enum.KeyCode.E, Gamepad: Enum.KeyCode.ButtonX }),
 		},
 	},
 	Ui: InputActions.Presets.UiNavigation({ Priority: 3000, Sink: true, Enabled: false }),
@@ -34,7 +35,7 @@ export const InputSchema = InputActions.Schema({
 
 // client
 const Input = InputActions.Create(InputSchema);
-const { Jump, Sprint, Move, Throttle } = Input.Gameplay.Actions;
+const { Jump, Sprint, Move, Throttle, Interact } = Input.Gameplay.Actions;
 
 Jump.Pressed.Connect(() => {
 	Players.LocalPlayer.Character?.FindFirstChildOfClass("Humanoid")?.ChangeState(
@@ -49,6 +50,26 @@ RunService.RenderStepped.Connect(() => {
 	if (Sprint.IsJustReleased()) print("sprint stopped");
 	return [direction, speed];
 });
+
+// Gestures: a double tap on Sprint dashes; Interact opens a door when held for 0.8 s, with a bar
+// that fills while it is held, and a quick press only looks at it. The hint names the key for the
+// device in use ("Hold E", "Hold X") and follows a switch of device
+export function BindGestures(bar: Frame, hint: TextLabel) {
+	Sprint.OnDoubleTap(() => print("dash"));
+	Interact.OnTap(() => print("look"), { MaxDuration: 0.25 });
+	const showHint = () => (hint.Text = `Hold ${Interact.Describe()}`);
+	showHint();
+	const connections = [InputActions.PreferredDeviceChanged.Connect(showHint), Input.BindingsChanged.Connect(showHint)];
+	const stopHold = Interact.OnHold(() => print("door opened"), {
+		Duration: 0.8,
+		Progress: (fraction) => (bar.Size = UDim2.fromScale(fraction, 1)),
+		Cancelled: () => print("let go too soon"),
+	});
+	return () => {
+		stopHold();
+		for (const connection of connections) connection.Disconnect();
+	};
+}
 
 // An on-screen stick drives the Scriptable slot; fire zero when the finger lifts
 export function OnVirtualStick(offset: Vector2) {

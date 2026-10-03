@@ -17,7 +17,11 @@ Multiple controllers are out of scope (rare on Roblox). **Extra bindings per dev
 2026-10-04): a device takes a binding or a namespace, `{ Main: <binding>, <Extra>: <binding> }`,
 so WASD plus the arrows, the stick plus the D-pad, or an Alternate column fit in a schema again;
 the device's handle is the main binding's, with the declared extras on it, each a binding handle of
-that device (§3, §4, §6), saved at `Context/Action/Device/Extra` (§7).
+that device (§3, §4, §6), saved at `Context/Action/Device/Extra` (§7). **Usability features**
+(agreed on 2026-10-03), for what a game (or an LLM writing its code) needs every day without
+hand-rolling it: `InputActions.PreferredDeviceChanged`, `Describe()` (a keybind as text),
+`FindConflicts` for rebinding menus, gestures on Bool actions (`OnTap`, `OnDoubleTap`, `OnHold`,
+`OnLongPress`) (§6), and compile errors that say why in words (§3).
 
 ## 1. What stays, what goes
 
@@ -78,6 +82,10 @@ Jump.Bindings.KeyboardAndMouse.Set(Enum.KeyCode.F);
 Crouch.Bindings.Gamepad.Set(Enum.KeyCode.ButtonB); // every action has the three device bindings
 Jump.Capture((key, device) => {}); // the first key pressed picks the device's binding
 Jump.Bindings[InputActions.PreferredDevice()].Get();
+InputActions.PreferredDeviceChanged.Connect((device) => {}); // re-render a menu or a hint
+Jump.Bindings.KeyboardAndMouse.Describe(); // "Space"; Jump.Describe() for the device in use
+Input.FindConflicts(Jump.Bindings.KeyboardAndMouse); // the other bindings that share a key
+Jump.OnHold(() => {}, { Duration: 1, Progress: (fraction) => {} }); // also OnTap, OnDoubleTap, OnLongPress
 const release = Input.Ui.Request(true);
 const saved = Input.ExportBindings();
 
@@ -128,20 +136,22 @@ Rules and lessons:
 - **Performance trap:** validating bindings with a mapped type that compares against the whole
   `Enum.KeyCode` union ran tsc out of memory. `CheckBindings` maps over the bindings `B` only:
   for a device's name it checks a bare key with one conditional (`V extends BindingShape<T, D>`,
-  the device's shape, with its key unions computed once in `KeyGroups.ts`) and an object with the
-  device's object shape intersected with the excess-property check
-  (`Exclude<keyof V, AllKeys<TShape>>`); any other name must be `IScriptable`. A `string` key
-  (inference fell back to the constraint, whose own error is the useful one) checks nothing more.
-  Keep it that way: never a mapped type over the KeyCode union.
+  the device's shape, with its key unions computed once in `KeyGroups.ts`) and an object against
+  the device's object shapes plus the excess-property check (`Exclude<keyof V, AllKeys<TShape>>`),
+  then, only when that fails, property by property over the object's own keys (the readable
+  errors below); any other name must be `IScriptable`. A `string` key (computed names, which
+  `Schema` checks at runtime) checks nothing more. Keep it that way: never a mapped type over the
+  KeyCode union.
 - The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
   checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
   object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
   object check, which a bare key fails). A key that fits gives back itself, not `unknown`, which
   would swallow the other members' checks.
-- A Scriptable under a device's name is checked against `NotScriptable<T, D>`: the device's shapes
-  and a property the marker lacks. The builders' parameter is `B & CheckBindings<B, T>`, and its
-  intersection with `B`'s `IScriptable` made the all-optional composite shapes (Direction1D, 2D,
-  3D) ones the marker satisfies: it compiled there (hunt HD-3).
+- A Scriptable under a device's name is checked against `NotScriptable<D>`, since 0.7.0's readable
+  errors a sentence (a string type, which the marker never is). The builders' parameter is
+  `B & CheckBindings<B, T>`, and its intersection with `B`'s `IScriptable` made the all-optional
+  composite shapes (Direction1D, 2D, 3D) ones the marker satisfies: it compiled there (hunt HD-3),
+  which is why it is checked against something no binding shape is.
 - **Enum items matching all-optional shapes:** the composite shapes are all-optional, so a bare
   enum item matched them structurally. Every object shape carries `EnumType?: never`.
 - `InputActions.BoolAction` is exported: the type of any Bool action handle, for helpers written in
@@ -262,6 +272,61 @@ jump.Bindings.KeyboardAndMouse.Capture("KeyCode", cb);     // Main, as with the 
   the union of maps a handle picked by a device at runtime gives (`Bindings[device].Extras()`);
   and typing the maps alike for every device made tsc compare handles across devices (TS2590).
   A table read by name works on that union.
+
+### Readable compile errors (0.7.0)
+
+Where the types refuse something, the error says why in words, as the runtime's messages do
+(agreed on 2026-10-03): `InputActions.Bool({ Gamepad: Enum.KeyCode.Space })` reads `Type 'Space'
+is not assignable to type 'Space & "Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad
+keys"'`. Before, it read `Type 'Space' is not assignable to type 'never'` (the key intersected
+with the device's union of keys reduces to `never`), and a key the action type can't take failed
+the constraint, whose error listed every key the type takes ("... 252 more ...").
+
+- **A sentence as the type.** What a refused value is checked against is a string literal type
+  (`${X["Name"]} is a ${KeyDeviceOf<X>} key: a ${D} binding takes ${IDeviceKeysText[D]}`):
+  `@rbxts/types` gives every enum item a literal `Name`, and `IDeviceKeysText` (`KeyGroups.ts`)
+  types the runtime's `DEVICE_KEYS_TEXT`, so the two can't drift. A string type is no binding, and
+  intersected with an enum item or an object it is not reduced to `never`, so the error ends on
+  the sentence. A number, a boolean or a string intersected with a string literal is `never`, and
+  takes the whole binding with it (an object with a `never` unit-typed property reduces to
+  `never`): those are checked against `{ readonly "<sentence>": never }` (`Sentence<M, X>`).
+- **What says what** (the runtime's words, without the quotes TypeScript would print escaped):
+
+  | Refused | Sentence |
+  |---|---|
+  | another device's key the slot takes (a bare key, a key in an object, a modifier, a direction) | `Space is a KeyboardAndMouse key: a Gamepad binding takes gamepad keys` (`KeyProblem`, as `KeyRuleProblem`) |
+  | a key the slot never takes | `MouseDelta is not allowed in KeyCode on a Bool action` |
+  | an enum item that is no KeyCode | `a binding must be an Enum.KeyCode, an object or InputActions.Scriptable` |
+  | keys under a name that isn't a device | `Keys is not a device: bindings with keys are named KeyboardAndMouse, Gamepad, Touch; any other binding must be InputActions.Scriptable` (`NotADevice`) |
+  | Scriptable under a device, or in a namespace | `Gamepad is a device: its bindings hold keys, not InputActions.Scriptable; name a Scriptable binding beside the devices` (`NotScriptable`) |
+  | a reserved extra name | `Get is a member of a binding handle, ...` / `KeyCode is a binding property, not an extra binding: ...` (`ExtraNameProblem`) |
+  | an extra name with "/", or empty | `a/b: an extra binding's name can't contain /` |
+  | a property the action type's bindings lack | `Typo is not a property of a Bool binding`; with a key or an object in it, `...; several bindings of one device go in { Main: <binding>, Alt: <binding> }` (as `Schema` says it) |
+  | `KeyCode` beside a direction | `KeyCode and composite directions can't share a binding` |
+  | `ResponseCurve` without a thumbstick `KeyCode` | `ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode` (`..., which a KeyboardAndMouse binding can't hold` on a device without sticks) |
+  | a misspelt context option (`CheckContexts`) | `unknown option ServerAuthorty; a context has ServerAuthority, Priority, Sink, Enabled and Actions` |
+
+- **Inference.** `BindingSpec<T>` (and a namespace's `NamespaceBindingSpec<T>`) also take any enum
+  item and any object (`IAnyObject`), so what the checks refuse is inferred as written and refused
+  in words; the action type's shapes stay in the union for the editor's completions. A value that
+  is no enum item, object or Scriptable (a number) still fails the constraint, with TypeScript's
+  own message (`Type 'number' is not assignable to type 'BindingSpec<Bool>'`).
+- **Objects:** checked against the device's forms first, as before; one that fits, with no property
+  they lack, gives back itself. One that doesn't is checked property by property
+  (`ObjectProblems`, a mapped type over the object's own keys), each refused property against its
+  sentence (`ObjectSentences`); with none refused, against the forms, whose error is readable then
+  (`Property 'KeyCode' is missing`). The forms first: the sentences cost more, and most bindings fit.
+- **Cost.** A message built from `X` in the true branch of `X extends <a slot's keys>` took tsc
+  0.8 s per refused key: there `X` stands for `X & <the slot's keys>` (a substitution type), and
+  the template literal expanded it. `FitsSlot<X, T, P>`, an alias of its own, keeps `X` out of that
+  branch. The type rules took 2.76 s before (71k instantiations) and take about 2.35 s after, the
+  features' rules included (98k): the old errors' elaborations over the 252-member unions cost more
+  than the sentences.
+- **Not readable: `Set`.** A binding handle's `Set` takes `BindingShape<T, D> | BindingPart<T, D>`,
+  not a type parameter: a generic `Set<V>(binding: V & Check<V>)` would make handles of different
+  devices no longer compare (`BindingHandle<A, Device>` takes any of the three; two conditional
+  types over different devices aren't related), so its error lists the keys it takes. It checks
+  again at runtime, with the sentence.
 
 ## 4. Schema, `Create`, and get-or-create
 
@@ -446,8 +511,9 @@ jump.Bindings.KeyboardAndMouse.Capture("KeyCode", cb);     // Main, as with the 
   Under Server Authority the release pairs of §8 have let go of the server's copy already; the
   reset covers a local context, and the copy in a place without Server Authority, where no pair is
   fired.
-- The root handle is a table of its own: the contexts by name beside the five public members, so a
-  context name can shadow nothing internal. `Schema` (and `Create`) refuse those five names.
+- The root handle is a table of its own: the contexts by name beside the six public members
+  (`FindConflicts` since 0.7.0), so a context name can shadow nothing internal. `Schema` (and
+  `Create`) refuse those six names.
 
 ## 5. Contexts at runtime
 
@@ -498,6 +564,8 @@ Action handle (all types):
   with the extras its namespace declares as properties (§3): code written for the direct form
   works on the namespace form unchanged, and a menu's generic code needs no branch.
 - `GetPreferredBinding(): InputBinding | undefined` (IAS `PreferredBinding`).
+- `Describe(device?: Device): string` (0.7.0): the device's main binding as text (below), by default
+  `PreferredDevice()`'s; every action type has it. A name that isn't a device throws.
 - `AttachLabel(label: InputActionLabel): () => void` (0.6.1, every action type): sets
   `label.InputAction` to the action the handle wraps, and again at the Server Authority swap while
   the label still shows the instance the handle leaves, so it follows the stand-in onto the
@@ -593,6 +661,16 @@ and it throws on them at runtime):
   preferred as soon as one is plugged in, before any of its buttons is pressed **(measured with
   the virtual pad, 2026-10-03)**, and under the simulated phone it stays `Touch`. A two-column menu
   writes `action.Bindings[InputActions.PreferredDevice()]`; a game hides rebinding on `"Touch"`.
+- `InputActions.PreferredDeviceChanged: RBXScriptSignal<(device: Device) => void>` (0.7.0): fires
+  when `PreferredDevice()` changes. A `BindableEvent` made the first time the namespace member is
+  read (the namespace `declare`s it, and a metatable's `__index` on its table answers it: the
+  `PreferredInput` property signal is connected then, once for the module), the same signal object
+  on every read. It compares the device it reads with the one it fired last (or read when made), so
+  `MicroGamepad`/`Gamepad` switches fire nothing and no device fires twice in a row. On the server
+  it is made but never connected: it never fires. Measured under the simulated phone (2026-10-03):
+  a VirtualInput key press switches `PreferredInput` to `KeyboardAndMouse` (VirtualInput's gamepad
+  KeyCodes too, sent as keys), a tap back to `Touch`, one property change each; elsewhere only a
+  gamepad moves it (the virtual pad, plugged in and out: `Gamepad`, then `KeyboardAndMouse`).
 
 Binding handle (non-Scriptable: a device's binding, main or extra):
 
@@ -601,6 +679,7 @@ Binding handle (non-Scriptable: a device's binding, main or extra):
   device's keys and captures (none on `Touch`), its path `Context/Action/Device/Extra` in saves and
   `BindingsChanged`, its defaults the binding right after `Create`. `Extras()` lists a device's
   extras by name (§3); empty on an extra.
+- `Describe(): string` (0.7.0): the binding as text (below).
 - `Get()`: the current binding as plain data in the schema's shape (for settings UIs), typed
   `BindingData<A, D>`: the same forms as `BindingPart<A, D>`, so `Set(binding.Get())` compiles on
   every device binding (a menu's Cancel giving back the snapshot it took). Where the device has a
@@ -740,12 +819,99 @@ Binding handle (non-Scriptable: a device's binding, main or extra):
 
 Scriptable binding handle: `Instance`, `Name`, `Fire(value: V)`.
 
+**Keybinds as text (0.7.0).** `binding.Describe()` (`DescribeBinding` in `Describe.ts`): the
+binding's `DisplayName` when it has one; else its modifiers, then its `KeyCode`, joined by `" + "`
+(`"Ctrl + S"`), or its composite directions in reading order (Up, Left, Down, Right, Forward,
+Backward) joined by `" / "` (`"W / A / S / D"`; with modifiers `"Shift + (W / A / S / D)"`, the
+parentheses telling the chord from a list); `""` when it has no key (a binding with modifiers alone
+has none). Only the slots the action type uses count, and the composites give way to a `KeyCode`,
+as in IAS. Key names (`KeyText`): a table of readable names first, else
+`UserInputService:GetStringForKeyCode` (keyboard-layout aware) upper-cased, else the enum's
+`Name`. **Measured** (2026-10-03, every KeyCode, `default` and `touch`, a US layout): it gives a
+character key's character (`Space` " ", digits, punctuation; a shifted symbol its base key:
+`Hash` "3"), and the enum's `Name` for every other key (`LeftControl`, `Return`, `KeypadZero`,
+`ButtonA`, `Thumbstick1`, `MouseLeftButton`, `MouseWheel`, `TouchPosition`...), never "". So the
+table names those: `Space`, `Enter`, `Esc`, `Ctrl`/`Shift`/`Alt`/`Meta`/`Super` (the right
+ones `Right Ctrl`...), the locks, `Page Up`/`Page Down`, `Num 0`..`Num Enter` (the keypad's, also
+where the function gives a character), the mouse (`Left Click`, `Mouse Wheel`, `Mouse Movement`,
+`Mouse Position`, the trackpad's), touch (`Touch`, `Drag`, `Pinch`), and the gamepad by Xbox names,
+as the KeyCodes are (`A`, `LB`, `RT`, `D-Pad Up`, `Left Stick`, `Left Stick Up`, `Left Stick Press`,
+the TV remote's `Remote Center`...). `F5`, `Tab`, `Home`, `Up` keep their `Name`. No `Separator`
+option: nothing in a menu needed it. Gamepad icons stay `UserInputService:GetImageForKeyCode`'s,
+on the keys of `Get()`. `Describe` is a binding handle's member, so no extra can take its name.
+
+**Conflicts (0.7.0).** `FindConflicts(binding)` on the root handle (every context) and on a context
+handle (its own) (`Conflicts.ts`): the other device bindings of `binding`'s device whose keys meet
+its keys, by path, each `{ Binding, Path, Key, Keys, Identical }` (`Binding` typed
+`IBindingHandle<Enum.InputActionType, Device>`, any device binding's). A binding's keys are its
+`KeyCode`, else its composite directions, and its modifiers. Two bindings conflict when a key presses
+both, or one's key is the other's modifier: pressing Ctrl+S presses a binding on Ctrl, which goes
+down first (decided beyond the spec, which named the `KeyCode` and the directions: a menu should
+warn about a crouch on Ctrl that every Ctrl+S also presses). Two chords that only share a modifier
+don't: neither presses the other. `Identical`: a key presses both with the same `PrimaryModifier`
+and `SecondaryModifier`, so every press of it presses both; otherwise they overlap (IAS fires both
+when the chord is pressed: a chord doesn't block its plain key; or two chords on one key; or the
+modifier case). One entry per other binding, `Key` the first shared key in `binding`'s order and
+`Keys` all of them, so a menu swaps or clears each binding once. `FindConflicts()` lists every
+pair once, `{ Bindings, Paths, Key, Keys, Identical }`, sorted by path. Only keys count: not
+whether the contexts are enabled or sink, nor Scriptable, button or unmentioned bindings, nor
+another root handle's; a handle on the same instance (another root handle's) is `binding` itself.
+Anything but a device's binding handle throws. `FindConflicts` is a root member (§4).
+
+**Gestures (0.7.0, `Gestures.ts`).** Bool action handles have `OnTap(callback, { MaxDuration?
+(0.25), WaitForDoubleTap?, Window? (0.3) })`, `OnDoubleTap(callback, { Window? (0.3), MaxDuration?
+(0.25) })`, `OnHold(callback, { Duration, Progress?, Cancelled? })` and `OnLongPress(callback:
+(heldFor) => void, { Duration })`, each returning a function that stops it; `Destroy` stops them
+all (`ActionHandle._gestures`). Typed on `IBoolActionHandle` (so `BoolAction` has them); on
+another action type they throw (`needs a Bool action`).
+
+- Built on the handle's own `Pressed`/`Released` (which always alternate), one pair of
+  connections per gesture so a callback that throws stops no other, timed with `os.clock` when each
+  arrives. A gesture starts with the next press: a release whose press it didn't see is ignored.
+- Tap: released within `MaxDuration`. `WaitForDoubleTap` holds it for `Window` after the release
+  (a `task.delay`) and drops it at a press within the window, which is then a double tap's second
+  press and no tap; `Window` on `OnTap` (beyond the spec) so a tap still excludes an `OnDoubleTap`
+  given another window. A waiting tap is dropped when the action is not live by the end of its
+  window (a menu opened). Double tap: fires at a press within `Window` after a tap; that press
+  starts nothing new (a fourth quick press is the next double tap's second).
+- Hold: fires once while held, at `Duration` (a `task.delay`, or a frame that finds it past, first
+  wins). `Progress` gets 0 at the press, the fraction each frame while held (`EveryFrame`: a render
+  step, or `PreAnimation` in a window that renders nothing; per-frame work only while a hold is in
+  progress and has `Progress`), and 1 as it completes, then stays at 1 until the next press. An
+  early end calls `Progress(0)` then `Cancelled()`. Long press: fires at the release of a press
+  that lasted `Duration`, with the seconds held (beyond the spec: a charge-and-release wants them).
+- Validation: durations positive and finite (`IsSeconds`), callbacks and `Progress`/`Cancelled`
+  functions, `OnHold`/`OnLongPress` options present; else they throw, naming the method.
+- **A reset ends a gesture without completing it** (decided): no tap, double tap or long press, and
+  a hold's `Cancelled`. A release is a reset's when the action is not live as it arrives (the
+  context or the action disabled, the focus-loss reset holding the contexts off for its frame), or
+  when the package reset the action since the press began: `MarkReset(action)` (`Internal.ts`, a
+  weak map of `os.clock` times read by `ResetSince`) is called before each reset the package
+  makes, since under Immediate signals IAS's `Released` runs inside it: `ActionHandle.Release`
+  (a context or action disabled, `ResetState`, `Destroy`), `ReleaseActions` (every action of a
+  context being disabled, another root handle's too), `WriteBindings` (an action whose keys change
+  while held), `AddingBindings` (taken back when it added nothing and changed no key),
+  `ReleaseHeldValues` and `FinishLink` (the swap). A press that began after the mark is the
+  player's again, so a mark never swallows a later real release.
+- The swap: a press the copy carries goes on (no edge reaches the listeners); one it doesn't ends
+  with `FinishLink`'s `Released`, a reset; a value a Scriptable binding held is fired again on the
+  copy, a new press.
+- Destroy and a gesture's function stop it without calling anything, a hold in progress included;
+  every listener checks the root handle's `IsDestroyed()` first, so a delivery already queued under
+  Deferred signals calls nothing either. After `Destroy` a new gesture returns a function that does
+  nothing.
+- Several gestures on one action are independent (documented combinations: a tap begins a hold it
+  cancels; a long press is a hold and a long press, no tap).
+- Unverified: IAS's own release when the window loses focus (it can't be simulated from Luau): with
+  `ResetOnFocusLoss` off it counts as the player's release; with it on, the reset's mark comes from
+  `WindowFocusReleased`, whose order against IAS's release is unmeasured.
+
 Root handle: one property per context, plus `ExportBindings()`, `ImportBindings(json)`,
 `ResetBindings()`, `BindingsChanged: RBXScriptSignal<(path: string) => void>` (fires on
 `Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`/import, with the path `Context/Action/Slot`, a
-device's extra `Context/Action/Device/Extra`), `Destroy()`.
-Context handles also have `ExportBindings()`, `ImportBindings(json)`, `ResetBindings()` for their
-own actions.
+device's extra `Context/Action/Device/Extra`), `FindConflicts(binding?)` (0.7.0, above),
+`Destroy()`. Context handles also have `ExportBindings()`, `ImportBindings(json)`,
+`ResetBindings()` and `FindConflicts(binding?)` for their own actions.
 
 **IAS behaviours users must know (probed; put them in the docs):**
 
@@ -1207,6 +1373,16 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   extra paths; client: the handles and `Extras()`, the reserved list against a live handle, captures
   on extras with real keys, saves and skip reasons, adoption, root handles with other or the same
   extras, the fill, a held action, the swap) and `tests/type-rules/device-extras-type-rules.ts`.
+- 0.7.0's usability features add the sections `preferred-device` (no event for the same device;
+  under `touch`, a key press and a tap; the virtual pad plugged in and out, with `VIRTUAL_PAD=1`),
+  `describe` (key names, every KeyCode readable, bindings and actions as text, after rebinds and a
+  real capture), `conflicts` (root and context handles, chords and modifiers, composites and extras,
+  devices, unbound bindings, every pair, a real capture then a swap or a clear), `gestures` (real
+  keys: each gesture, combinations, a context or action disabled, a request, a rebind and the
+  focus-loss reset mid-gesture, the swap on a copy made by hand, `Destroy`, `Fire`/`Tap`, bad
+  options) and `readable-errors` (shared: the runtime's sentences are the compile errors'), and
+  `tests/type-rules/features-type-rules.ts` (the API's types, and each sentence pinned through
+  `CheckBindings`/`CheckContexts`).
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 
@@ -1288,3 +1464,5 @@ places, `SignalBehavior = Deferred`:
 | `gameProcessed` for the virtual pad (same) | under the legacy player scripts `ButtonA` and `Thumbstick1` arrive game-processed (the ControlModule's CAS sink), and IAS bindings on them don't fire; nothing else does, the right stick and the triggers included. Under the IAS player scripts nothing arrives game-processed, and IAS bindings on `ButtonA`, `Thumbstick1` and `Thumbstick1Up` fire |
 | IAS bindings on the virtual pad (same) | sticks: radial deadzone 0.1, rescaled (raw 0.3 reads 0.222, 0.6 reads 0.556); triggers: linear 0.1, rescaled (raw 0.6 reads 0.556); a Bool on `ButtonR2` pressed at raw 0.561 and released at 0.251; a Bool on `Thumbstick1Up` pressed by a move to raw 0.6 and released by one to 0.15 |
 | Not measured yet: the virtual pad with Studio's window unfocused | the pad runs so far had the run's window focused |
+| `UserInputService:GetStringForKeyCode` for every KeyCode (2026-10-03, `default` and `touch`, a US keyboard layout) | a character key's character: `Space` " ", letters and digits themselves, punctuation (`Comma` ","), a shifted symbol its base key (`Hash` "3", `At` "2", `Plus` "=", `Colon` ";"), `KeypadMinus` "-", `KeypadPlus` "+", `Print` "*"; every other key its enum `Name` (`None`, `Return`, `LeftControl`, `KeypadZero`, `F1`, `Up`, `ButtonA`, `DPadUp`, `Thumbstick1`, `Thumbstick1Up`, `MouseLeftButton`, `MouseWheel`, `MouseDelta`, `TouchPosition`, `ButtonCenter`...); never "" |
+| `PreferredInput` and VirtualInput (2026-10-03) | under the simulated phone: `Touch` after a tap; a key press (also `ButtonX`, sent as a key) switches it to `KeyboardAndMouse`, a tap back to `Touch`, its property signal firing once per change; under `default` keys, clicks and `ButtonX` leave it `KeyboardAndMouse` |
