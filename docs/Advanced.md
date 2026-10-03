@@ -237,13 +237,17 @@ stop(); // each returns a function that stops it; Input.Destroy() stops them all
   fires only once the window has passed without a second press, and the double tap's second press
   is no tap. A gesture's callback that turns the context off (a tap that opens a menu,
   [recipe 9](Guide.md#9-turn-gameplay-off-while-a-menu-is-open)) changes nothing for the other
-  gestures on that release: it was the player's.
-- **A release the player didn't make ends a gesture without completing it:** the context disabled
-  (`SetEnabled`, `Request`, the focus-loss reset), the action disabled, a rebind or a binding added
-  while it is held (IAS resets the action), another root handle's `Destroy` letting go of an action
-  the two share, and the Server Authority swap when the server's copy doesn't carry the press. No
-  tap, double tap or long press comes of it, and a hold in progress calls `Cancelled`. How the
-  package tells such a release:
+  gestures on that release, another root handle's on the same action included: it was the
+  player's. (A tap still waiting for its `Window` is dropped once the context is off, as above.)
+- **A release the player didn't make ends a gesture without completing it:** the package's own
+  resets while the action is held: the context turned off (`SetEnabled`, `Request`, the focus-loss
+  reset), the action turned off, a rebind or a binding added (IAS resets the action), another root
+  handle's `Destroy` letting go of an action the two share, and the Server Authority swap when the
+  server's copy doesn't carry the press. No tap, double tap or long press comes of it, and a hold in
+  progress calls `Cancelled`. Once the player has let go, a reset changes nothing: a key let go of,
+  then the context turned off in the same frame, is a tap. Except where IAS still shows the action
+  held: in a key's `UserInputService.InputEnded` handler, and on the server's copy for one
+  simulation step. How the package tells such a release, and those cases:
   [Gestures and releases the player didn't make](EdgeCases.md#gestures-and-releases-the-player-didnt-make).
 - The function a gesture returns and `Destroy` stop it without calling anything, a hold in progress
   included, also when called from the gesture's own `Progress`: a hold stopped from `Progress(1)`
@@ -356,7 +360,10 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   `AttachButton`.
 - `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord` (the action's
   too, with the path of the binding they changed), and for every binding an import or
-  `ResetBindings` changed.
+  `ResetBindings` changed. With several root handles on one folder it fires on each one that has the
+  binding, with its own path: a change made through another, or a later `Create` filling a device
+  this one's schema left out, included (see
+  [Several root handles on one folder](EdgeCases.md#several-root-handles-on-one-folder)).
 
 ### One field per action
 
@@ -449,7 +456,8 @@ Jump.Describe(); // the device the player uses; Jump.Describe("Gamepad") is "A"
   is now, after any rebind.
 - `action.Describe(device?)` describes the device's **main** binding (not an extra), on every action
   type; by default the device the player uses (`InputActions.PreferredDevice()`), so a hint follows
-  the device. Refresh it on `PreferredDeviceChanged` and `BindingsChanged`.
+  the device. Refresh it on `PreferredDeviceChanged` and `BindingsChanged` (which a rebind made
+  through another root handle on the same folder fires too).
 - Key names: a key that types a character reads as on the player's keyboard layout
   (`UserInputService:GetStringForKeyCode`: Q reads "A" on AZERTY). For every other key that function
   gives the enum's name, so they have readable names of their own: `Enter`, `Ctrl`, `Shift`, `Alt`
@@ -471,6 +479,8 @@ jump.Capture((key, device) => {
 	for (const conflict of Input.FindConflicts(jump.Bindings[device])) {
 		// conflict: { Binding, Path, Key, Keys, Slot, Slots, Identical }
 		warn(`${conflict.Key.Name} is also ${conflict.Path}`);
+		// a chord's modifier stays: cleared, Ctrl+S would be plain S (see below)
+		if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") continue;
 		conflict.Binding.Clear(conflict.Slot); // frees the key alone: Move's WASD keeps W, A and D
 	}
 });
@@ -499,9 +509,14 @@ for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Path
   pinch and `TouchPosition`.
 - **Free the key, not the binding:** `conflict.Binding.Clear(conflict.Slot)` clears the one slot
   that holds it (S captured for Jump takes S out of Move's WASD, where `Clear()` would unbind all of
-  Move; Ctrl captured for Crouch takes the modifier off Quick save's Ctrl+S, which becomes S). For
-  a key held in several slots, clear each of `Slots`. To swap instead, `Set` the other binding's
-  slot to the key this binding had.
+  Move). For a key held in several slots, clear each of `Slots`. To swap instead, `Set` the other
+  binding's slot to the key this binding had.
+- **A key that is another chord's modifier:** `Slot` is `"PrimaryModifier"` or
+  `"SecondaryModifier"` (Ctrl captured for Crouch, Quick save on Ctrl+S). Clearing that slot turns
+  the chord into its plain key, S, which may clash anew, identically, with another binding (Move's
+  S). Show it and let the player decide, as the [Guide's rebind menu](Guide.md#3-a-rebind-menu)
+  does, or unbind the whole chord with `Clear()`. The two only overlap meanwhile: Ctrl+S also
+  presses Crouch.
 - `FindConflicts()` with no argument lists every pair once, sorted by path:
   `{ Bindings, Paths, Key, Keys, Slots, Identical }`, where `Slots` holds each binding's slots that
   hold a shared key, in the order of `Paths`.

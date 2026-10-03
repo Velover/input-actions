@@ -97,8 +97,10 @@ export function NextSequence(): number {
 /**
  * When the package last reset each action while it was not at rest (a `NextSequence` number): its
  * context or itself disabled, a held binding removed, a key change or a binding added while it was
- * held, another root handle's `Destroy` letting go of it. Gestures (`OnTap`...) read it: the
- * `Released` such a reset makes is no player's release, and ends the gesture without completing it
+ * held, another root handle's `Destroy` letting go of it. Gestures (`OnTap`...) read it, and only
+ * it: the `Released` such a reset makes is no player's release, and ends the gesture without
+ * completing it. Every reset the package makes is noted, so a disabled action or context needs no
+ * check of its own as the release arrives (hunt HF3-1, HF3-2)
  */
 const lastResets = setmetatable(new Map<InputAction, number>(), { __mode: "k" });
 
@@ -106,9 +108,12 @@ const lastResets = setmetatable(new Map<InputAction, number>(), { __mode: "k" })
  * Notes that the package is about to reset `action`. Called before the change, since under
  * Immediate signals IAS's `Released` runs inside it. Only while IAS shows the action not at rest:
  * a reset of an action at rest releases nothing, and a release of the player's still on its way
- * to the handles (Deferred signals) would be taken for the reset's (hunt HF2-1). A value the
- * package fired that IAS doesn't show yet (a Server Authority copy shows it one simulation step
- * later) doesn't count: no release may follow, and the mark would take the player's next one.
+ * to the handles (Deferred signals) would be taken for the reset's (hunt HF2-1). What IAS shows
+ * decides, both ways: a value the package fired that IAS doesn't show yet (a Server Authority copy
+ * shows it one simulation step later) doesn't count, since no release may follow and the mark
+ * would take the player's next one; and a release IAS doesn't show yet (that step, or a key's
+ * `UserInputService.InputEnded` handler, which runs before IAS lets go) doesn't either: the reset is
+ * noted, and that release of the player's counts as the reset's (hunts HF3-3, HF3-6, documented).
  * Returns a function that takes the note back, for a change that turns out to reset nothing
  * (`AddingBindings` adding no binding)
  */

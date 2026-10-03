@@ -30,7 +30,14 @@ import {
 	ReleaseHeldValues,
 	TakeHeldValues,
 } from "./Handles/ActionHandle";
-import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
+import {
+	BindingHandle,
+	BindingWatcher,
+	ForgetBindingHandle,
+	HandlesOn,
+	NotifyHandles,
+	ScriptableBindingHandle,
+} from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
 import {
 	Entries,
@@ -168,14 +175,14 @@ function SlotNames(definition: AnyDefinition): string[] {
 
 /**
  * A schema that names a device whose binding another root handle made unbound (its schema left the
- * device out) fills it: see `FillPlaceholder`
+ * device out) fills it: see `FillPlaceholder`. Returns whether the binding changed
  */
-function FillSpecInto(binding: InputBinding, spec: unknown) {
+function FillSpecInto(binding: InputBinding, spec: unknown): boolean {
 	const defaults = GetEntry(binding)?.Defaults;
-	if (defaults === undefined) return;
+	if (defaults === undefined) return false;
 	const values: IBindingValues = { ...defaults };
 	ApplySpec(values, spec);
-	FillPlaceholder(binding, values, SpecReleasedThreshold(spec));
+	return FillPlaceholder(binding, values, SpecReleasedThreshold(spec));
 }
 
 /** The template's action of that name, when it has one */
@@ -278,6 +285,8 @@ export class InputRuntime implements IRuntime {
 	private _standInFolder?: Folder;
 	private _stopSnapshots?: () => void;
 	private _focusReleases?: Array<() => void>;
+	/** Other root handles' handles on the bindings `Build` filled: told once it ends (`NotifyFilled`) */
+	private readonly _filled = new Array<BindingWatcher>();
 	private _destroyed = false;
 
 	constructor() {
@@ -337,6 +346,17 @@ export class InputRuntime implements IRuntime {
 		return this._destroyed;
 	}
 
+	/**
+	 * Fires `BindingsChanged` on the other root handles whose bindings `Build` filled (a device their
+	 * schema left out, which this schema names), each with its own path: after `Build`, so no listener
+	 * runs while it builds (Immediate signals)
+	 */
+	NotifyFilled() {
+		const filled = [...this._filled];
+		this._filled.clear();
+		NotifyHandles(filled);
+	}
+
 	// ---- public
 
 	ExportBindings(): string {
@@ -371,6 +391,8 @@ export class InputRuntime implements IRuntime {
 		this._stopSnapshots?.();
 		for (const connection of this._connections) connection.Disconnect();
 		this._connections.clear();
+		// Changes other root handles make to the bindings no longer reach this one
+		for (const binding of this._bindings) ForgetBindingHandle(binding);
 		// Its contexts leave the stand-ins they share; a stand-in no one waits on is off the list
 		for (const link of this._pendingLinks) {
 			const standIn = link.StandIn;
@@ -734,9 +756,11 @@ export class InputRuntime implements IRuntime {
 	 * move under the server's actions with everything they have (rebinds, attached buttons), the
 	 * handles point at the copy and are marked linked, the context's state (base state and every
 	 * handle's requests) goes with them, the labels follow and the listeners hear the copy's state,
-	 * the stand-in is destroyed, the values the Scriptable bindings held are fired again, and
-	 * `LinkedToServer` fires. Under Immediate signals listeners run inside the swap: first in the
-	 * releases of the held values, before the copy is touched, then none between the moves and the
+	 * the stand-in is destroyed, the values the Scriptable bindings held are fired again,
+	 * `LinkedToServer` fires, and then the `BindingsChanged` of root handles already on the copy
+	 * whose bindings the move changed (the stand-in's rebinds, or its schema filling one). Under
+	 * Immediate signals listeners run inside the swap: first in the releases of the held values,
+	 * before the copy is touched, then none between the moves and the
 	 * marks, and a root handle one destroys takes no further part (hunt HL2-2, HL2-3, HL3-1).
 	 * Defaults don't change, so `Reset` still returns to the same ones, except on a binding adopted
 	 * from a root handle already on the copy: the stand-in's rebinds are written onto it, and it
@@ -833,6 +857,8 @@ export class InputRuntime implements IRuntime {
 		for (const link of links) link.Runtime.DropUse(source);
 		for (const [, moved] of moves) RefireHeldValues(moved);
 		for (const link of marked) link.Handle.NotifyLinked();
+		// The root handles already on the copy whose bindings the stand-in's rebinds or schema changed
+		for (const [, moved] of moves) NotifyHandles(moved.Changed);
 	}
 
 	private CloneBinding(binding: InputBinding, action: InputAction): InputBinding {
@@ -955,7 +981,9 @@ export class InputRuntime implements IRuntime {
 					`${scriptable ? "InputActions.Scriptable" : "a key binding"}; left as it is`,
 			);
 		} else if (!scriptable) {
-			if (spec !== undefined) FillSpecInto(binding, spec);
+			// The other root handles that have the binding hear of the fill once `Create` is done
+			if (spec !== undefined && FillSpecInto(binding, spec))
+				for (const other of HandlesOn([binding], this)) this._filled.push(other);
 			const problem = CheckBindingKeys(action.Type.Name, binding, slot.Device);
 			if (problem !== undefined)
 				warn(`InputActions: ${path}: ${binding.GetFullName()}: ${problem}; left as it is`);
@@ -1030,8 +1058,10 @@ export function Create<S extends Record<string, IContextSchema>>(
 	const [ok, problem] = pcall(() => runtime.Build(schema.Contexts, options ?? {}));
 	if (!ok) {
 		runtime.Destroy();
+		runtime.NotifyFilled();
 		error(problem, 0);
 	}
+	runtime.NotifyFilled();
 	WarnIfNotServerAuthority("InputActions.Create", schema.Contexts);
 	return runtime.Root as unknown as InputHandle<S>;
 }

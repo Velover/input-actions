@@ -205,6 +205,12 @@ function BeginCapture(): () => void {
 /** After a capture: the other gameplay bindings of the device that now share its key lose it */
 function FreeKey(binding: AnyBinding) {
 	for (const conflict of Input.Gameplay.FindConflicts(binding)) {
+		if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") {
+			// a chord's modifier (Ctrl given to Crouch, QuickSave on Ctrl+S): cleared, the chord
+			// would be its plain key, S, and clash with Move's S. Show it; the player decides
+			warn(`${conflict.Key.Name} is also held for ${conflict.Path} (${conflict.Binding.Describe()})`);
+			continue;
+		}
 		warn(`${conflict.Key.Name} was also ${conflict.Path}`); // show it in the menu
 		conflict.Binding.Clear(conflict.Slot); // that key alone: Move's WASD keeps W, A and D
 	}
@@ -261,8 +267,10 @@ export function RebindCell(
   off (gameplay is off in the menu; `BeginCapture` turns off the menu's own).
 - **Conflicts.** After a capture, `FreeKey` takes the key from the other bindings:
   `Clear(conflict.Slot)` clears the one slot that holds it (Move's `Down` when S goes to Jump),
-  where `Clear()` would empty all its keys, every direction of a composite too. A menu may warn
-  instead, or swap (give the other binding the old key with `Set`).
+  where `Clear()` would empty all its keys, every direction of a composite too. A key that is
+  another chord's modifier is only shown: clearing it would turn QuickSave's Ctrl+S into plain S,
+  a new conflict with Move's S (to free it anyway, unbind the whole chord with `Clear()`). A menu
+  may warn instead, or swap (give the other binding the old key with `Set`).
   `Input.Gameplay.FindConflicts` looks in that context only, so the menu's `Accept` on `ButtonA` is
   no conflict for `Jump`: the two contexts are never on together. The root handle's
   `Input.FindConflicts` looks in every context. `conflict.Identical` is false when the bindings only

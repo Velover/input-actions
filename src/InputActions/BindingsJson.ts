@@ -8,7 +8,7 @@ import {
 	WriteBindings,
 } from "./BindingState";
 import { SCRIPTABLE } from "./Builders";
-import type { BindingHandle } from "./Handles/BindingHandle";
+import { BindingHandle, HandlesOn, NotifyHandles } from "./Handles/BindingHandle";
 import { IRuntime, JoinPath } from "./Internal";
 import { DEVICES, IsDevice } from "./KeyGroups";
 import type { IContextSchema, IImportResult, IInputSchema } from "./Types";
@@ -36,9 +36,10 @@ export function ExportBindings(handles: readonly BindingHandle[]): string {
 }
 
 /**
- * Gives each binding its values in one write, and reports the bindings that changed. Only what
- * differs is written, so a binding that keeps its keys leaves a held action alone; an action whose
- * keys changed while held is released (see `WriteBindings`).
+ * Gives each binding its values in one write, and reports the bindings that changed, on this root
+ * handle's `BindingsChanged` and every other one's that has them. Only what differs is written, so
+ * a binding that keeps its keys leaves a held action alone; an action whose keys changed while held
+ * is released (see `WriteBindings`).
  */
 function WriteAll(
 	runtime: IRuntime,
@@ -48,9 +49,11 @@ function WriteAll(
 	const writes = new Array<BindingWrite>();
 	for (const handle of handles) writes.push([handle.Instance, values.get(handle)!]);
 	const changed = WriteBindings(writes);
+	const others = HandlesOn([...changed], runtime);
 	for (const handle of handles) {
 		if (changed.has(handle.Instance)) runtime.NotifyBindingChanged(handle.Path);
 	}
+	NotifyHandles(others);
 }
 
 /** Returns every binding to its defaults, reporting the ones that changed */

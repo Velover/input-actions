@@ -26,6 +26,63 @@ import { ClearHeldValue, GetEntry, SetHeldValue } from "../Registry";
 import type { ICaptureOptions, IChord, IChordCaptureOptions } from "../Types";
 
 /**
+ * The binding handles of the live root handles on each InputBinding, each with its root handle's
+ * runtime. Root handles on one folder share the bindings, so a change made through one of them
+ * reaches every other one's `BindingsChanged`, each with its own path (hunt HF3-5). Kept here, not
+ * on the class: every member of a binding handle is a name an extra can't take
+ * (`BINDING_HANDLE_MEMBERS`)
+ */
+const handlesOn = setmetatable(new Map<InputBinding, Map<BindingHandle, IRuntime>>(), {
+	__mode: "k",
+});
+
+/** A binding handle and its root handle's runtime, to tell of a change (`NotifyHandles`) */
+export type BindingWatcher = readonly [BindingHandle, IRuntime];
+
+/** Registers a binding handle on its binding, for changes other root handles make */
+function Watch(binding: InputBinding, handle: BindingHandle, runtime: IRuntime) {
+	let on = handlesOn.get(binding);
+	if (on === undefined) {
+		on = new Map();
+		handlesOn.set(binding, on);
+	}
+	on.set(handle, runtime);
+}
+
+/** Takes a binding handle off its binding's list */
+function Unwatch(binding: InputBinding, handle: BindingHandle) {
+	const on = handlesOn.get(binding);
+	if (on === undefined) return;
+	on.delete(handle);
+	if (on.size() === 0) handlesOn.delete(binding);
+}
+
+/** Changes other root handles make no longer reach this binding handle: its root handle's `Destroy` */
+export function ForgetBindingHandle(handle: BindingHandle) {
+	Unwatch(handle.Instance, handle);
+}
+
+/**
+ * The handles other root handles than `acting` have on these bindings now. A caller that changes
+ * bindings where no listener may run yet (`Create` filling one, the swap) takes them first and tells
+ * them once it is done (`NotifyHandles`)
+ */
+export function HandlesOn(bindings: readonly InputBinding[], acting?: IRuntime): BindingWatcher[] {
+	const watchers = new Array<BindingWatcher>();
+	for (const binding of bindings) {
+		const on = handlesOn.get(binding);
+		if (on === undefined) continue;
+		for (const [handle, runtime] of on) if (runtime !== acting) watchers.push([handle, runtime]);
+	}
+	return watchers;
+}
+
+/** Fires each handle's root handle's `BindingsChanged` with the handle's path (not once destroyed) */
+export function NotifyHandles(watchers: readonly BindingWatcher[]) {
+	for (const [handle, runtime] of watchers) runtime.NotifyBindingChanged(handle.Path);
+}
+
+/**
  * A device's binding of an action (`KeyboardAndMouse`, `Gamepad`, `Touch`): rebindable, saved by
  * ExportBindings, and holding only that device's keys. A device's main binding carries its extra
  * bindings (0.7.0), each a handle of its own, as properties named after them: every member here is
@@ -51,6 +108,7 @@ export class BindingHandle {
 	) {
 		this.Instance = binding;
 		this.Name = device;
+		Watch(binding, this, this._runtime);
 	}
 
 	/**
@@ -60,8 +118,10 @@ export class BindingHandle {
 	 */
 	Retarget(binding: InputBinding) {
 		if (binding === this.Instance) return;
+		Unwatch(this.Instance, this);
 		this.Instance = binding;
 		this._defaults = GetEntry(binding)?.Defaults ?? this._defaults;
+		Watch(binding, this, this._runtime);
 	}
 
 	GetDefaults(): IBindingValues {
@@ -215,14 +275,18 @@ export class BindingHandle {
 	}
 
 	/**
-	 * Gives the binding these values and reports it. Only what differs is written, and an action
-	 * held when its keys change is released (see `WriteBindings`)
+	 * Gives the binding these values and reports it: on this root handle's `BindingsChanged`, and,
+	 * when it changed, on every other root handle's that has the binding. Only what differs is
+	 * written, and an action held when its keys change is released (see `WriteBindings`)
 	 * @param releasedThreshold what is done with `ReleasedThreshold` (see `EReleasedThreshold`):
 	 * `Reset` gives the binding the defaults' reading
 	 */
 	private Write(values: IBindingValues, releasedThreshold = EReleasedThreshold.Read) {
-		WriteBindings([[this.Instance, values, releasedThreshold]]);
+		const binding = this.Instance;
+		const changed = WriteBindings([[binding, values, releasedThreshold]]);
+		const others = changed.has(binding) ? HandlesOn([binding], this._runtime) : [];
 		this._runtime.NotifyBindingChanged(this.Path);
+		NotifyHandles(others);
 	}
 
 	/** The saved properties that differ from the defaults, as JSON values; undefined when none do */

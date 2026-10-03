@@ -119,14 +119,21 @@ export function CanRebind() {
 // meanwhile. Then the menu looks for the other bindings that now share the key, and takes it from
 // them: `Clear(conflict.Slot)` clears the one slot that holds it, so S captured for Jump leaves
 // Move's W, A and D (`Clear()` would unbind Move; or swap: set that slot to the key this binding
-// had). `Identical` is false when they only overlap: a chord and its plain key, which IAS both
-// presses (a chord doesn't block its plain key). A Cancel key calls back with undefined
+// had). A key that is another chord's modifier is left there and shown. `Identical` is false when
+// they only overlap: a chord and its plain key, which IAS both presses (a chord doesn't block its
+// plain key). A Cancel key calls back with undefined
 export function RebindAction(action: InputActions.CaptureAction): () => void {
 	return action.Capture(
 		(key, device) => {
 			if (key === undefined || device === undefined) return print(`${action.Name} unchanged`);
 			print(`${action.Name} is now ${key.Name} on ${device}`);
 			for (const conflict of Input.FindConflicts(action.Bindings[device])) {
+				// A chord's modifier (Ctrl captured, Quick save on Ctrl+S) stays: cleared, the chord
+				// would be its plain key, S, which may clash with Move's S
+				if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") {
+					warn(`${conflict.Key.Name} is also held for ${conflict.Path}: left there`);
+					continue;
+				}
 				const how = conflict.Identical ? "the same keys" : "overlapping keys";
 				warn(`${conflict.Key.Name} was also ${conflict.Path} (${how}): cleared there`);
 				conflict.Binding.Clear(conflict.Slot);

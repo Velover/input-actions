@@ -119,8 +119,9 @@ takes any of the three), and it checks again at runtime with the sentence. So do
 computed name (`{ [name]: binding }`): its device is known only at runtime, so it is checked
 against what a binding of the action type can be under some name: a shape with the keys of one
 device (a binding never mixes devices), a namespace of one device's bindings whose extras take no
-reserved name, or `InputActions.Scriptable`. `Schema` checks the rest. A value typed `any` compiles,
-for `Schema` to check.
+reserved name, "/" or empty name, or `InputActions.Scriptable`. A property no binding of the action
+type has, any device's, gets its sentence there too (`Typo is not a property of a Bool binding`).
+`Schema` checks the rest. A value typed `any` compiles, for `Schema` to check.
 
 ### Create
 
@@ -282,7 +283,7 @@ What `Create` returns: one property per context, by name, plus:
 
 | Member | |
 | --- | --- |
-| `BindingsChanged: RBXScriptSignal<(path: string) => void>` | a binding changed through `Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`, an import or a reset; `path` is `Context/Action/Slot`, and `Context/Action/Device/Extra` for a device's extra |
+| `BindingsChanged: RBXScriptSignal<(path: string) => void>` | a binding changed through `Set`/`Reset`/`Clear`/`Capture`/`CaptureChord`, an import or a reset; `path` is `Context/Action/Slot`, and `Context/Action/Device/Extra` for a device's extra. It fires on every root handle that has the binding, with its own path: a change made through another root handle on the same folder, or a later `Create` filling the binding, included |
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |

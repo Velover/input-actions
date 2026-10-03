@@ -315,31 +315,34 @@ function ReadingOf(
  * Either way the defaults are a reading, as everywhere else, so `Reset` then `ExportBindings` saves
  * nothing (hunt HD-1). Does nothing to any other binding.
  * @param releasedThreshold how the write treats `ReleasedThreshold` (see `EReleasedThreshold`)
+ * @returns whether the binding changed (the root handles that have it are told: hunt HF3-5)
  */
 export function FillPlaceholder(
 	binding: InputBinding,
 	defaults: IBindingValues,
 	releasedThreshold = EReleasedThreshold.Read,
-) {
+): boolean {
 	const entry = GetEntry(binding);
 	const current = entry?.Defaults;
-	if (entry === undefined || entry.Placeholder !== true || current === undefined) return;
+	if (entry === undefined || entry.Placeholder !== true || current === undefined) return false;
 	entry.Placeholder = undefined;
 	const now = ReadBinding(binding);
 	const untouched = SameValues(now, current);
 	const rebound = KEY_SLOTS.some((slot) => now[slot] !== current[slot]);
-	if (untouched) WriteBindings([[binding, defaults, releasedThreshold]]);
+	let changed = false;
+	if (untouched) changed = WriteBindings([[binding, defaults, releasedThreshold]]).size() > 0;
 	else if (!rebound) {
 		const values: IBindingValues = { ...defaults };
 		const changedReleased = ApplyChanges(values, now, current);
 		const write = changedReleased ? EReleasedThreshold.Read : releasedThreshold;
-		WriteBindings([[binding, values, write]]);
+		changed = WriteBindings([[binding, values, write]]).size() > 0;
 	}
 	// What the binding as it was made would read with them: read back from one still as it was made
 	const filled = untouched ? ReadBinding(binding) : ReadingOf(current, defaults, releasedThreshold);
 	const target = current as unknown as Record<string, unknown>;
 	for (const [name, value] of pairs(filled as unknown as Record<string, unknown>))
 		target[name] = value;
+	return changed;
 }
 
 /** Unbinds: the KeyCode and every composite direction become `None`, and the modifiers when asked */

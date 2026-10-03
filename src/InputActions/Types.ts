@@ -541,12 +541,100 @@ type AnyNameNamespace<T extends Enum.InputActionType, D extends Device = Device>
  * device's keys (`BindingShape<T>`, a union over the devices: no binding mixes them), a namespace of
  * one device's bindings with no reserved extra name, or `InputActions.Scriptable`: a key or a shape
  * no binding of the action type can take under any name is refused (hunts HF-8, HF2-2), in
- * TypeScript's own words
+ * TypeScript's own words. What it can't say, a property no binding has or an extra's name, is
+ * refused in words before it (`CheckAnyNameValue`)
  */
 type AnyNameBindingSpec<T extends Enum.InputActionType> =
 	| BindingShape<T>
 	| IScriptable
 	| AnyNameNamespace<T>;
+/** Whether object binding `V` has a property no binding of the action type has, any device's */
+type HasUnknownProperty<V, T extends Enum.InputActionType> = [
+	Exclude<keyof V, PropertyOf<T>>,
+] extends [never]
+	? false
+	: true;
+/** Whether a binding of a namespace (a key, `{}`, an object) has such a property */
+type MemberHasUnknownProperty<X, T extends Enum.InputActionType> = X extends EnumItem
+	? false
+	: X extends object
+		? HasUnknownProperty<X, T>
+		: false;
+/**
+ * An object binding under a computed name with a property no binding of the action type has: each
+ * such property against its sentence, as under a device's name, the others against anything.
+ * `Hint`: see `UnknownProperty`
+ */
+type AnyNameObjectSentences<V, T extends Enum.InputActionType, Hint extends boolean> = {
+	[P in keyof V]: P extends PropertyOf<T>
+		? unknown
+		: Sentence<UnknownProperty<P, T, V[P], Hint>, V[P]>;
+};
+/** A binding of a namespace under a computed name with such a property: its sentences; else anything */
+type AnyNameMemberSentences<X, T extends Enum.InputActionType> =
+	MemberHasUnknownProperty<X, T> extends true ? AnyNameObjectSentences<X, T, false> : unknown;
+/**
+ * What is wrong with a namespace under a computed name that its devices' keys don't tell: an extra's
+ * name `Schema` refuses under every device (a reserved one, "/", the empty name), or a property no
+ * binding of the action type has in one of its bindings; never when nothing is
+ */
+type AnyNameNamespaceProblems<V, T extends Enum.InputActionType> = {
+	[E in keyof V]-?:
+		| (E extends "Main" ? never : E extends string ? ExtraNameProblem<E> : "a name")
+		| (MemberHasUnknownProperty<V[E], T> extends true ? "a property" : never);
+}[keyof V];
+/**
+ * A namespace under a computed name: with no problem `AnyNameNamespaceProblems` sees, itself when
+ * it fits one device's namespace, else the devices' namespaces (TypeScript's own words); with one,
+ * each name and binding against its sentence, as under a device's name (`CheckNamespace`)
+ */
+type CheckAnyNameNamespace<V, T extends Enum.InputActionType> = [
+	AnyNameNamespaceProblems<V, T>,
+] extends [never]
+	? V extends AnyNameNamespace<T>
+		? V
+		: AnyNameNamespace<T>
+	: {
+			[E in keyof V]: E extends "Main"
+				? AnyNameMemberSentences<V[E], T>
+				: E extends string
+					? [ExtraNameProblem<E>] extends [never]
+						? AnyNameMemberSentences<V[E], T>
+						: ExtraNameProblem<E>
+					: "an extra binding's name must be a string of at least one character";
+		};
+/**
+ * One member of a value under a computed name (it distributes over a union): Scriptable, a namespace
+ * (`CheckAnyNameNamespace`), or a binding. A binding with a property no binding of the action type
+ * has is refused in words, as under a device's name (hunt HF3-4: an excess property beside a key
+ * compiled, TypeScript making no excess-property check on an inferred type). A member that fits gives
+ * back itself, so it swallows no other member's check; one that doesn't is checked against
+ * `AnyNameBindingSpec<T>`, in TypeScript's own words
+ */
+type CheckAnyNameMember<V, T extends Enum.InputActionType> = V extends IScriptable
+	? V
+	: V extends EnumItem
+		? V extends BindingShape<T>
+			? V
+			: AnyNameBindingSpec<T>
+		: V extends { Main: unknown }
+			? CheckAnyNameNamespace<V, T>
+			: V extends object
+				? HasUnknownProperty<V, T> extends true
+					? AnyNameObjectSentences<V, T, true>
+					: V extends BindingShape<T>
+						? V
+						: AnyNameBindingSpec<T>
+				: AnyNameBindingSpec<T>;
+/**
+ * What a value under a computed name is checked against. Keys alone (a union of KeyCodes, a
+ * `Record<string, Enum.KeyCode>`) are checked at once, not one by one: hundreds of KeyCodes
+ */
+type CheckAnyNameValue<V, T extends Enum.InputActionType> = [V] extends [EnumItem]
+	? [V] extends [BindingShape<T>]
+		? V
+		: AnyNameBindingSpec<T>
+	: CheckAnyNameMember<V, T>;
 /**
  * What a builder's bindings `B` are checked against: each binding named after a device against that
  * device's keys (a namespace binding by binding), any other against `InputActions.Scriptable`; what
@@ -554,16 +642,18 @@ type AnyNameBindingSpec<T extends Enum.InputActionType> =
  */
 export type CheckBindings<B, T extends Enum.InputActionType> = {
 	// `string`: computed names, which `Schema` checks at runtime, against the action type's shapes.
-	// Not where the value takes the Scriptable marker: the builders' constraint, which TypeScript
-	// reads here for the object literal's contextual type (intersected with `BindingSpec<T>`, the
-	// shapes' unions multiplied out took tsc from 2 s to 20 s on the type rules, and to 245 s with
-	// `unknown extends B[K]` here), `any`, or Scriptable itself. Not any object either (hunt HF2-3:
-	// `IAnyObject extends B[K]` let through every type whose properties are all optional): the
-	// marker's one property, which no binding has, fails TypeScript's check against such a type
+	// Not where the value is the builders' constraint, which TypeScript reads here for the object
+	// literal's contextual type (intersected with `BindingSpec<T>`, the shapes' unions multiplied
+	// out took tsc from 2 s to 20 s on the type rules, and to 245 s with `unknown extends B[K]`
+	// here), nor `any`: both take the Scriptable marker and any object. Not any object alone (hunt
+	// HF2-3: `IAnyObject extends B[K]` let through every type whose properties are all optional):
+	// the marker's one property, which no binding has, fails TypeScript's check against such a type.
+	// Nor the marker alone (hunt HF3-4: a union of Scriptable and a key no binding takes compiled).
+	// One test: a second one nested in the first took the type rules from 3.5 s to 9.6 s
 	[K in keyof B]: string extends K
-		? IScriptable extends B[K]
+		? IScriptable | IAnyObject extends B[K]
 			? unknown
-			: AnyNameBindingSpec<T>
+			: CheckAnyNameValue<B[K], T>
 		: K extends Device
 			? CheckDeviceValue<B[K], T, K>
 			: B[K] extends IScriptable
@@ -919,7 +1009,8 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	 * The keybind of `device` as text (`"Space"`, `"Ctrl + S"`, `"W / A / S / D"`): its main
 	 * binding's `Describe()`, `""` when that has no key. By default the device the player uses
 	 * (`InputActions.PreferredDevice()`): refresh a hint on `InputActions.PreferredDeviceChanged` and
-	 * the root handle's `BindingsChanged`
+	 * the root handle's `BindingsChanged` (which a rebind through another root handle on the same
+	 * folder fires too)
 	 * @example
 	 * hint.Text = `Jump: ${Jump.Describe()}`; // "Jump: Space", or "Jump: A" on a gamepad
 	 * Jump.Describe("Gamepad"); // "A"
@@ -1049,10 +1140,12 @@ export interface IBoolActionHandle<B>
 
 /**
  * The gestures' options: durations in seconds, positive and finite (anything else throws). A
- * gesture starts with the next press, and a release that a reset makes (the context or the action
- * disabled, the focus-loss reset, a rebind or a binding added while held, another root handle's
- * `Destroy` letting go of a shared action, the Server Authority swap) ends it without completing
- * it. Gestures on one action are independent: each sees every press and release alike
+ * gesture starts with the next press, and a release that a reset of the package's makes while the
+ * action is held (the context or the action disabled through its handle, the focus-loss reset, a
+ * rebind or a binding added while held, another root handle's `Destroy` letting go of a shared
+ * action, the Server Authority swap) ends it without completing it. A reset once the action is at
+ * rest (the player let go first) changes nothing. Gestures on one action, through any root handle,
+ * are independent: each sees every press and release alike
  */
 export interface ITapOptions {
 	/** The longest press that is a tap. Default 0.25 */
@@ -1168,7 +1261,9 @@ export interface IBindingConflict {
 	readonly Keys: readonly Enum.KeyCode[];
 	/**
 	 * The other binding's slot that holds `Key` (its `KeyCode`, a direction, or a modifier):
-	 * `conflict.Binding.Clear(conflict.Slot)` frees that key and leaves the binding's other keys
+	 * `conflict.Binding.Clear(conflict.Slot)` frees that key and leaves the binding's other keys. A
+	 * modifier cleared leaves the chord's plain key (Ctrl+S becomes S), which may clash anew: show
+	 * that one instead, or unbind the chord with `Clear()`
 	 */
 	readonly Slot: BindingSlot;
 	/** Every slot of the other binding that holds one of `Keys`, `Slot` first */
@@ -1227,6 +1322,7 @@ export interface IBindingsOwner {
 	 * @example
 	 * for (const conflict of Input.Gameplay.FindConflicts(Jump.Bindings.KeyboardAndMouse)) {
 	 * 	warn(`${conflict.Key.Name} is also ${conflict.Path}`);
+	 * 	if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") continue; // a chord's
 	 * 	conflict.Binding.Clear(conflict.Slot); // frees the key: Move's WASD loses S alone
 	 * }
 	 */
@@ -1265,7 +1361,11 @@ export interface IContextHandle<C extends IContextSchema> extends IBindingsOwner
 }
 
 export interface IInputRoot extends IBindingsOwner {
-	/** Fires with the path `Context/Action/Slot` of a binding changed by Set/Reset/Clear/Capture/import */
+	/**
+	 * Fires with the path `Context/Action/Slot` of a binding changed by Set/Reset/Clear/Capture/import.
+	 * Root handles on one folder share the bindings: it fires on each one that has the binding, with
+	 * its own path, also for a change made through another, or a later `Create` filling the binding
+	 */
 	readonly BindingsChanged: RBXScriptSignal<(path: string) => void>;
 	/**
 	 * Disconnects everything and destroys what the package created; adopted instances stay. Under

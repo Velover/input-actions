@@ -172,6 +172,23 @@ Rules and lessons:
   no properties, only an index signature, so that check never applies to it). A value typed `any`
   keeps compiling, for `Schema` to check; one typed `unknown` fails the builders' constraint, as it
   always did. Keep it that way: never a mapped type over the KeyCode union.
+  **Round 3 (hunt HF3-4):** TypeScript makes no excess-property check on an inferred type, and
+  `CheckBindings` made its own only under a device's name, so `{ [name]: { KeyCode: E, Typo: 1 } }`
+  compiled (also `Scale` on a Bool, `PressedThreshold` on a Direction2D composite, a typo in a
+  namespace's extra), as did an extra named `"a/b"` or `""` and `flag ? Scriptable : MouseDelta`
+  (the marker made the union take the escape). Now a computed name's value goes through
+  `CheckAnyNameValue`: keys alone (a KeyCode union, a `Record<string, Enum.KeyCode>`) checked at
+  once, against `BindingShape<T>`; otherwise member by member (`CheckAnyNameMember`): Scriptable
+  passes, a namespace (`CheckAnyNameNamespace`) has its extras' names checked with
+  `ExtraNameProblem` and its bindings' properties against `PropertyOf<T>`, any device's, a binding
+  its properties likewise, each refused one against the runtime's sentence (`UnknownProperty`, as
+  under a device's name); with nothing refused, a member that fits gives back itself (so it
+  swallows no other member's check), else `AnyNameBindingSpec<T>`, in TypeScript's own words. The
+  escape is one test, `IScriptable | IAnyObject extends B[K]`: the constraint and `any` take both,
+  a union of Scriptable and a key doesn't, nor (as above) an all-optional type. A second test nested
+  in the first (`IScriptable extends B[K] ? IAnyObject extends B[K] ? unknown : ...`) took the type
+  rules from 3.5 s to 9.6 s of check; the one test keeps them at 3.3 s (2026-10-03, with round 3's
+  file).
 - The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
   checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
   object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
@@ -436,7 +453,10 @@ the constraint, whose error listed every key the type takes ("... 252 more ...")
     defaults are a reading either way: of the binding once written,
     or, when the player rebound it, of a scratch binding the values are written onto, so a float a
     binding can't hold exactly (`PressedThreshold` 0.3) doesn't make `Reset` then the export save
-    it (hunt HD-1). The earlier handle's `BindingsChanged` doesn't fire for it. The same
+    it (hunt HD-1). The earlier root handle's `BindingsChanged` fires for it, with its own path,
+    once the later `Create`'s build is over; the later one's doesn't (it is being made). Until the
+    features loop's round 3 neither fired, and a hint refreshed on the earlier root handle's
+    `BindingsChanged` stayed stale (hunt HF3-5, §6). The same
     holds at a Server Authority swap onto bindings another root handle made on the copy. In the
     other order the first schema's binding is simply adopted, as before. Without this, a second
     schema that names `Gamepad: ButtonA` would find the first one's empty binding and keep it
@@ -904,7 +924,12 @@ other binding, `Key` the first shared key in `binding`'s order and `Keys` all of
 swaps or clears each binding once; `Slot` the other binding's slot that holds `Key` and `Slots` all
 of its slots that hold one of `Keys` (`Slot` first), so a menu frees the key alone with
 `conflict.Binding.Clear(conflict.Slot)` (decided by the main agent in the features loop, round 1:
-`Clear()` wiped Move's WASD when S was captured for Jump, in `examples/RebindingMenu.ts`).
+`Clear()` wiped Move's WASD when S was captured for Jump, in `examples/RebindingMenu.ts`). A key in
+the other binding's modifier slot is not freed so in the docs' menus (the Guide's recipe 3
+`FreeKey`, the example, Advanced): cleared, it turns the chord into its plain key (Ctrl+S into S),
+which can make a new identical conflict (S with Move); the menus show it, and Advanced names
+`Clear()` on the whole chord as the other way (decided by the main agent in the features loop,
+round 3).
 `FindConflicts()` lists every pair once, `{ Bindings, Paths, Key, Keys, Slots, Identical }`, sorted
 by path, `Slots` each side's slots that hold a shared key, in the order of `Paths`. Only keys count: not
 whether the contexts are enabled or sink, nor Scriptable, button or unmentioned bindings, nor
@@ -952,10 +977,20 @@ another action type they throw (`needs a Bool action`).
 - Validation: durations positive and finite (`IsSeconds`), callbacks and `Progress`/`Cancelled`
   functions, `OnHold`/`OnLongPress` options present; else they throw, naming the method.
 - **A reset ends a gesture without completing it** (decided): no tap, double tap or long press, and
-  a hold's `Cancelled`. A release is a reset's when the action is not live as it arrives (the
-  context or the action disabled, the focus-loss reset holding the contexts off for its frame), or
+  a hold's `Cancelled`. **One rule** (decided in the features loop, round 3): a release is a reset's
   when the package reset the action while IAS showed it held, after the handle's previous release
-  reached it. `MarkReset(action)` (`Internal.ts`, a weak map of numbers from `NextSequence`, a
+  reached it. Nothing else counts. Until round 3 a release was also a reset's when the action was
+  not live as it arrived (`!IsLive`), which took the player's release for a reset's whenever the
+  context went off once the action was at rest and before the release reached the handle: hunt
+  HF3-1 (under Immediate signals the first root handle's `OnTap` callback, or `Released` listener,
+  turned the context off before the second root handle's forward ran, which dropped its tap) and
+  HF3-2 (under Deferred signals `Fire(false)`, then the context or the action turned off and left
+  off in the same frame: no tap, where Immediate signals gave one). Every reset the package makes
+  is marked, its disables included (`ActionHandle.Release` for the action's `SetEnabled(false)`,
+  `ReleaseActions` for a context turned off by `SetEnabled`, `Request` or the focus-loss reset), so
+  dropping the check lost nothing the package does; `Enabled` written around the package (on the
+  instance, or by another script) is no longer told (documented). `MarkReset(action)`
+  (`Internal.ts`, a weak map of numbers from `NextSequence`, a
   counter of marks and releases in the order they happen, so none tie; read by `ResetSince`) is
   called before each reset the package makes, since under Immediate signals IAS's `Released` runs
   inside it: `ActionHandle.Release` (a context or action disabled, `ResetState`, `Destroy`),
@@ -987,11 +1022,36 @@ another action type they throw (`needs a Bool action`).
     Server Authority copy shows a `Fire` one simulation step later) counts as at rest: no release
     may follow, and the mark would take the player's next release.
   - A mark is used up by the release it ends (the handle's next release is numbered after it), so a
-    later real release is the player's again.
+    later real release is the player's again. Only a release that finds the action at rest uses
+    marks up (features loop, round 3): on the server's copy IAS can answer one reset with a release,
+    a press of its own and a release (a rebind while a `Fire` held the action: the reset, the
+    client's state pressed again, then the package's pair; `test:all` saw `r p r` in the
+    `hunter-features-3` probe, where it usually comes as one release, by timing). The first release
+    used both marks, and the second, after IAS's own press, completed a tap. A release that finds
+    IAS showing the action pressed again leaves the marks for the next one, the reset's too. The
+    cost: a reset, then a new press of the player's, both before the reset's release reaches the
+    handle (one frame), take the player's next release for the reset's, a case of the known gap
+    below.
+  - **What IAS shows when the reset is made decides (documented, hunts HF3-3, HF3-6).** Where IAS
+    still shows the action held after the player let go, a reset is marked and the player's release
+    counts as the reset's: in a key's `UserInputService.InputEnded` handler (IAS shows the action
+    held there, measured by the hunter in all six projects, local contexts too, under both signal
+    modes: a key-up handler that turns the context off and on, or off, gives no tap), beside the
+    `InputBegan` case above; and on the server's copy of a Server Authority context within the
+    simulation step after the release (the copy shows a key-up or a `Fire(false)` one step later:
+    `Fire(false)` then `Request(false)` let go at once, in one frame, gives no tap). The package
+    can't see a real key's release before IAS does. Its own `Fire(false)` it could tell, but only
+    by knowing when the copy's step lands: a note of a release fired at rest that no release
+    clears (a key pressed in the same step keeps the action held, so the state never rests) would
+    outlive the step and skip a later reset's mark. A special case for half of one gap, so both
+    are documented instead (EdgeCases).
   - **Known gap (accepted):** a release of the player's and a new press both still on their way to
     the handle when the reset comes, all in one frame, take the player's release for the reset's,
     and the reset's for the player's. IAS doesn't tell how many edges are on their way; the handle
     only sees that the action is held at the mark.
+  - `Enabled` written around the package (on the instance, by another script) marks nothing: such a
+    reset's release counts as the player's (documented: turn contexts and actions off through
+    their handles).
 - The swap: a press the copy doesn't show ends with `FinishLink`'s `Released`, a reset (the usual
   case: the moved binding's key holds the copy's action only once pressed again); a value a
   Scriptable binding held is fired again on the copy, a new press; a press the copy shows already
@@ -1002,8 +1062,12 @@ another action type they throw (`needs a Bool action`).
   Deferred signals calls nothing either. After `Destroy` a new gesture returns a function that does
   nothing.
 - Several gestures on one action are independent: each sees every press, and each release the same
-  way (`GestureEdges`, above). Documented combinations: a tap begins a hold it cancels; a long press
-  is a hold and a long press, no tap.
+  way (`GestureEdges`, above), also on several root handles' handles of the action (the rule reads
+  only marks, which a callback turning the context off once the action is at rest doesn't make:
+  HF3-1). A tap still waiting for its `Window` is the one place the action's being live counts: it
+  is dropped when the action or its context is off at the window's end, whoever turned it off.
+  Documented combinations: a tap begins a hold it cancels; a long press is a hold and a long press,
+  no tap.
 - Unverified: IAS's own release when the window loses focus (it can't be simulated from Luau): with
   `ResetOnFocusLoss` off it counts as the player's release; with it on, the reset's mark comes from
   `WindowFocusReleased`, whose order against IAS's release is unmeasured.
@@ -1014,6 +1078,20 @@ Root handle: one property per context, plus `ExportBindings()`, `ImportBindings(
 device's extra `Context/Action/Device/Extra`), `FindConflicts(binding?)` (0.7.0, above),
 `Destroy()`. Context handles also have `ExportBindings()`, `ImportBindings(json)`,
 `ResetBindings()` and `FindConflicts(binding?)` for their own actions.
+
+`BindingsChanged` reaches every live root handle that has the binding (hunt HF3-5: a rebind, an
+import or a reset through one root handle on a folder, and a second `Create`'s fill, changed what
+another root handle's `Describe` read without its `BindingsChanged`, so a HUD's hint on it went
+stale). `BindingHandle.ts` keeps the live binding handles on each InputBinding, every root
+handle's (`HandlesOn`: registered when made, moved by `Retarget` at the swap, dropped by `Destroy`).
+A change through a handle fires its own root handle's event as before (`Set` and the others always,
+an import or a reset for the bindings it changed) and then each other root handle's, with that
+handle's path, for a binding whose values changed. Where no listener may run yet the handles are
+taken first and told at the end: a `Create` that fills another root handle's unbound binding tells
+them once its `Build` is over (`NotifyFilled`, also after a `Build` that throws: the fill stays);
+the swap tells the root handles already on the copy whose bindings `MoveBindings` changed (a
+stand-in's rebinds written onto an adopted binding, or its schema filling one) after
+`LinkedToServer`.
 
 **IAS behaviours users must know (probed; put them in the docs):**
 
@@ -1488,6 +1566,9 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   regression tests, and the hunter's probes) and `tests/type-rules/hunter-features-type-rules.ts`
   (HF-6, HF-8, the device without keys for a slot, a context named after a root member);
   `conflicts` adds `Slot`/`Slots` and `Clear(Slot)`, and the sticks' and touch's shared keys.
+  Rounds 2 and 3 add `hunter-features-2` and `hunter-features-3` with their type rules (HF2-1..4;
+  HF3-1..6: the one-rule gestures, two root handles' gestures and `BindingsChanged`, the computed
+  names' properties and extra names, the documented gaps asserted as documented).
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

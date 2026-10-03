@@ -378,7 +378,8 @@ export class HunterDevicesTests implements OnStart {
 				expectEqual(other.waiting.ExportBindings(), EMPTY_SAVE);
 			});
 
-			test("the fill: the earlier root handle hears no BindingsChanged, and its handles show the keys", () => {
+			// worker, features hunt round 3 (HF3-5): the earlier root handle's BindingsChanged fires for the fill now, with its own path (it didn't, and a hint refreshed on it stayed stale); the later one's still doesn't
+			test("the fill: the earlier root handle hears BindingsChanged for each binding filled, and its handles show the keys", () => {
 				const folder = newFolder();
 				const first = create(HD_TOUCH_LEFT_OUT, { Folder: folder });
 				const changes = recordSignal(first.BindingsChanged);
@@ -389,12 +390,14 @@ export class HunterDevicesTests implements OnStart {
 				expectEqual(jump.Bindings.Touch.Get().KeyCode, K.TouchPosition, "the Touch binding filled");
 				expectEqual(jump.Bindings.Gamepad.Get().KeyCode, K.ButtonA, "the Gamepad binding filled");
 				frames(4);
-				expectEqual(
-					changes.size(),
-					0,
-					`design spec §4: "The earlier handle's BindingsChanged doesn't fire for it" (got ${changes.join(", ")})`,
+				const heard = [...changes];
+				heard.sort();
+				expectArrayEqual(
+					heard,
+					["HdTouch/Jump/Gamepad", "HdTouch/Jump/Touch"],
+					'design spec §4: "The earlier root handle\'s BindingsChanged fires for it, with its own path, once the later Create\'s build is over"',
 				);
-				expectEqual(secondChanges.size(), 0, "nor the later one's");
+				expectEqual(secondChanges.size(), 0, "not the later one's");
 				expectEqual(first.ExportBindings(), EMPTY_SAVE);
 				jump.Bindings.Touch.Clear();
 				jump.Bindings.Touch.Reset();

@@ -23,6 +23,12 @@ handles then share them:
 
 - A context has one enabled state (base state and requests) whichever handle changes it, and every
   handle on a binding has the same defaults.
+- **`BindingsChanged` fires on every root handle that has the binding.** A rebind, an import or a
+  reset through one root handle changes what the others read (`Get`, `Describe`), so their
+  `BindingsChanged` fires too, each with its own path for the binding; so does a later `Create` that
+  fills a device the earlier schema left out, and the Server Authority swap when it writes a
+  stand-in's rebinds onto a binding another root handle has on the copy. A HUD's hint refreshed on
+  its own root handle's `BindingsChanged` follows a menu's rebinds made through another.
 - Destroying one root handle leaves what another still uses (instances, held input, requests). What
   the package made goes with the last root handle that uses it.
 - **The fill rule.** When a later schema names a device an earlier one left out, it fills that
@@ -221,29 +227,49 @@ How the handles move from the local stand-in to the server's copy is in
 ## Gestures and releases the player didn't make
 
 A release the player didn't make ends a gesture without completing it (see
-[Gestures](Advanced.md#gestures)). The package tells such a release by the action or its context
-being disabled when it arrives at the handle, or by a reset it made itself while the action was
-held, since the handle's previous release: a context or the action disabled, a rebind or a binding
-added while held, the swap, and another root handle's `Destroy` letting go of an action they share
-(see [above](#several-root-handles-on-one-folder)), also when that `Destroy` turns the action off
-and on again before the release arrives. It is worked out once per release, as the release arrives,
-and every gesture on the handle gets the same answer: a gesture whose callback turns the context off
-(a tap that opens a menu) doesn't make that same release a reset for the gestures that hear it
-after.
+[Gestures](Advanced.md#gestures)). The package tells such a release by one rule: **it reset the
+action itself while IAS showed it held, since the handle's previous release.** Its resets are the
+context or the action turned off through their handles (`SetEnabled`, `Request`, the focus-loss
+reset), a rebind or a binding added while held, the swap, and another root handle's `Destroy` letting
+go of an action they share (see [above](#several-root-handles-on-one-folder)), also when that
+`Destroy` turns the action off and on again before the release arrives. Whether the context is still
+off when the release arrives plays no part. The answer is worked out once per release, as the
+release arrives, and every gesture gets the same one, on every root handle: a gesture whose callback
+turns the context off (a tap that opens a menu) changes nothing for the gestures that hear the
+release after it, another root handle's included.
 
 Under Deferred signals a press and a reset can come in one frame, before the handle hears the press:
 `Fire(true)` then a rebind, a context turned off and on again at once, a first `Fire` or an
 `AttachButton` in the frame a key went down, an `InputBegan` handler or per-frame code that rebinds
 or disables the action as its key goes down. The release that follows is still the reset's: no tap,
 and the hold is cancelled. A reset of an action that isn't held releases nothing and changes nothing:
-a key let go of, then the context turned off and on in the same frame, is the player's release (a
-tap), as under Immediate signals. Once the reset's release has arrived, the next press is the
-player's again.
+a key let go of (or `Fire(false)`), then the context turned off, and on again or left off, in the
+same frame, is the player's release (a tap), as under Immediate signals. Once the reset's release
+has arrived with the action at rest, the next press is the player's again. When IAS presses the
+action again by itself (on the server's copy, a rebind while the action is held presses it again
+until the package releases it on both sides), that press and its release are the reset's too.
+
+What IAS shows when the reset is made decides, and in two places it still shows the action held
+after the player let go. A reset made there takes the player's release for the reset's: no tap, no
+long press.
+
+- **A key's `UserInputService.InputEnded` handler.** IAS still shows the key's action held while
+  that event's handlers run (as an `InputBegan` handler sees a press first). A key-up handler that
+  turns the context off (or off and on again) ends the gesture as a reset. To act on a key-up, use
+  the action's `Released` or a gesture instead.
+- **The server's copy of a Server Authority context**, in the simulation step after the release: the
+  copy shows a key-up or a `Fire(false)` one step (1/60 s) later. `Fire(false)` then
+  `Request(false)` in the same frame is no tap there, where it is one on a local context.
 
 One case is told wrong: the player lets go and presses again, and the package resets the action, all
 in one frame under Deferred signals, before the handle hears any of it. That release of the player's
 is then taken for the reset's, and the reset's release for the player's (IAS doesn't say how many
-presses and releases are still on their way).
+presses and releases are still on their way). So is a reset followed by a new press of the player's
+in the same frame: that press's release counts as the reset's.
+
+Turn contexts and actions off through their handles: an `Enabled` written on the instance, or by
+another script, resets the action without the package knowing, and its release counts as the
+player's.
 
 At the Server Authority swap a press ends so, since the copy doesn't show it yet, and a value a
 Scriptable binding held is fired again on the copy, a new press; only a press the copy already shows

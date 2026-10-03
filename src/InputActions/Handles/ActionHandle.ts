@@ -38,7 +38,12 @@ import {
 	SetHeldValue,
 } from "../Registry";
 import { BUTTON_BINDING_INFIX, IsButtonBindingName, SCRIPT_BINDING_SUFFIX } from "../Tree";
-import { BindingHandle, ScriptableBindingHandle } from "./BindingHandle";
+import {
+	BindingHandle,
+	BindingWatcher,
+	HandlesOn,
+	ScriptableBindingHandle,
+} from "./BindingHandle";
 
 /** Seconds `Tap` waits at most for its press to land on a Server Authority copy */
 const TAP_PRESS_TIMEOUT = 0.5;
@@ -89,6 +94,12 @@ export interface IMovedBindings {
 	Moved: Map<InputBinding, InputBinding>;
 	/** The values the Scriptable bindings held, oldest first, to fire again once the context is set */
 	Held: Array<[InputBinding, IHeldValue]>;
+	/**
+	 * The handles root handles already on the copy have on the bindings the move changed (the
+	 * stand-in's rebinds written onto one adopted, or its schema filling it): their `BindingsChanged`
+	 * fires once the swap is done (hunt HF3-5)
+	 */
+	Changed: BindingWatcher[];
 }
 
 /**
@@ -147,6 +158,7 @@ export function MoveBindings(
 	if (carryEnabled) target.Enabled = source.Enabled;
 
 	const moved = new Map<InputBinding, InputBinding>();
+	const changed = new Array<BindingWatcher>();
 	AddingBindings(target, () => {
 		for (const binding of source.GetChildren()) {
 			if (!binding.IsA("InputBinding")) continue;
@@ -167,9 +179,11 @@ export function MoveBindings(
 				const entry = GetEntry(binding);
 				const defaults = entry?.Defaults;
 				if (defaults !== undefined && existing.Type === binding.Type) {
-					if (entry?.Placeholder !== true) FillPlaceholder(existing, defaults);
+					const filled = entry?.Placeholder !== true && FillPlaceholder(existing, defaults);
 					GetEntry(existing)!.Defaults ??= defaults;
-					WriteBindings([CarryChanges(ReadBinding(binding), defaults, existing)]);
+					const carry = CarryChanges(ReadBinding(binding), defaults, existing);
+					if (WriteBindings([carry]).size() > 0 || filled)
+						for (const handle of HandlesOn([existing])) changed.push(handle);
 				}
 				moved.set(binding, existing);
 			}
@@ -179,6 +193,7 @@ export function MoveBindings(
 		Target: target,
 		Moved: moved,
 		Held: held.map(([binding, value]) => [moved.get(binding) ?? binding, value]),
+		Changed: changed,
 	};
 }
 
@@ -262,9 +277,10 @@ export class ActionHandle {
 	/** The gestures' signal (`GestureEdges`), made with the first gesture */
 	private _gestureEdges?: BindableEvent;
 	/**
-	 * Where the handle's last release came in the order of marks and releases (`NextSequence`), or
-	 * where it was pointed at its action (`Attach`): a reset marked after it ends the press the
-	 * handle hears next, also one still on its way when the mark was made (see `EmitReleased`)
+	 * Where the handle's last release that found the action at rest came in the order of marks and
+	 * releases (`NextSequence`), or where it was pointed at its action (`Attach`): a reset marked
+	 * after it ends the press the handle hears next, also one still on its way when the mark was
+	 * made (see `EmitReleased`)
 	 */
 	private _releasedAt = 0;
 	/** How many presses and releases the handle has passed on: each edge's number (`GestureEdges`) */
@@ -359,15 +375,22 @@ export class ActionHandle {
 
 	/**
 	 * Tells the listeners and the gestures of a release. Whether it is a reset's (no player's) is
-	 * worked out once, here, as it arrives, and every gesture gets that answer: the action not live,
-	 * or the package reset it while IAS showed it pressed, after the handle's previous release
-	 * (`MarkReset`, `ResetSince`). After the previous release, not after this press arrived: under
-	 * Deferred signals a press and a reset in one frame mark the reset before the press reaches the
-	 * handle (hunt HF2-1). A release of the player's and a new press both still on their way when
-	 * the reset comes (all in one frame) take the player's release for the reset's, and the reset's
-	 * for the player's: IAS doesn't tell how many edges are on their way. A gesture's callback that
-	 * turns the context off (a menu opened on a tap) leaves the other gestures' release the player's
-	 * (hunt HF-7). `reset`: the swap's release (`FinishLink`), a reset whatever the marks say
+	 * worked out once, here, as it arrives, and every gesture gets that answer. One rule: the package
+	 * reset the action while IAS showed it pressed, after the handle's previous release (`MarkReset`,
+	 * `ResetSince`); every reset the package makes is marked so, its disables included. Whether the
+	 * action is live as the release arrives doesn't count (hunt HF3-1, HF3-2: a context turned off
+	 * once the action was at rest, by a tap's callback or in the release's frame, made the player's
+	 * release a reset's for the handles it reached later). After the previous release, not after this
+	 * press arrived: under Deferred signals a press and a reset in one frame mark the reset before the
+	 * press reaches the handle (hunt HF2-1). What IAS shows when the reset is made decides, so a reset
+	 * made after the player let go, before IAS shows the release (a key's `InputEnded` handler, a
+	 * Server Authority copy within the simulation step after the release), takes the player's
+	 * release for the reset's (HF3-3, HF3-6), and so does a release of the player's and a new press
+	 * both still on their way when the reset comes (all in one frame), the reset's then taken for the
+	 * player's: IAS doesn't tell how many edges are on their way. `Enabled` written around the
+	 * package marks nothing. A release that arrives with IAS showing the action pressed again leaves
+	 * the marks for the next one (IAS's own press after a reset, on the server's copy).
+	 * `reset`: the swap's release (`FinishLink`), a reset whatever the marks say
 	 */
 	private EmitReleased(reset = false) {
 		const track = this._track;
@@ -375,10 +398,13 @@ export class ActionHandle {
 		this._shownPressed = false;
 		this._lastEdge = "Released";
 		const now = os.clock();
-		const action = this.Instance;
-		reset ||= !IsLive(action) || ResetSince(action, this._releasedAt);
-		// Before the listeners run: a reset one of them makes ends the next press, not this one
-		this._releasedAt = NextSequence();
+		reset ||= ResetSince(this.Instance, this._releasedAt);
+		// Before the listeners run: a reset one of them makes ends the next press, not this one. Only
+		// a release that finds the action at rest uses the marks up: one that finds IAS pressing it
+		// again (on the server's copy a rebind or an added binding presses the client's state again,
+		// until the package's pair releases it on both sides) leaves them for the release of that
+		// press, also the reset's (the features hunt's round 3 saw release, press, release there)
+		if (this.Instance.GetState() !== true) this._releasedAt = NextSequence();
 		const edge = ++this._edges;
 		this._released?.Fire();
 		this._gestureEdges?.Fire(edge, false, now, reset);

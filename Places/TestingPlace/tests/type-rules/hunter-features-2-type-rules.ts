@@ -162,6 +162,10 @@ function BeginCapture(): () => void {
 }
 function FreeKey(binding: AnyBinding) {
 	for (const conflict of Input.Gameplay.FindConflicts(binding)) {
+		if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") {
+			warn(`${conflict.Key.Name} is also held for ${conflict.Path} (${conflict.Binding.Describe()})`);
+			continue;
+		}
 		warn(`${conflict.Key.Name} was also ${conflict.Path}`);
 		conflict.Binding.Clear(conflict.Slot);
 	}
