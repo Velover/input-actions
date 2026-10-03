@@ -38,7 +38,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `device-extras` (0.7.0's extra bindings per device: namespaces, reserved extra names, the extras'
   binding names, `SanitizeBindings` with extra paths; the client's part: the handles and
   `Extras()`, captures on extras with real keys, saves, adoption, root handles with other extras,
-  the fill, a held action, the swap on a copy made by hand) (shared);
+  the fill, a held action, the swap on a copy made by hand), `readable-errors` (0.7.0: the
+  runtime refuses a binding in the compile errors' sentences) (shared);
   `create`, `actions`, `track-previous`, `contexts`,
   `attach-button`, `attach-label` (`AttachLabel`, `WhenLinkedToServer`), `rebinding`,
   `capture-chord` (`CaptureChord` with real keys), `device-capture` (device-locked captures and the
@@ -47,7 +48,14 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   `shared-handles` (several `Create`s on one folder, `Destroy`), `sa-release` (what reaches the
   server when the client resets an action; authority only), `real-input` (real keys and mouse
   through VirtualInput), `rebind-held` (changing a binding while its action is held, on a local
-  context and on the server's copy), `touch` (taps on the simulated phone; touch only) (client);
+  context and on the server's copy), `touch` (taps on the simulated phone; touch only),
+  `preferred-device` (0.7.0's `PreferredDeviceChanged`: nothing for the same device; a key press and
+  a tap under `touch`; the virtual pad plugged in, opt-in), `describe` (keybinds as text: key names
+  for every KeyCode, bindings and actions, after rebinds and a real capture), `conflicts`
+  (`FindConflicts` on root and context handles, every pair, a real capture then a clear),
+  `gestures` (`OnTap`, `OnDoubleTap`, `OnHold`, `OnLongPress` with real keys; a context or the
+  action disabled, a request, a rebind, the focus-loss reset and the swap on a copy made by hand
+  mid-gesture; `Destroy`; bad options) (client);
   `server-authority` (server). The `validator-r*`, `hunter-r*`, `hunter-chord*`, `hunter-label*` and
   `hunter-devices*` sections are reviewers' adversarial tests, kept as regression tests. Fixtures
   are in `src/shared/fixtures/` (`schemas.ts`; `extras.ts`, the `device-extras` schema;
@@ -196,9 +204,12 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to
   read the server's state (`"playerModule"` reads Roblox's own `player.InputContexts` actions,
   `"copyState"` any action of the player's copy, including ones the schema doesn't mention).
-- `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases). roblox-ts
-  refuses those directives, so plain `tsc -p tests/type-rules` checks it (`bun run typecheck`);
-  `bun run build` and `bun run test` run it, and an unused directive fails them.
+- `tests/type-rules/type-rules.ts` holds the compile-time rules (`@ts-expect-error` cases), beside
+  the later files listed in `tests/type-rules/tsconfig.json` (`features-type-rules.ts` also pins
+  each readable compile error's sentence, through the package's internal `CheckBindings` type).
+  roblox-ts refuses those directives, so plain `tsc -p tests/type-rules` checks them
+  (`bun run typecheck`; about 2.35 s of `tsc`, 2026-10-03); `bun run build` and `bun run test` run
+  it, and an unused directive fails them.
 - **With the display off, Studio renders nothing.** `RenderStepped` and `BindToRenderStep` never
   fire while Heartbeat keeps running at about 240 Hz; it renders again as soon as the display is
   back on. Measured on 2026-10-01 by turning the displays off during a play session: 0 render steps

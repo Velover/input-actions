@@ -133,7 +133,7 @@ export class ValidatorR2ClientTests implements OnStart {
 				expectNoThrow(() => input.Gameplay.ExportBindings(), "a context's ExportBindings");
 			});
 
-			test("the root handle holds only the contexts and its five members", () => {
+			test("the root handle holds only the contexts and its six members", () => {
 				const input = createTestInput();
 				const root = input as unknown as Record<string, unknown>;
 				const names = new Array<string>();
@@ -143,6 +143,7 @@ export class ValidatorR2ClientTests implements OnStart {
 					"BindingsChanged",
 					"Destroy",
 					"ExportBindings",
+					"FindConflicts",
 					"Gameplay",
 					"ImportBindings",
 					"Menu",
