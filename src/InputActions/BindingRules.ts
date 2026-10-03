@@ -166,15 +166,26 @@ export function BindingNameProblem(slot: string, scriptable: boolean): string | 
 	return undefined;
 }
 
+const RESPONSE_CURVE_PROBLEM = "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode";
+
+/** Why a binding that ends on `keyCode` can't have a ResponseCurve, if it can't */
+function ResponseCurveProblem(keyCode: Enum.KeyCode): string | undefined {
+	return GetKeyGroup(keyCode) === EKeyGroup.Stick ? undefined : RESPONSE_CURVE_PROBLEM;
+}
+
 /**
  * Checks a binding written by the user (a bare key or an object shape, as in the schema or `Set`).
  * Returns the problem, or undefined when the binding is valid.
  * @param device the binding's device: its keys must be that device's
+ * @param keyCode the KeyCode the binding has, which `Set` merges the object into: a ResponseCurve
+ * is checked against the KeyCode after the merge (hunt HD3-3). None for a schema binding, which is
+ * the whole binding
  */
 export function CheckBindingSpec(
 	actionType: ActionTypeName,
 	spec: unknown,
 	device?: Device,
+	keyCode: Enum.KeyCode = Enum.KeyCode.None,
 ): string | undefined {
 	if (IsKeyCode(spec)) return KeyProblem(actionType, "KeyCode", spec, device);
 	if (!typeIs(spec, "table"))
@@ -197,15 +208,11 @@ export function CheckBindingSpec(
 		if (problem !== undefined) return problem;
 	}
 	if (hasKeyCode && hasComposite) return "KeyCode and composite directions can't share a binding";
-	const responseCurve = (spec as { ResponseCurve?: unknown }).ResponseCurve;
-	const keyCode = (spec as { KeyCode?: unknown }).KeyCode;
-	if (
-		responseCurve !== undefined &&
-		!(IsKeyCode(keyCode) && GetKeyGroup(keyCode) === EKeyGroup.Stick)
-	) {
-		return "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode";
-	}
-	return undefined;
+	const record = spec as { KeyCode?: Enum.KeyCode; ResponseCurve?: unknown };
+	if (record.ResponseCurve === undefined) return undefined;
+	// The KeyCode the binding ends up with: the object's, else none after a composite direction,
+	// else the one it has
+	return ResponseCurveProblem(record.KeyCode ?? (hasComposite ? Enum.KeyCode.None : keyCode));
 }
 
 function CheckPropertyValue(name: string, value: unknown): string | undefined {
@@ -286,13 +293,16 @@ function DecodeNumbers(value: unknown, count: number): number[] | undefined {
  * Decodes one saved entry (`{ "KeyCode": "F", "Scale": 2 }`) for a binding on an action of this
  * type. Returns the decoded properties, or the reason (a string) the entry must be skipped.
  * @param defaultKeyCode the binding's default KeyCode, which an entry without one keeps: the
- * import starts from the defaults
+ * import starts from the defaults. Undefined when it is unknown: `SanitizeBindings` has the schema
+ * alone, and a binding the client's folder or template holds wins over the schema's (a Manager's
+ * stick on a device the schema leaves out, hunt HD3-1). A ResponseCurve the entry doesn't settle
+ * itself is then kept on a device with thumbsticks, and left to the import
  * @param device the binding's device: its keys must be that device's
  */
 export function DecodeSavedEntry(
 	actionType: ActionTypeName,
 	entry: unknown,
-	defaultKeyCode: Enum.KeyCode = Enum.KeyCode.None,
+	defaultKeyCode?: Enum.KeyCode,
 	device?: Device,
 ): Map<SavedProperty, SavedValue> | string {
 	if (!typeIs(entry, "table")) return "the entry is not an object";
@@ -339,12 +349,19 @@ export function DecodeSavedEntry(
 	}
 	if (hasKeyCode && hasComposite) return "KeyCode and composite directions can't share a binding";
 	if (decoded.has("ResponseCurve")) {
-		// The KeyCode the binding ends up with: a composite direction clears it
+		// The KeyCode the binding ends up with: the entry's, else none after a composite direction,
+		// else the default one
 		const keyCode =
 			(decoded.get("KeyCode") as Enum.KeyCode | undefined) ??
 			(hasComposite ? Enum.KeyCode.None : defaultKeyCode);
-		if (GetKeyGroup(keyCode) !== EKeyGroup.Stick)
-			return "ResponseCurve only applies to a Thumbstick1/Thumbstick2 KeyCode";
+		// Unknown: only a device without thumbsticks rules it out
+		const problem =
+			keyCode !== undefined
+				? ResponseCurveProblem(keyCode)
+				: device !== undefined && GetKeyDevice(Enum.KeyCode.Thumbstick1) !== device
+					? `${RESPONSE_CURVE_PROBLEM}, which a ${device} binding can't hold`
+					: undefined;
+		if (problem !== undefined) return problem;
 	}
 	return decoded;
 }

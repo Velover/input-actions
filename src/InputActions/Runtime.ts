@@ -20,7 +20,7 @@ import {
 	WriteBindings,
 } from "./BindingState";
 import { ExportBindings, ImportBindings, ResetBindings } from "./BindingsJson";
-import { ActionNameProblem, ContextNameProblem, SCRIPTABLE, SlotNameProblem } from "./Builders";
+import { SCRIPTABLE, SchemaProblem } from "./Builders";
 import {
 	ActionHandle,
 	IMovedBindings,
@@ -53,16 +53,15 @@ import {
 	FindContext,
 	IsPackageBindingName,
 	MatchesSlot,
-	SlotCollision,
 	WarnUnmentioned,
 	WithDevices,
 } from "./Tree";
 import type {
+	CheckedInputSchema,
 	IActionDefinition,
 	IContextSchema,
 	ICreateOptions,
 	IImportResult,
-	IInputSchema,
 	InputHandle,
 } from "./Types";
 
@@ -191,36 +190,24 @@ function ContextToBuildOn(
 /**
  * Every check of `Build` that can throw, made before it changes anything, so a `Create` that throws
  * leaves the tree as it was: it fills no other root handle's unbound binding and releases no held
- * action (hunt HD-2). The names `Schema` refuses, with its checks (a schema made without it could
- * still hold them: a "/" in a name too, hunt HD2-5), and each action the tree already has against
- * the type the schema declares. `folder` is undefined when the default folder doesn't exist yet:
- * it is made only once these checks pass.
+ * action (hunt HD-2). First every check of `Schema` (`SchemaProblem`), for a schema made without
+ * it: a "/" in a name (hunt HD2-5), a misspelt option, which would make a `ServerAuthorty: true`
+ * context local without a word (hunt HD3-2), a binding that breaks the rules. Then each action the
+ * tree already has against the type the schema declares. `folder` is undefined when the default
+ * folder doesn't exist yet: it is made only once these checks pass.
  */
 function CheckBuild(
 	contexts: Record<string, IContextSchema>,
 	folder: Instance | undefined,
 	playerFolderName: string,
 ) {
+	const found = SchemaProblem(contexts);
+	if (found !== undefined) error(`InputActions.Create: ${found.Path}: ${found.Problem}`, 0);
 	for (const [name, schema] of Entries(contexts)) {
-		const contextProblem = ContextNameProblem(name);
-		if (contextProblem !== undefined) error(`InputActions.Create: ${name}: ${contextProblem}`, 0);
 		const context = ContextToBuildOn(name, schema, folder, playerFolderName);
+		if (context === undefined) continue;
 		for (const [actionName, definition] of Entries(schema.Actions)) {
-			const path = JoinPath(name, actionName);
-			const actionProblem = ActionNameProblem(actionName);
-			if (actionProblem !== undefined) error(`InputActions.Create: ${path}: ${actionProblem}`, 0);
-			const specs = Entries(definition.Bindings as Record<string, unknown>);
-			for (const [slot, spec] of specs) {
-				const problem = SlotNameProblem(actionName, slot, spec);
-				if (problem !== undefined)
-					error(`InputActions.Create: ${JoinPath(path, slot)}: ${problem}`, 0);
-			}
-			const collision = SlotCollision(
-				actionName,
-				specs.map(([slot]) => slot),
-			);
-			if (collision !== undefined) error(`InputActions.Create: ${path}: ${collision}`, 0);
-			if (context !== undefined) FindAction(context, actionName, definition.Type, path);
+			FindAction(context, actionName, definition.Type, JoinPath(name, actionName));
 		}
 	}
 }
@@ -985,7 +972,7 @@ export class InputRuntime implements IRuntime {
 
 /** `InputActions.Create`: builds the typed handle on the client */
 export function Create<S extends Record<string, IContextSchema>>(
-	schema: IInputSchema<S>,
+	schema: CheckedInputSchema<S>,
 	options?: ICreateOptions,
 ): InputHandle<S> {
 	if (!RunService.IsClient()) error("InputActions.Create runs on the client only", 2);

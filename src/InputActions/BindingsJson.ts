@@ -10,7 +10,7 @@ import {
 import { SCRIPTABLE } from "./Builders";
 import type { BindingHandle } from "./Handles/BindingHandle";
 import { IRuntime, JoinPath } from "./Internal";
-import { DEVICES, IsDevice, IsKeyCode } from "./KeyGroups";
+import { DEVICES, IsDevice } from "./KeyGroups";
 import type { IContextSchema, IImportResult, IInputSchema } from "./Types";
 
 // Saved keybinds (design spec §7):
@@ -182,16 +182,14 @@ export function ImportBindings(
 	return result;
 }
 
-/** The KeyCode a schema binding gives its instance: a bare key, or an object's `KeyCode` */
-function SpecKeyCode(spec: unknown): Enum.KeyCode {
-	if (IsKeyCode(spec)) return spec;
-	const keyCode = typeIs(spec, "table") ? (spec as { KeyCode?: unknown }).KeyCode : undefined;
-	return IsKeyCode(keyCode) ? keyCode : Enum.KeyCode.None;
-}
-
 /**
  * Runs the import validation against the schema alone (no instances; works on the server) and
- * returns a clean save with only the valid entries.
+ * returns a clean save with only the valid entries. The binding's default KeyCode is not the
+ * schema's to tell: a binding the client's folder or template holds wins over the schema's (the
+ * Input Action Manager's stick on a device the schema leaves out, hunt HD3-1). So a ResponseCurve
+ * an entry doesn't settle with its own KeyCode or a composite direction stays on a Gamepad binding,
+ * for the import to check against the binding it finds: what the client exports and loads, the
+ * server keeps.
  */
 export function SanitizeBindings(
 	schema: IInputSchema<Record<string, IContextSchema>>,
@@ -209,7 +207,7 @@ export function SanitizeBindings(
 		if (action === undefined) continue;
 		const spec = (action.Bindings as Record<string, unknown>)[slot];
 		if (spec === SCRIPTABLE) continue;
-		const values = DecodeSavedEntry(action.Type.Name, entry, SpecKeyCode(spec), slot);
+		const values = DecodeSavedEntry(action.Type.Name, entry, undefined, slot);
 		if (typeIs(values, "string")) continue;
 		const cleanEntry: Record<string, unknown> = {};
 		for (const name of SAVED_PROPERTIES) {

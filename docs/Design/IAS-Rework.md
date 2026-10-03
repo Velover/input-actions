@@ -272,13 +272,21 @@ one of those as a parameter (`IBoolBinding<K>`...; `BindingShape<T, D>`).
   (designer values when they came from the folder, schema values otherwise).
 - An existing action whose `Type` differs from the builder's type: **throw**, naming the path.
   `Create` makes every check that can throw before it changes anything (`CheckBuild`: these types,
-  on the instances it would take up; the names `Schema` refuses, with `Schema`'s own checks
-  (`ContextNameProblem`, `ActionNameProblem`, `SlotNameProblem`, `SlotCollision`), so a "/" in a
-  schema made without `Schema` throws too, which would split the save's paths and lose its rebinds
-  in `SanitizeBindings` (hunt HD2-5); an instance of a context's name that is no `InputContext`),
-  so a `Create` that throws leaves the tree as it found it: it fills no other root handle's
-  unbound binding, releases no held action (hunt HD-2), and makes no default folder (it is made
-  once the checks pass).
+  on the instances it would take up; everything `Schema` refuses, with `Schema`'s own checks
+  (`SchemaProblem`, which both run) and its messages, for a schema made without `Schema`: a "/" in
+  a name, which would split the save's paths and lose its rebinds in `SanitizeBindings` (hunt
+  HD2-5), a misspelt option, which would make a `ServerAuthorty: true` context local without a
+  word (hunt HD3-2), a binding that breaks the rules; an instance of a context's name that is no
+  `InputContext`), so a `Create` that throws leaves the tree as it found it: it fills no other
+  root handle's unbound binding, releases no held action (hunt HD-2), and makes no default folder
+  (it is made once the checks pass).
+- `Create`'s parameter is `CheckedInputSchema<S>`: `IInputSchema<S>` with its `Contexts` checked
+  by `CheckContexts<S>`, so a misspelt option in `{ Contexts }` written without `Schema` is a
+  compile error too (hunt HD3-2). The exported `InputActions.InputSchema<S>` is that type: checking
+  `S` against `CheckContexts<S>` fails for a generic `S` (a mapped type to `never` can't be proved
+  of a type parameter), so a helper generic over the schema must take the checked type to pass it
+  on, and then does. `Schema`'s result, a preset, a schema kept in a variable and a widened
+  `InputSchema<Record<string, ContextSchema>>` all still compile.
 - An adopted binding whose keys break the §3 rules (another device's key included): `warn` with
   the path, and leave it as it is.
 - Instances in the folder that the schema doesn't mention: left alone (IAS still runs them), not
@@ -479,9 +487,15 @@ Binding handle (non-Scriptable: a device's binding):
 
 - `Instance: InputBinding`, `Name` (the device).
 - `Get()`: the current binding as plain data in the schema's shape (for settings UIs).
-- `Set(spec)`: typed as the action type's binding shape for the binding's device (§3), validated at
-  runtime (throws on a key or property the action type doesn't allow, or another device's key).
-  Object specs **merge** into the binding; a bare key sets `KeyCode` and clears the composites.
+- `Set(spec)`: typed as the action type's binding shape for the binding's device (§3), or part of
+  one of its object forms (`BindingPart<A, D>`: every property optional, a stick's form only on
+  the gamepad), validated at runtime (throws on a key or property the action type doesn't allow,
+  or another device's key). Object specs **merge** into the binding, so one may leave the key out
+  (`Set({ PressedThreshold: 0.9 })`); a bare key sets `KeyCode` and clears the composites. A
+  `ResponseCurve` is checked against the `KeyCode` the binding has after the merge (the object's,
+  else none after a composite direction, else the binding's), as an import checks it (hunt HD3-3).
+  `ResponseCurve` is the only property whose check depends on the `KeyCode`: the thresholds act on
+  an analog key and do nothing on another, and nothing refuses them there.
 - **Writing bindings** (`Set`, `Reset`, `Clear`, `Capture`, `ImportBindings`, `ResetBindings`, the
   swap's carried rebinds, `Destroy` giving adopted bindings their defaults): the target values are
   worked out first, then only the properties that differ are written. A property written with the
@@ -685,6 +699,18 @@ own actions.
 - `InputActions.SanitizeBindings(schema, json): string` runs the same validation against the
   schema alone (no instances; works on the server) and returns a clean JSON string, so a server can
   clean what a client sends before storing it.
+  - The binding's default `KeyCode`, which the `ResponseCurve` check reads when the entry has no
+    `KeyCode`, isn't the schema's to tell: a binding in the client's folder or template wins over
+    the schema's (§4), such as the Input Action Manager's `LookGamepad` on `Thumbstick2` for a
+    device the schema leaves out. Checking against the schema's `KeyCode` dropped a tuning the
+    client exports and loads (hunt HD3-1). So `SanitizeBindings` passes no default: a
+    `ResponseCurve` the entry doesn't settle itself (its `KeyCode`, or a composite direction) stays
+    on a `Gamepad` binding, and the import checks it against the binding it finds. On a
+    `KeyboardAndMouse` or `Touch` binding, which can't hold a thumbstick, it is dropped. What
+    `SanitizeBindings` keeps but an import then skips is harmless: the import never throws.
+  - Considered instead: the export writing the `KeyCode` beside a `ResponseCurve`, so the entry
+    settles it. Rejected: the save would then hold a key the player never chose, and keep it after
+    the game moves the default; and saves made before would still lose the tuning.
 
 ## 8. Server Authority
 

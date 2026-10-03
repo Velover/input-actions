@@ -67,7 +67,8 @@ export class BindingHandle {
 	}
 
 	Set(spec: unknown) {
-		const problem = CheckBindingSpec(this.ActionType, spec, this.Name);
+		// An object merges into the binding: a ResponseCurve is checked against the KeyCode after it
+		const problem = CheckBindingSpec(this.ActionType, spec, this.Name, this.Instance.KeyCode);
 		if (problem !== undefined) error(`InputActions: ${this.Path}: ${problem}`, 2);
 		if (this._runtime.IsDestroyed()) return;
 		const values = ReadBinding(this.Instance);

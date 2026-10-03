@@ -143,6 +143,24 @@ export type BindingData<
 	T extends Enum.InputActionType,
 	D extends Device = Device,
 > = D extends Device ? PartialEach<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
+/**
+ * Each object form with every property optional, but only the forms whose `KeyCode` the device
+ * has: a stick's form (`ResponseCurve`) only on the gamepad (hunt HD3-3)
+ */
+type PartialForm<F> = F extends { KeyCode: infer Key }
+	? [Key] extends [never]
+		? never
+		: Partial<F>
+	: Partial<F>;
+/**
+ * Part of an object form of device `D`'s binding, without the keys it doesn't name: `Set` merges it
+ * into the binding (`{ PressedThreshold: 0.9 }`, `{ ResponseCurve: 2 }` on a stick). Its properties
+ * are still the action type's
+ */
+export type BindingPart<
+	T extends Enum.InputActionType,
+	D extends Device = Device,
+> = D extends Device ? PartialForm<IBindingObjectMap<IDeviceKeyMap[D]>[T["Name"]]> : never;
 
 // Generic inference skips excess-property checks, so unknown properties are rejected here. A binding
 // named after a device takes that device's keys (`BindingShape<T, D>`), any other name only
@@ -263,6 +281,14 @@ export type CheckContexts<S> = {
 export interface IInputSchema<S extends Record<string, IContextSchema>> {
 	readonly Contexts: S;
 }
+/**
+ * A schema as `Create` takes it: what `Schema` returns, or `{ Contexts }` written without it, whose
+ * misspelt context options are refused here, as `Schema`'s parameter refuses them (hunt HD3-2). A
+ * generic `S` passes on as it is, so a helper over `InputActions.InputSchema<S>` can call `Create`
+ */
+export type CheckedInputSchema<S extends Record<string, IContextSchema>> = IInputSchema<S> & {
+	readonly Contexts: CheckContexts<S>;
+};
 
 // ---- client handles
 
@@ -284,9 +310,10 @@ export interface IBindingHandle<T extends Enum.InputActionType, D extends Device
 	Get(): BindingData<T, D>;
 	/**
 	 * Rebind. Same per-type rules as the schema, and the device's keys only, also checked at runtime.
-	 * Objects merge into the binding
+	 * Objects merge into the binding, so one may leave the key out (`{ PressedThreshold: 0.9 }`); a
+	 * `ResponseCurve` needs the binding to end on a thumbstick
 	 */
-	Set(binding: BindingShape<T, D>): void;
+	Set(binding: BindingShape<T, D> | BindingPart<T, D>): void;
 	/** Back to the binding right after `Create` (unbound when the schema left the device out) */
 	Reset(): void;
 	/**

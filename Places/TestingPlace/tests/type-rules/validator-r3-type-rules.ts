@@ -43,9 +43,11 @@ export function ValidatorR3TypeRules() {
 	const stop: () => void = InputActions.ProvideToPlayers(R3);
 	const clean: string = InputActions.SanitizeBindings(R3, "{}");
 	const skipped: string = Input.Play.ImportBindings("{}").Skipped[0].Reason;
-	// an object without KeyCode merges into a stick binding through the composite shape (Scale only)
+	// an object without KeyCode merges into a stick binding
 	Move.Bindings.Gamepad.Set({ Scale: 2 });
 	Move.Bindings.Gamepad.Set({ KeyCode: K.Thumbstick2, ResponseCurve: 3 });
+	// a ResponseCurve alone too (hunt HD3-3: Set checks it against the KeyCode after the merge)
+	Move.Bindings.Gamepad.Set({ ResponseCurve: 3 });
 	Fly.Bindings.KeyboardAndMouse.Clear("Forward");
 	Fly.Bindings.KeyboardAndMouse.Capture("Backward", () => {});
 	server.Play.Actions.Jump.Released.Connect(() => {});
@@ -63,8 +65,8 @@ export function ValidatorR3TypeRules() {
 	InputActions.Direction1D({ KeyboardAndMouse: { KeyCode: K.MouseWheel, Vector2Scale: new Vector2(1, 1) } });
 	// @ts-expect-error a stick binding can't take a composite direction in Set either
 	Move.Bindings.Gamepad.Set({ KeyCode: K.Thumbstick1, Up: K.DPadUp });
-	// @ts-expect-error ResponseCurve alone: the stick shape needs its KeyCode
-	Move.Bindings.Gamepad.Set({ ResponseCurve: 3 });
+	// @ts-expect-error ResponseCurve alone on the keyboard and mouse, which has no thumbstick
+	Move.Bindings.KeyboardAndMouse.Set({ ResponseCurve: 3 });
 	// @ts-expect-error a Scriptable binding has no Get
 	Move.Bindings.Virtual.Get();
 	// @ts-expect-error a Scriptable binding has no Reset

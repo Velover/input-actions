@@ -89,6 +89,11 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     within a test, and send wheel input through `Wheel`, not through `Device`;
   - Legacy player scripts (`default`) sink `Left`, `Right`, `I`, `O` (camera) and toggle shift lock
     on `LeftShift` through CAS: real-input tests use other keys;
+  - other sections leave contexts running: once the client's `server-authority` section has run,
+    the server's template `ReplicatedStorage.InputActionsTestTemplates.SaGameplay` is enabled again
+    (`Destroy` gives an adopted template its `Enabled` back) and sinks `F` and `H` below its
+    Priority 1700 (probed in device hunt round 3, where a Priority 10 context lost `H` whenever that
+    section ran first). Give a context that takes real keys a Priority above 2000;
   - under `authority`, the state of a copy under the player (the server's copy, or a context a test
     makes in `LocalPlayer`) moves on simulation steps, 60 Hz, while a frame is about 5 ms: wait for a
     change there with `eventually`, not a fixed few frames (hunt round 4 saw `frames(3)` end before

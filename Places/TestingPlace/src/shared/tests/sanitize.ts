@@ -94,7 +94,7 @@ export class SanitizeTests implements OnStart {
 				const json = HttpService.JSONEncode({
 					Version: 1,
 					Bindings: {
-						// the schema's KeyCode is Thumbstick1
+						// no KeyCode in the entry: kept on a Gamepad binding (the import checks the binding)
 						"Gameplay/Move/Gamepad": { ResponseCurve: 3 },
 						// the entry's own thumbstick on a slot whose default is a D-pad composite
 						"Ui/Navigate/Gamepad": { KeyCode: "Thumbstick2", ResponseCurve: 3 },
@@ -105,6 +105,25 @@ export class SanitizeTests implements OnStart {
 				const clean = decode(InputActions.SanitizeBindings(TEST_SCHEMA, json));
 				expectArrayEqual(paths(clean), ["Gameplay/Move/Gamepad", "Ui/Navigate/Gamepad"]);
 				expectEqual(clean.Bindings["Gameplay/Move/Gamepad"].ResponseCurve, 3);
+			});
+
+			// hunt HD3-1: the client's folder or template may hold a stick where the schema has none
+			test("a ResponseCurve without a KeyCode stays on any Gamepad binding, not on the other devices'", () => {
+				const json = HttpService.JSONEncode({
+					Version: 1,
+					Bindings: {
+						// the schema's binding is a D-pad composite; the Manager's may be a stick
+						"Ui/Navigate/Gamepad": { ResponseCurve: 3 },
+						// the entry's own KeyCode settles it
+						"Gameplay/Look/Gamepad": { KeyCode: "None", ResponseCurve: 3 },
+						// no thumbstick on these devices
+						"Gameplay/Look/KeyboardAndMouse": { ResponseCurve: 3 },
+						"Ui/Navigate/Touch": { ResponseCurve: 3 },
+					},
+				});
+				const clean = decode(InputActions.SanitizeBindings(TEST_SCHEMA, json));
+				expectArrayEqual(paths(clean), ["Ui/Navigate/Gamepad"]);
+				expectEqual(clean.Bindings["Ui/Navigate/Gamepad"].ResponseCurve, 3);
 			});
 
 			test("drops numbers a float property can't hold", () => {

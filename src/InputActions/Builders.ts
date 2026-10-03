@@ -28,7 +28,7 @@ export const ROOT_MEMBERS = [
 	"Destroy",
 ];
 
-// ---- the names `Schema` refuses, which `Create` checks again for a schema made without it
+// ---- what `Schema` refuses, which `Create` checks again for a schema made without it
 
 /** Whether a name has a "/", which would split a save's `Context/Action/Binding` paths */
 function HasSlash(name: string) {
@@ -160,39 +160,62 @@ function ContextOptionsProblem(context: object): string | undefined {
 	return undefined;
 }
 
-/** Checks a schema at runtime (for values the types could not see, e.g. casts) and freezes it */
-export function Schema<S extends Record<string, IContextSchema>>(
-	contexts: S & CheckContexts<S>,
-): IInputSchema<S> {
+/** What is wrong in a schema, and where: `Context`, `Context/Action` or `Context/Action/Binding` */
+export interface ISchemaProblem {
+	readonly Path: string;
+	readonly Problem: string;
+}
+
+/**
+ * The first thing `Schema` refuses in these contexts, if any: a name the handles can't hold, a
+ * context without `Actions`, an option misspelt or of the wrong type, something that isn't an
+ * action, a binding that breaks the rules. `Create` runs it again, for a schema made without
+ * `Schema` (hunts HD2-5, HD3-2)
+ */
+export function SchemaProblem(
+	contexts: Readonly<Record<string, IContextSchema>>,
+): ISchemaProblem | undefined {
 	for (const [contextName, context] of Entries<IContextSchema>(contexts)) {
-		const where = `InputActions.Schema: ${contextName}`;
 		const contextProblem = ContextNameProblem(contextName);
-		if (contextProblem !== undefined) error(`${where}: ${contextProblem}`, 2);
+		if (contextProblem !== undefined) return { Path: contextName, Problem: contextProblem };
 		if (!typeIs(context, "table") || !typeIs(context.Actions, "table"))
-			error(`${where}: missing Actions`, 2);
+			return { Path: contextName, Problem: "missing Actions" };
 		const optionsProblem = ContextOptionsProblem(context);
-		if (optionsProblem !== undefined) error(`${where}: ${optionsProblem}`, 2);
+		if (optionsProblem !== undefined) return { Path: contextName, Problem: optionsProblem };
 		for (const [actionName, action] of Entries(context.Actions)) {
-			const actionWhere = `${where}/${actionName}`;
+			const actionPath = `${contextName}/${actionName}`;
 			const actionProblem = ActionNameProblem(actionName);
-			if (actionProblem !== undefined) error(`${actionWhere}: ${actionProblem}`, 2);
+			if (actionProblem !== undefined) return { Path: actionPath, Problem: actionProblem };
 			if (!typeIs(action, "table") || !ACTION_TYPES.includes(action.Type)) {
-				error(`${actionWhere}: not an action; use InputActions.Bool, Direction1D, ...`, 2);
+				return {
+					Path: actionPath,
+					Problem: "not an action; use InputActions.Bool, Direction1D, ...",
+				};
 			}
 			const bindings = Entries(action.Bindings as Record<string, unknown>);
 			for (const [slot, spec] of bindings) {
+				const slotPath = `${actionPath}/${slot}`;
 				const nameProblem = SlotNameProblem(actionName, slot, spec);
-				if (nameProblem !== undefined) error(`${actionWhere}/${slot}: ${nameProblem}`, 2);
+				if (nameProblem !== undefined) return { Path: slotPath, Problem: nameProblem };
 				if (spec === SCRIPTABLE || !IsDevice(slot)) continue;
 				const problem = CheckBindingSpec(action.Type.Name, spec, slot);
-				if (problem !== undefined) error(`${actionWhere}/${slot}: ${problem}`, 2);
+				if (problem !== undefined) return { Path: slotPath, Problem: problem };
 			}
 			const collision = SlotCollision(
 				actionName,
 				bindings.map(([slot]) => slot),
 			);
-			if (collision !== undefined) error(`${actionWhere}: ${collision}`, 2);
+			if (collision !== undefined) return { Path: actionPath, Problem: collision };
 		}
 	}
+	return undefined;
+}
+
+/** Checks a schema at runtime (for values the types could not see, e.g. casts) and freezes it */
+export function Schema<S extends Record<string, IContextSchema>>(
+	contexts: S & CheckContexts<S>,
+): IInputSchema<S> {
+	const found = SchemaProblem(contexts);
+	if (found !== undefined) error(`InputActions.Schema: ${found.Path}: ${found.Problem}`, 2);
 	return DeepFreeze({ Contexts: contexts });
 }

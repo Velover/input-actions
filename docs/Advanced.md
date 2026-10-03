@@ -231,6 +231,11 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
   and mouse keys`).
 - An object merges into the binding. One input source per binding still holds: a `KeyCode` in the
   object clears the composite directions, and a composite direction clears the `KeyCode`.
+- An object may leave the key out: `Set({ PressedThreshold: 0.9 })` tunes the key the binding has,
+  and `Set({ ResponseCurve: 2 })` the stick. A `ResponseCurve` needs the binding to end on a
+  thumbstick after the merge (the object's `KeyCode`, else the binding's): `Set` throws otherwise,
+  as an import skips it. The types still refuse what the action type doesn't have, and a
+  `ResponseCurve` on a keyboard-and-mouse or touch binding.
 - `Reset` returns to the defaults, which are the tree right after `Create`: the designer's values
   when the binding came from the folder, the schema's otherwise.
 - `Get` returns the current binding as plain data in the schema's shape, with tuning properties only
@@ -458,6 +463,12 @@ the server. Both it and `ImportBindings` measure how deep a save nests before de
 one deeper than a save can be: `HttpService:JSONDecode` on input nested a few hundred levels deep
 ends the whole server process, `pcall` or not, so never decode what a client sends yourself before
 cleaning it.
+
+The schema can't tell `SanitizeBindings` the `KeyCode` a binding has on the client: a binding in the
+folder or the template wins over the schema's (a stick the Input Action Manager put on a device the
+schema leaves out). So it keeps a `ResponseCurve` without a `KeyCode` on a `Gamepad` binding, and the
+import checks it against the binding it finds. What the client exports and loads, the server
+keeps.
 
 ## Server Authority
 

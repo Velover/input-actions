@@ -78,9 +78,11 @@ the [root handle](#root-handle).
 | `ResetOnFocusLoss` | `true` | hold every context disabled for one frame on TextBox focus, window focus loss and menu open |
 
 Throws when an existing action's `Type` differs from the schema, when a child named like a
-context or action is not an `InputContext`/`InputAction`, and on the names `Schema` refuses (a
-schema made without `Schema`). It checks these before it changes anything: a `Create` that throws
-leaves the tree as it was, and makes no `ReplicatedStorage.Inputs`. See
+context or action is not an `InputContext`/`InputAction`, and on anything `Schema` refuses, with
+its message (a schema made without `Schema`: a misspelt option, a name, a binding). It checks these
+before it changes anything: a `Create` that throws leaves the tree as it was, and makes no
+`ReplicatedStorage.Inputs`. A misspelt option in `{ Contexts }` written without `Schema` is a
+compile error too, as in `Schema`. See
 [Get-or-create](Introduction.md#get-or-create). Warns once when the schema marks contexts
 `ServerAuthority: true` in a place that doesn't run Server Authority
 ([`IsServerAuthority()`](#isserverauthority) is `false`): their state would never reach the server.
@@ -138,7 +140,11 @@ Runs the `ImportBindings` checks against the schema alone and returns a save wit
 entries. Works without instances, on either realm. It keeps the device paths of every action, also
 those the schema leaves out. A save nested deeper than a save can be is refused before it is decoded
 (JSON nested a few hundred levels deep crashes `HttpService:JSONDecode`), so it is safe on what a
-client sends.
+client sends. It can't see the client's bindings, and one in the folder or the template wins over
+the schema's (a stick the Input Action Manager gave a device the schema leaves out). So a
+`ResponseCurve` without a `KeyCode` in its entry stays on a `Gamepad` binding, and the import checks
+it against the binding it finds. On a `KeyboardAndMouse` or `Touch` binding it is dropped: they
+can't hold a thumbstick.
 
 ### PreferredDevice
 
@@ -178,9 +184,9 @@ Options: `Priority`, `Sink`, `Enabled`, `ServerAuthority`. See
 | `InputActions.ContextHandle<C>` | a context handle |
 | `InputActions.Handle<S>` | what `Create` returns |
 | `InputActions.ServerHandle<S>`, `ServerAction<A>` | what `ForPlayer` returns |
-| `InputActions.ContextSchema`, `InputSchema<S>`, `ActionDefinition<A, B, TP>`, `ActionOptions` | schema data |
+| `InputActions.ContextSchema`, `InputSchema<S>`, `ActionDefinition<A, B, TP>`, `ActionOptions` | schema data; `InputSchema<S>` refuses a misspelt context option, and a helper generic over it can pass it to `Create` |
 | `InputActions.ActionValue<A>` | `boolean`, `number`, `Vector2`, `Vector3` or `Vector2` |
-| `InputActions.BindingShape<A, D>`, `BindingData<A, D>` | what `Set` takes and `Get` returns, for device `D` (any device's by default) |
+| `InputActions.BindingShape<A, D>`, `BindingPart<A, D>`, `BindingData<A, D>` | what `Set` takes (a shape, or part of an object shape without its key) and `Get` returns, for device `D` (any device's by default) |
 | `InputActions.CaptureSlot<A>`, `CaptureOptions` | `Capture`'s arguments |
 | `InputActions.Chord`, `ChordCaptureOptions` | what `CaptureChord` passes its callback, and its options |
 | `InputActions.ImportResult`, `SkippedBinding` | what `ImportBindings` returns |
@@ -271,7 +277,7 @@ A device's binding (`KeyboardAndMouse`, `Gamepad`, `Touch`):
 | --- | --- |
 | `Instance: InputBinding`, `Name` | `Name` is the device |
 | `Get(): BindingData<A, D>` | the binding as plain data in the schema's shape; `{}` when unbound |
-| `Set(binding: BindingShape<A, D>)` | rebinds; objects merge; throws on what the action type doesn't allow, on another device's key, and on a number a float can't hold (beyond ±3.4e38) |
+| `Set(binding: BindingShape<A, D> \| BindingPart<A, D>)` | rebinds; objects merge, so one may leave the key out (`Set({ PressedThreshold: 0.9 })` tunes the key the binding has); throws on what the action type doesn't allow, on another device's key, on a `ResponseCurve` when the binding doesn't end on a thumbstick after the merge, and on a number a float can't hold (beyond ±3.4e38) |
 | `Reset()` | back to the binding right after `Create` (unbound when the schema left the device out) |
 | `Clear(slot?)` | unbinds: `KeyCode`, composites and modifiers become `None`; with a slot (as for `Capture`), clears only that one |
 

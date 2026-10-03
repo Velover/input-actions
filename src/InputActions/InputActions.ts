@@ -140,7 +140,11 @@ export namespace InputActions {
 	export type ServerAction<A extends Enum.InputActionType> = T.IServerActionHandle<A>;
 
 	export type ContextSchema = T.IContextSchema;
-	export type InputSchema<S extends Record<string, T.IContextSchema>> = T.IInputSchema<S>;
+	/**
+	 * A schema: what `Schema` returns, or `{ Contexts }` written without it (a misspelt context
+	 * option is a compile error there too). A helper generic over it can pass it to `Create`
+	 */
+	export type InputSchema<S extends Record<string, T.IContextSchema>> = T.CheckedInputSchema<S>;
 	export type ActionDefinition<
 		A extends Enum.InputActionType,
 		B = unknown,
@@ -157,6 +161,14 @@ export namespace InputActions {
 		A extends Enum.InputActionType,
 		D extends Device = Device,
 	> = T.BindingShape<A, D>;
+	/**
+	 * Part of an object form, without the key: what `Set` merges into a binding besides the shapes
+	 * (`{ PressedThreshold: 0.9 }`)
+	 */
+	export type BindingPart<
+		A extends Enum.InputActionType,
+		D extends Device = Device,
+	> = T.BindingPart<A, D>;
 	/** What `BindingHandle.Get` returns */
 	export type BindingData<
 		A extends Enum.InputActionType,
