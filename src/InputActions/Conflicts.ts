@@ -15,7 +15,8 @@ const DIRECTIONS = ["Up", "Left", "Down", "Right", "Forward", "Backward"] as con
 /**
  * Keys that one push or touch presses together with a wider key: a stick's direction with the
  * whole stick, a drag or a pinch with the fingers on the screen (`TouchPosition`, held for each).
- * The narrower key (the direction, the drag, the pinch) is the key they share (hunt HF-2)
+ * The narrower key (the direction, the drag, the pinch) is the key they share (hunt HF-2), and a
+ * conflict tells that the other binding holds the wider one (`Wider`, hunt HF4-1)
  */
 const PART_OF = new Map<Enum.KeyCode, Enum.KeyCode>([
 	[K.Thumbstick1Up, K.Thumbstick1],
@@ -90,6 +91,10 @@ interface IShared {
 	/** The second binding's slots that hold a shared key: those holding `Keys[0]` first */
 	readonly SlotsB: BindingSlot[];
 	readonly Identical: boolean;
+	/** One of the first binding's slots holds a wider key that a shared key is part of (`PART_OF`) */
+	readonly WiderA: boolean;
+	/** One of the second binding's slots does */
+	readonly WiderB: boolean;
 }
 
 /**
@@ -98,8 +103,10 @@ interface IShared {
  * `TouchPosition`: see `SharedKey`), and a key that presses one and is the other's modifier
  * (pressing the chord presses the plain binding on its modifier). Two chords that only share a
  * modifier (Ctrl+S, Ctrl+D) share nothing: neither presses the other. `Identical` when one key is in
- * both with the same modifiers: each press of it presses both. A binding without a key (unbound, or
- * modifiers alone) shares nothing
+ * both with the same modifiers: each press of it presses both. `WiderA`, `WiderB` when that side
+ * holds the wider key of a pair that presses together, all of which clearing its slot frees (the
+ * whole stick, not only the direction the other holds: hunt HF4-1). A binding without a key
+ * (unbound, or modifiers alone) shares nothing
  */
 function SharedKeys(a: IPressKeys, b: IPressKeys): IShared | undefined {
 	if (a.Keys.isEmpty() || b.Keys.isEmpty()) return undefined;
@@ -108,6 +115,8 @@ function SharedKeys(a: IPressKeys, b: IPressKeys): IShared | undefined {
 	/** The second binding's slots, by the shared key they hold */
 	const slotsOfKey = new Map<Enum.KeyCode, BindingSlot[]>();
 	let pressesBoth = false;
+	let widerA = false;
+	let widerB = false;
 	const add = (key: Enum.KeyCode, slotA: BindingSlot, slotB: BindingSlot) => {
 		if (!keys.includes(key)) keys.push(key);
 		if (!slotsA.includes(slotA)) slotsA.push(slotA);
@@ -120,6 +129,8 @@ function SharedKeys(a: IPressKeys, b: IPressKeys): IShared | undefined {
 			const key = SharedKey(own.Key, other.Key);
 			if (key === undefined) continue;
 			if (own.Key === other.Key) pressesBoth = true;
+			else if (key === own.Key) widerB = true;
+			else widerA = true;
 			add(key, own.Slot, other.Slot);
 		}
 		for (const other of b.Modifiers) if (own.Key === other.Key) add(own.Key, own.Slot, other.Slot);
@@ -137,6 +148,8 @@ function SharedKeys(a: IPressKeys, b: IPressKeys): IShared | undefined {
 		SlotsA: slotsA,
 		SlotsB: slotsB,
 		Identical: pressesBoth && a.Primary === b.Primary && a.Secondary === b.Secondary,
+		WiderA: widerA,
+		WiderB: widerB,
 	};
 }
 
@@ -181,6 +194,7 @@ export function FindConflicts(
 			Slot: shared.SlotsB[0],
 			Slots: shared.SlotsB,
 			Identical: shared.Identical,
+			Wider: shared.WiderB,
 		});
 	}
 	found.sort((a, b) => a.Path < b.Path);
@@ -207,6 +221,7 @@ export function FindAllConflicts(handles: readonly BindingHandle[]): IConflictPa
 				Keys: shared.Keys,
 				Slots: [shared.SlotsA, shared.SlotsB],
 				Identical: shared.Identical,
+				Wider: [shared.WiderA, shared.WiderB],
 			});
 		}
 	}

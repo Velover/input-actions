@@ -361,8 +361,9 @@ Input.BindingsChanged.Connect((path) => print(path)); // "Gameplay/Move/Keyboard
 - `BindingsChanged` fires on `Set`, `Reset`, `Clear`, `Capture` and `CaptureChord` (the action's
   too, with the path of the binding they changed), and for every binding an import or
   `ResetBindings` changed. With several root handles on one folder it fires on each one that has the
-  binding, with its own path: a change made through another, or a later `Create` filling a device
-  this one's schema left out, included (see
+  binding, with its own path: a change made through another, a later `Create` filling a device
+  this one's schema left out, or the Server Authority swap moving this one onto a binding another
+  made on the copy that reads otherwise, included (see
   [Several root handles on one folder](EdgeCases.md#several-root-handles-on-one-folder)).
 
 ### One field per action
@@ -471,16 +472,21 @@ Jump.Describe(); // the device the player uses; Jump.Describe("Gamepad") is "A"
 
 ### Conflicts
 
-After a capture, a menu asks which other bindings now share the key, then warns, swaps or clears:
+After a capture, a menu asks which other bindings now share the key, then warns, swaps or clears.
+It asks the context handle of the action's context, so a key the menu's own context also uses
+(`Accept` on `ButtonA`, `Jump` captured as `ButtonA`) stays there: the two contexts are never on
+together.
 
 ```ts
 jump.Capture((key, device) => {
 	if (device === undefined) return; // a Cancel key: nothing changed
-	for (const conflict of Input.FindConflicts(jump.Bindings[device])) {
-		// conflict: { Binding, Path, Key, Keys, Slot, Slots, Identical }
+	for (const conflict of Input.Gameplay.FindConflicts(jump.Bindings[device])) {
+		// conflict: { Binding, Path, Key, Keys, Slot, Slots, Identical, Wider }
 		warn(`${conflict.Key.Name} is also ${conflict.Path}`);
 		// a chord's modifier stays: cleared, Ctrl+S would be plain S (see below)
 		if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") continue;
+		// part of a wider key there stays: cleared, Move's whole stick would go (see below)
+		if (conflict.Wider) continue;
 		conflict.Binding.Clear(conflict.Slot); // frees the key alone: Move's WASD keeps W, A and D
 	}
 });
@@ -488,7 +494,10 @@ for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Path
 ```
 
 - `FindConflicts(binding)` lists the other bindings of the binding's device that share a key with it,
-  by path: on the root handle in every context, on a context handle in its own. They share a key
+  by path: on the root handle in every context, on a context handle in its own. The root handle is
+  right when the other contexts can be on with the action's (a vehicle context beside gameplay), or
+  to list every clash (the last line above); with a context that is never on with it, such as a
+  menu, it finds clashes that never happen, and freeing them takes the menu's keys. They share a key
   when a key presses both (in a `KeyCode` or a composite direction: plain W and WASD), or one's key is
   the other's modifier (Ctrl+S presses a binding on Ctrl, which goes down first). Two chords that
   only share a modifier (Ctrl+S, Ctrl+D) don't: neither presses the other.
@@ -502,15 +511,24 @@ for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Path
   `Clear`, `Describe`), its `Path` (`Context/Action/Device`, or `.../Device/Extra`), the first key
   they share (`Key`, in the given binding's order) and all of them (`Keys`), the other binding's slot
   that holds `Key` (`Slot`: `"KeyCode"`, a direction such as `"Down"`, or a modifier) and all its
-  slots that hold one of `Keys` (`Slots`), and `Identical`: true when one key is in both with the
-  same modifiers, so every press of it presses both; false when they only overlap: a chord and its
-  plain key (IAS presses both when the chord is pressed: a chord doesn't block its plain key), two
-  chords on one key, a key that is the other's modifier, a stick and its direction, or a drag or a
-  pinch and `TouchPosition`.
-- **Free the key, not the binding:** `conflict.Binding.Clear(conflict.Slot)` clears the one slot
-  that holds it (S captured for Jump takes S out of Move's WASD, where `Clear()` would unbind all of
-  Move). For a key held in several slots, clear each of `Slots`. To swap instead, `Set` the other
-  binding's slot to the key this binding had.
+  slots that hold one of `Keys` (`Slots`; with `Wider`, the slot that holds the wider key one of
+  them is part of), `Identical`: true when one key is in both with the same modifiers, so every
+  press of it presses both; false when they only overlap: a chord and its plain key (IAS presses
+  both when the chord is pressed: a chord doesn't block its plain key), two chords on one key, a
+  key that is the other's modifier, a stick and its direction, or a drag or a pinch and
+  `TouchPosition`; and `Wider` (below).
+- **Free the key, not the binding:** unless `Wider`, `conflict.Binding.Clear(conflict.Slot)` clears
+  the one slot that holds the key, and the key alone goes (S captured for Jump takes S out of Move's
+  WASD, where `Clear()` would unbind all of Move). For a key held in several slots, clear each of
+  `Slots`. To swap instead, `Set` the other binding's slot to the key this binding had.
+- **A key that is part of a wider one:** `Wider` is true when the other binding holds the wider key
+  of the two in its `KeyCode`: the whole stick where this one has a direction (Interact captured as
+  `Thumbstick1Up`, Move on `Thumbstick1`), `TouchPosition` where it has a drag or a pinch. `Slot`
+  is then that `KeyCode` (unless `Key` is the other's modifier), and clearing it frees all of the
+  wider key: Move would lose the whole stick, all four directions, not only Up. A binding can't give up one direction of a stick: show
+  the conflict and let the player decide, or swap. The other way round (Move captured as the left
+  stick, Interact on its Up) `Wider` is false, and clearing Interact's `KeyCode` frees the shared
+  key alone.
 - **A key that is another chord's modifier:** `Slot` is `"PrimaryModifier"` or
   `"SecondaryModifier"` (Ctrl captured for Crouch, Quick save on Ctrl+S). Clearing that slot turns
   the chord into its plain key, S, which may clash anew, identically, with another binding (Move's
@@ -518,8 +536,9 @@ for (const pair of Input.FindConflicts()) warn(`${pair.Paths[0]} and ${pair.Path
   does, or unbind the whole chord with `Clear()`. The two only overlap meanwhile: Ctrl+S also
   presses Crouch.
 - `FindConflicts()` with no argument lists every pair once, sorted by path:
-  `{ Bindings, Paths, Key, Keys, Slots, Identical }`, where `Slots` holds each binding's slots that
-  hold a shared key, in the order of `Paths`.
+  `{ Bindings, Paths, Key, Keys, Slots, Identical, Wider }`, where `Slots` holds each binding's
+  slots that hold a shared key (or the wider key it is part of) and `Wider` whether each holds such
+  a wider key, both in the order of `Paths`.
 - Only keys count: not whether the contexts are enabled or sink (a menu context's Accept and
   gameplay's Jump both on Space conflict on the root handle; ask the context handle for one
   context). Unbound bindings conflict with nothing, nor do Scriptable bindings, attached buttons,

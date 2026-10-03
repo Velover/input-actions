@@ -208,8 +208,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   the later files listed in `tests/type-rules/tsconfig.json` (`features-type-rules.ts` also pins
   each readable compile error's sentence, through the package's internal `CheckBindings` type).
   roblox-ts refuses those directives, so plain `tsc -p tests/type-rules` checks them
-  (`bun run typecheck`; about 3.3 s of `tsc`'s check, 4 s in all, 2026-10-03 with the features
-  hunt's round 3; `--extendedDiagnostics` prints the check time); `bun run build` and
+  (`bun run typecheck`; about 2.7 s of `tsc`'s check, 3.2 s in all, 2026-10-03 with the features
+  hunt's round 4; `--extendedDiagnostics` prints the check time); `bun run build` and
   `bun run test` run it, and an unused directive fails them. A computed binding name's check that
   nests a second conditional in `CheckBindings`' escape took it to 9.6 s (design doc §3).
 - **With the display off, Studio renders nothing.** `RenderStepped` and `BindToRenderStep` never

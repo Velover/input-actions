@@ -27,8 +27,10 @@ handles then share them:
   reset through one root handle changes what the others read (`Get`, `Describe`), so their
   `BindingsChanged` fires too, each with its own path for the binding; so does a later `Create` that
   fills a device the earlier schema left out, and the Server Authority swap when it writes a
-  stand-in's rebinds onto a binding another root handle has on the copy. A HUD's hint refreshed on
-  its own root handle's `BindingsChanged` follows a menu's rebinds made through another.
+  stand-in's rebinds onto a binding another root handle has on the copy, or moves the stand-in's
+  root handle onto such a binding that reads otherwise than its own did (the other root handle's
+  rebinds, its keys for a device the stand-in's schema left out). A HUD's hint refreshed on its own
+  root handle's `BindingsChanged` follows a menu's rebinds made through another.
 - Destroying one root handle leaves what another still uses (instances, held input, requests). What
   the package made goes with the last root handle that uses it.
 - **The fill rule.** When a later schema names a device an earlier one left out, it fills that
@@ -192,9 +194,12 @@ How the handles move from the local stand-in to the server's copy is in
   binding, which keeps the first handle's defaults, as with `Create` twice. So a rebind to a value
   those defaults hold is a default after the swap, and leaves the handle's export: a gamepad key a
   player gave an action whose schema left `Gamepad` out drops out when the other handle's schema
-  binds the same key there. A value both handles hold on the same Scriptable binding stays held
-  until neither does. A binding of its own that it brings onto an action the other handle's input
-  holds releases that action, as `AttachButton` does.
+  binds the same key there. From then on the handle reads the shared binding: when that reads
+  otherwise than its own did (the other handle's rebinds, its keys for a device this handle's schema
+  left out), this handle's `BindingsChanged` fires for it once the swap is done, as the other
+  handle's does for the rebinds written onto it. A value both handles hold on the same Scriptable
+  binding stays held until neither does. A binding of its own that it brings onto an action the
+  other handle's input holds releases that action, as `AttachButton` does.
 - **Labels** follow the action onto the copy while they still show the stand-in's action: one
   pointed elsewhere meanwhile stays there.
 - **Gestures**: a press held at the swap ends without completing (see

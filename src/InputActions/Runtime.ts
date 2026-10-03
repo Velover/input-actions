@@ -758,7 +758,9 @@ export class InputRuntime implements IRuntime {
 	 * handle's requests) goes with them, the labels follow and the listeners hear the copy's state,
 	 * the stand-in is destroyed, the values the Scriptable bindings held are fired again,
 	 * `LinkedToServer` fires, and then the `BindingsChanged` of root handles already on the copy
-	 * whose bindings the move changed (the stand-in's rebinds, or its schema filling one). Under
+	 * whose bindings the move changed (the stand-in's rebinds, or its schema filling one), and of the
+	 * stand-in's root handles whose bindings now read otherwise (a binding adopted from a root handle
+	 * already on the copy, which that one rebound or gave keys the stand-in's schema didn't). Under
 	 * Immediate signals listeners run inside the swap: first in the releases of the held values,
 	 * before the copy is touched, then none between the moves and the
 	 * marks, and a root handle one destroys takes no further part (hunt HL2-2, HL2-3, HL3-1).
@@ -857,7 +859,8 @@ export class InputRuntime implements IRuntime {
 		for (const link of links) link.Runtime.DropUse(source);
 		for (const [, moved] of moves) RefireHeldValues(moved);
 		for (const link of marked) link.Handle.NotifyLinked();
-		// The root handles already on the copy whose bindings the stand-in's rebinds or schema changed
+		// The root handles already on the copy whose bindings the stand-in's rebinds or schema changed,
+		// and the stand-in's whose adopted bindings read otherwise than theirs did
 		for (const [, moved] of moves) NotifyHandles(moved.Changed);
 	}
 

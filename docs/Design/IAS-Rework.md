@@ -92,7 +92,7 @@ Jump.Capture((key, device) => {}); // the first key pressed picks the device's b
 Jump.Bindings[InputActions.PreferredDevice()].Get();
 InputActions.PreferredDeviceChanged.Connect((device) => {}); // re-render a menu or a hint
 Jump.Bindings.KeyboardAndMouse.Describe(); // "Space"; Jump.Describe() for the device in use
-Input.FindConflicts(Jump.Bindings.KeyboardAndMouse); // the other bindings that share a key
+Input.Gameplay.FindConflicts(Jump.Bindings.KeyboardAndMouse); // the other gameplay bindings that share a key
 Jump.OnHold(() => {}, { Duration: 1, Progress: (fraction) => {} }); // also OnTap, OnDoubleTap, OnLongPress
 const release = Input.Ui.Request(true);
 const saved = Input.ExportBindings();
@@ -189,6 +189,16 @@ Rules and lessons:
   in the first (`IScriptable extends B[K] ? IAnyObject extends B[K] ? unknown : ...`) took the type
   rules from 3.5 s to 9.6 s of check; the one test keeps them at 3.3 s (2026-10-03, with round 3's
   file).
+  **Round 4 (hunt HF4-3):** a namespace under a computed name whose extra's name is computed too
+  (`{ [name]: { Main: E, [extra]: { KeyCode: Q, Typo: 1 } } }`) has the type
+  `{ [x: string]: E | { KeyCode: Q; Typo: 1 }; Main: E }`: the index signature's value is the union
+  of `Main`'s binding and the extra. `MemberHasUnknownProperty` distributes over it and read
+  `boolean`, which `extends true` doesn't take, so the namespace's problems saw none and the extra's
+  typo compiled. Now `AnyNameNamespaceProblems` asks `true extends MemberHasUnknownProperty<...>`
+  (any binding of the union has such a property), and `AnyNameMemberSentences` distributes, giving
+  back each binding without one and the sentences of each with one; the first half alone left the
+  union's sentences `unknown`, and every case still compiled. 2.7 s of check (2.8 s before, same
+  session, with round 4's file).
 - The device check (`CheckDeviceBinding<V, T, D>`) distributes over a union, so each member is
   checked as it is: a value typed `BindingShape<T, D>`, or a conditional between a bare key and an
   object, compiles, as in 0.6 (hunt HD2-1: before, any union with an object member went to the
@@ -903,7 +913,7 @@ on the keys of `Get()`. `Describe` is a binding handle's member, so no extra can
 
 **Conflicts (0.7.0).** `FindConflicts(binding)` on the root handle (every context) and on a context
 handle (its own) (`Conflicts.ts`): the other device bindings of `binding`'s device whose keys meet
-its keys, by path, each `{ Binding, Path, Key, Keys, Slot, Slots, Identical }` (`Binding` typed
+its keys, by path, each `{ Binding, Path, Key, Keys, Slot, Slots, Identical, Wider }` (`Binding` typed
 `IBindingHandle<Enum.InputActionType, Device>`, any device binding's). A binding's keys are its
 `KeyCode`, else its composite directions, and its modifiers. Two bindings conflict when a key presses
 both (one push or touch counts as pressing both keys it drives, `PART_OF`/`SharedKey`: a stick's
@@ -930,8 +940,27 @@ the other binding's modifier slot is not freed so in the docs' menus (the Guide'
 which can make a new identical conflict (S with Move); the menus show it, and Advanced names
 `Clear()` on the whole chord as the other way (decided by the main agent in the features loop,
 round 3).
-`FindConflicts()` lists every pair once, `{ Bindings, Paths, Key, Keys, Slots, Identical }`, sorted
-by path, `Slots` each side's slots that hold a shared key, in the order of `Paths`. Only keys count: not
+`Wider` (features loop, round 4, hunt HF4-1): the shared key of a stick and its direction is the
+direction, of a drag or a pinch and `TouchPosition` the drag or the pinch, but the other binding's
+slot may hold the wider key, so `Clear(Slot)` freed more than `Key`: Interact captured as
+`Thumbstick1Up`, the Guide's `FreeKey` cleared Move's `KeyCode`, the whole left stick. `Wider` is
+true when the other binding holds the wider key of such a pair (only a `KeyCode` can: a stick is a
+Direction2D `KeyCode`, `TouchPosition` a Bool's or a ViewportPosition's, and composites and
+modifiers take Button and Axis keys only); `Slot` is then that `KeyCode`, unless `Key` is the
+other's modifier, and `Slots` holds it. The menus show such a conflict, as a modifier's. Chosen
+over the key in the slot (`SlotKey`) or a `Slot` that leaves the wider key out: the menu's question
+is yes or no (does `Clear(Slot)` free `Key` alone?), a boolean beside `Identical` answers it with
+no comparison to get wrong, holds for `Slots` as for `Slot`, and keeps both slots' types; the wider
+key is one `Describe()` away. A binding can't give up one direction of a stick, so there is no
+narrower clear to offer. The other way round (Move captured as the stick, Interact on its Up) the
+other binding's slot holds the shared key itself: no `Wider`, and `Clear(Slot)` frees it alone.
+`FindConflicts()` lists every pair once, `{ Bindings, Paths, Key, Keys, Slots, Identical, Wider }`,
+sorted by path, `Slots` each side's slots that hold a shared key (or the wider key one is part of)
+and `Wider` whether each side holds such a wider key, in the order of `Paths`. The docs' menus ask
+the context handle (`Input.Gameplay.FindConflicts`), the Guide's and since round 4 Advanced's and
+the example's (hunt HF4-4: Advanced's snippet asked the root handle, which on the Guide's schema
+cleared the menu context's `Accept` when `Jump` captured `ButtonA`); Advanced says when the root
+handle is right (contexts that can be on together, or listing every clash). Only keys count: not
 whether the contexts are enabled or sink, nor Scriptable, button or unmentioned bindings, nor
 another root handle's; a handle on the same instance (another root handle's) is `binding` itself.
 Anything but a device's binding handle throws. `FindConflicts` is a root member (§4).
@@ -1091,7 +1120,10 @@ taken first and told at the end: a `Create` that fills another root handle's unb
 them once its `Build` is over (`NotifyFilled`, also after a `Build` that throws: the fill stays);
 the swap tells the root handles already on the copy whose bindings `MoveBindings` changed (a
 stand-in's rebinds written onto an adopted binding, or its schema filling one) after
-`LinkedToServer`.
+`LinkedToServer`, and the stand-in's root handles whose handles move onto an adopted binding that
+reads otherwise than their own did (`SameValues` after the carry: the other root handle's rebinds,
+its keys for a device the stand-in's schema left out; hunt HF4-2, features loop round 4: a HUD's
+root handle on a stand-in went from `N, ""` to `M, "Y"` at the swap without its `BindingsChanged`).
 
 **IAS behaviours users must know (probed; put them in the docs):**
 
@@ -1568,7 +1600,10 @@ namespace or class. roblox-ts limits: `Places/TestingPlace/.claude/rules/roblox-
   `conflicts` adds `Slot`/`Slots` and `Clear(Slot)`, and the sticks' and touch's shared keys.
   Rounds 2 and 3 add `hunter-features-2` and `hunter-features-3` with their type rules (HF2-1..4;
   HF3-1..6: the one-rule gestures, two root handles' gestures and `BindingsChanged`, the computed
-  names' properties and extra names, the documented gaps asserted as documented).
+  names' properties and extra names, the documented gaps asserted as documented). Round 4 adds
+  `hunter-features-4` with its type rules (HF4-1..4: `Wider` and the docs' `FreeKey` on a stick, the
+  swap's `BindingsChanged` on the stand-in's root handle, a computed extra name's properties, the
+  conflicts on the context handle).
 - Compile-time rules: a test-place file of `@ts-expect-error` cases (from the prototype), so the
   place build fails if a rule stops holding.
 

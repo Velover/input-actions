@@ -116,21 +116,28 @@ export function CanRebind() {
 // device, and that device's binding becomes the key alone (Quick save's Ctrl+S captured with F is
 // F); the other device's binding is left alone. On a gamepad, unselect the menu's button while the
 // capture runs (GuiService.SelectedObject = undefined): Roblox's UI navigation takes ButtonA
-// meanwhile. Then the menu looks for the other bindings that now share the key, and takes it from
-// them: `Clear(conflict.Slot)` clears the one slot that holds it, so S captured for Jump leaves
-// Move's W, A and D (`Clear()` would unbind Move; or swap: set that slot to the key this binding
-// had). A key that is another chord's modifier is left there and shown. `Identical` is false when
-// they only overlap: a chord and its plain key, which IAS both presses (a chord doesn't block its
-// plain key). A Cancel key calls back with undefined
+// meanwhile. Then the menu looks for the other bindings of the context that now share the key, and
+// takes it from them: `Clear(conflict.Slot)` clears the one slot that holds it, so S captured for
+// Jump leaves Move's W, A and D (`Clear()` would unbind Move; or swap: set that slot to the key this
+// binding had). A key that is another chord's modifier is left there and shown, and so is one that
+// is part of a wider key there (`Wider`: the left stick's Up captured for Jump, Move on the whole
+// stick, which clearing would take). `Identical` is false when they only overlap: a chord and its
+// plain key, which IAS both presses (a chord doesn't block its plain key). A Cancel key calls back
+// with undefined
 export function RebindAction(action: InputActions.CaptureAction): () => void {
 	return action.Capture(
 		(key, device) => {
 			if (key === undefined || device === undefined) return print(`${action.Name} unchanged`);
 			print(`${action.Name} is now ${key.Name} on ${device}`);
-			for (const conflict of Input.FindConflicts(action.Bindings[device])) {
+			for (const conflict of Input.Gameplay.FindConflicts(action.Bindings[device])) {
 				// A chord's modifier (Ctrl captured, Quick save on Ctrl+S) stays: cleared, the chord
-				// would be its plain key, S, which may clash with Move's S
-				if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") {
+				// would be its plain key, S, which may clash with Move's S. So does a key that is part
+				// of a wider one: cleared, Move's KeyCode would lose the whole stick
+				if (
+					conflict.Slot === "PrimaryModifier" ||
+					conflict.Slot === "SecondaryModifier" ||
+					conflict.Wider
+				) {
 					warn(`${conflict.Key.Name} is also held for ${conflict.Path}: left there`);
 					continue;
 				}

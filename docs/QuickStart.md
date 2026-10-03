@@ -134,8 +134,9 @@ jump.Capture((key, device) => print(`${key?.Name} on ${device}`));
 // the binding of the device the player uses ("KeyboardAndMouse", "Gamepad" or "Touch")
 print(jump.Bindings[InputActions.PreferredDevice()].Get());
 print(jump.Describe()); // that keybind as text: "Space", "Ctrl + S", "W / A / S / D"
-// after a capture: the other bindings that now share the key
-for (const conflict of Input.FindConflicts(jumpKey)) print(`also ${conflict.Path}`);
+// after a capture: the other gameplay bindings that now share the key (the Ui context is never on
+// with gameplay: Input.FindConflicts would list its keys too)
+for (const conflict of Input.Gameplay.FindConflicts(jumpKey)) print(`also ${conflict.Path}`);
 
 const save = Input.ExportBindings(); // store it (DataStore through a remote, etc.)
 Input.ImportBindings(save); // on the next join

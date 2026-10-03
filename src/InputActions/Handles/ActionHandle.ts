@@ -4,6 +4,7 @@ import {
 	CarryChanges,
 	FillPlaceholder,
 	ReadBinding,
+	SameValues,
 	WriteBindings,
 } from "../BindingState";
 import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
@@ -95,9 +96,11 @@ export interface IMovedBindings {
 	/** The values the Scriptable bindings held, oldest first, to fire again once the context is set */
 	Held: Array<[InputBinding, IHeldValue]>;
 	/**
-	 * The handles root handles already on the copy have on the bindings the move changed (the
-	 * stand-in's rebinds written onto one adopted, or its schema filling it): their `BindingsChanged`
-	 * fires once the swap is done (hunt HF3-5)
+	 * The handles whose bindings now read otherwise: those root handles already on the copy have on
+	 * the bindings the move changed (the stand-in's rebinds written onto one adopted, or its schema
+	 * filling it; hunt HF3-5), and the stand-in's own on a binding it adopted that reads otherwise
+	 * than the stand-in's did (the other root handle's rebinds, its keys for a device the stand-in's
+	 * schema left out; hunt HF4-2). Their `BindingsChanged` fires once the swap is done
 	 */
 	Changed: BindingWatcher[];
 }
@@ -142,9 +145,10 @@ export function TakeHeldValues(source: InputAction): Array<[InputBinding, IHeldV
  * once `ReleaseHeldValues` released its held values; `RefireHeldValues` fires them again in the
  * order they were fired, so the action ends on the same latest write. A binding another root handle
  * already made there under the same name is adopted rather than doubled, with the stand-in's
- * rebinds written onto it (button bindings are renamed instead). A binding moved onto a copy's
- * action that is not at rest (another root handle is on the copy) makes IAS reset it, and the
- * package lets go of it then (`AddingBindings`, hunt HL4-4).
+ * rebinds written onto it (button bindings are renamed instead); the stand-in's handles read it from
+ * then on, and are told when it reads otherwise than theirs did (`Changed`). A binding moved onto a
+ * copy's action that is not at rest (another root handle is on the copy) makes IAS reset it, and
+ * the package lets go of it then (`AddingBindings`, hunt HL4-4).
  * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
  * `Enabled` (the server's copy is always enabled; the client owns it)
  * @param held what `TakeHeldValues` returned for `source`
@@ -185,6 +189,11 @@ export function MoveBindings(
 					if (WriteBindings([carry]).size() > 0 || filled)
 						for (const handle of HandlesOn([existing])) changed.push(handle);
 				}
+				// Our handles read the adopted binding from now on: where it reads otherwise than ours
+				// (the other root handle's rebinds, its keys for a device our schema left out), their
+				// root handles are told too (hunt HF4-2)
+				if (!SameValues(ReadBinding(binding), ReadBinding(existing)))
+					for (const handle of HandlesOn([binding])) changed.push(handle);
 				moved.set(binding, existing);
 			}
 		}

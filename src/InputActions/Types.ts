@@ -570,9 +570,16 @@ type AnyNameObjectSentences<V, T extends Enum.InputActionType, Hint extends bool
 		? unknown
 		: Sentence<UnknownProperty<P, T, V[P], Hint>, V[P]>;
 };
-/** A binding of a namespace under a computed name with such a property: its sentences; else anything */
-type AnyNameMemberSentences<X, T extends Enum.InputActionType> =
-	MemberHasUnknownProperty<X, T> extends true ? AnyNameObjectSentences<X, T, false> : unknown;
+/**
+ * A binding of a namespace under a computed name with such a property: its sentences; else itself.
+ * It distributes: the bindings under a computed extra name are one union (the index signature's,
+ * with `Main`'s), and each that has such a property gets its sentences (hunt HF4-3)
+ */
+type AnyNameMemberSentences<X, T extends Enum.InputActionType> = X extends unknown
+	? MemberHasUnknownProperty<X, T> extends true
+		? AnyNameObjectSentences<X, T, false>
+		: X
+	: never;
 /**
  * What is wrong with a namespace under a computed name that its devices' keys don't tell: an extra's
  * name `Schema` refuses under every device (a reserved one, "/", the empty name), or a property no
@@ -581,7 +588,7 @@ type AnyNameMemberSentences<X, T extends Enum.InputActionType> =
 type AnyNameNamespaceProblems<V, T extends Enum.InputActionType> = {
 	[E in keyof V]-?:
 		| (E extends "Main" ? never : E extends string ? ExtraNameProblem<E> : "a name")
-		| (MemberHasUnknownProperty<V[E], T> extends true ? "a property" : never);
+		| (true extends MemberHasUnknownProperty<V[E], T> ? "a property" : never);
 }[keyof V];
 /**
  * A namespace under a computed name: with no problem `AnyNameNamespaceProblems` sees, itself when
@@ -1260,13 +1267,17 @@ export interface IBindingConflict {
 	/** Every key they share */
 	readonly Keys: readonly Enum.KeyCode[];
 	/**
-	 * The other binding's slot that holds `Key` (its `KeyCode`, a direction, or a modifier):
-	 * `conflict.Binding.Clear(conflict.Slot)` frees that key and leaves the binding's other keys. A
-	 * modifier cleared leaves the chord's plain key (Ctrl+S becomes S), which may clash anew: show
+	 * The other binding's slot that holds `Key` (its `KeyCode`, a direction, or a modifier), or the
+	 * `KeyCode` that holds the wider key `Key` is part of (see `Wider`). Unless `Wider`,
+	 * `conflict.Binding.Clear(conflict.Slot)` frees `Key` alone and leaves the binding's other keys.
+	 * A modifier cleared leaves the chord's plain key (Ctrl+S becomes S), which may clash anew: show
 	 * that one instead, or unbind the chord with `Clear()`
 	 */
 	readonly Slot: BindingSlot;
-	/** Every slot of the other binding that holds one of `Keys`, `Slot` first */
+	/**
+	 * Every slot of the other binding that holds one of `Keys`, or the wider key one of them is part
+	 * of (see `Wider`), `Slot` first
+	 */
 	readonly Slots: readonly BindingSlot[];
 	/**
 	 * One key is in both with the same modifiers: every press of it presses both. Otherwise they
@@ -1275,6 +1286,14 @@ export interface IBindingConflict {
 	 * stick's direction and the stick (a drag or a pinch and `TouchPosition`)
 	 */
 	readonly Identical: boolean;
+	/**
+	 * The other binding holds a wider key that a shared key is part of, in its `KeyCode`: the whole
+	 * stick (`Thumbstick1`) where they share its direction (`Thumbstick1Up`), `TouchPosition` where
+	 * they share a drag or a pinch. Clearing that slot frees all of the wider key, not the shared
+	 * key alone: Move on the left stick would lose all four directions to Interact's
+	 * `Thumbstick1Up`. Show such a conflict instead, or swap
+	 */
+	readonly Wider: boolean;
 }
 /** Two bindings of one device that share a key: what `FindConflicts()` lists, each pair once */
 export interface IConflictPair {
@@ -1287,12 +1306,19 @@ export interface IConflictPair {
 	/** Every key they share */
 	readonly Keys: readonly Enum.KeyCode[];
 	/**
-	 * Each binding's slots that hold a shared key, in the order of `Paths` (the second's holding
-	 * `Key` first): `pair.Bindings[1].Clear(pair.Slots[1][0])` frees `Key` in the second
+	 * Each binding's slots that hold a shared key, or the wider key one is part of, in the order of
+	 * `Paths` (the second's holding `Key` first): unless `Wider[1]`,
+	 * `pair.Bindings[1].Clear(pair.Slots[1][0])` frees `Key` alone in the second
 	 */
 	readonly Slots: readonly [readonly BindingSlot[], readonly BindingSlot[]];
 	/** A key presses both with the same modifiers; otherwise they only overlap (see `IBindingConflict`) */
 	readonly Identical: boolean;
+	/**
+	 * Whether each binding, in the order of `Paths`, holds a wider key that a shared key is part of
+	 * (the whole stick, `TouchPosition`; see `IBindingConflict.Wider`): clearing that slot frees all
+	 * of it
+	 */
+	readonly Wider: readonly [boolean, boolean];
 }
 
 /** The root handle's and the context handles' bindings: saves, resets and conflicts */
@@ -1323,6 +1349,7 @@ export interface IBindingsOwner {
 	 * for (const conflict of Input.Gameplay.FindConflicts(Jump.Bindings.KeyboardAndMouse)) {
 	 * 	warn(`${conflict.Key.Name} is also ${conflict.Path}`);
 	 * 	if (conflict.Slot === "PrimaryModifier" || conflict.Slot === "SecondaryModifier") continue; // a chord's
+	 * 	if (conflict.Wider) continue; // part of a wider key there: cleared, the whole stick would go
 	 * 	conflict.Binding.Clear(conflict.Slot); // frees the key: Move's WASD loses S alone
 	 * }
 	 */
@@ -1364,7 +1391,8 @@ export interface IInputRoot extends IBindingsOwner {
 	/**
 	 * Fires with the path `Context/Action/Slot` of a binding changed by Set/Reset/Clear/Capture/import.
 	 * Root handles on one folder share the bindings: it fires on each one that has the binding, with
-	 * its own path, also for a change made through another, or a later `Create` filling the binding
+	 * its own path, also for a change made through another, a later `Create` filling the binding, or
+	 * the Server Authority swap moving it onto a binding another made on the copy that reads otherwise
 	 */
 	readonly BindingsChanged: RBXScriptSignal<(path: string) => void>;
 	/**
