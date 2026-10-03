@@ -1,5 +1,11 @@
 import { RunService } from "@rbxts/services";
-import { CarryChanges, FillPlaceholder, ReadBinding, WriteBindings } from "../BindingState";
+import {
+	AddingBindings,
+	CarryChanges,
+	FillPlaceholder,
+	ReadBinding,
+	WriteBindings,
+} from "../BindingState";
 import { CaptureChord, CaptureKey, CapturedKey, CHORD_TYPES, IsValidTimeout } from "../Capture";
 import { IRuntime, IsLive, IsServerAuthorityCopy, NEUTRAL_VALUES } from "../Internal";
 import { CapturableDevice, GetKeyDevice } from "../KeyGroups";
@@ -70,18 +76,30 @@ export interface IMovedBindings {
 /**
  * Releases the values the package's Scriptable bindings hold on a stand-in's action, the first step
  * of a Server Authority swap, before anything touches the copy: under Immediate signals the
- * listeners run here, with everything still on the stand-in (hunt HL3-1). Returns the values to
- * carry over, oldest first, for `MoveBindings`.
+ * listeners run here, with everything still on the stand-in (hunt HL3-1). The records stay until
+ * `TakeHeldValues`, once every action of the stand-in is released: a value a listener fires here
+ * replaces the one it fires over, and one it fires at rest drops it (hunt HL4-2).
  */
-export function ReleaseHeldValues(source: InputAction): Array<[InputBinding, IHeldValue]> {
+export function ReleaseHeldValues(source: InputAction) {
 	const neutral = NEUTRAL_VALUES[source.Type.Name];
+	for (const binding of source.GetChildren()) {
+		if (!binding.IsA("InputBinding") || GetHeldValue(binding) === undefined) continue;
+		pcall(() => binding.Fire(neutral));
+	}
+}
+
+/**
+ * The values the package's Scriptable bindings hold on a stand-in's action once `ReleaseHeldValues`
+ * ran on every action of the stand-in, oldest first, to carry over to the copy (`MoveBindings`):
+ * what they held before, or what a listener fired on them during the releases. Their records go.
+ */
+export function TakeHeldValues(source: InputAction): Array<[InputBinding, IHeldValue]> {
 	const held = new Array<[InputBinding, IHeldValue]>();
 	for (const binding of source.GetChildren()) {
 		if (!binding.IsA("InputBinding")) continue;
 		const value = GetHeldValue(binding);
 		if (value === undefined) continue;
 		ClearHeldValue(binding);
-		pcall(() => binding.Fire(neutral));
 		// A value no live root handle holds any more is not carried over
 		if (value.Holders.size() > 0) held.push([binding, value]);
 	}
@@ -94,10 +112,12 @@ export function ReleaseHeldValues(source: InputAction): Array<[InputBinding, IHe
  * once `ReleaseHeldValues` released its held values; `RefireHeldValues` fires them again in the
  * order they were fired, so the action ends on the same latest write. A binding another root handle
  * already made there under the same name is adopted rather than doubled, with the stand-in's
- * rebinds written onto it (button bindings are renamed instead).
+ * rebinds written onto it (button bindings are renamed instead). A binding moved onto a copy's
+ * action that is not at rest (another root handle is on the copy) makes IAS reset it, and the
+ * package lets go of it then (`AddingBindings`, hunt HL4-4).
  * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
  * `Enabled` (the server's copy is always enabled; the client owns it)
- * @param held what `ReleaseHeldValues` returned for `source`
+ * @param held what `TakeHeldValues` returned for `source`
  */
 export function MoveBindings(
 	source: InputAction,
@@ -108,31 +128,34 @@ export function MoveBindings(
 	if (carryEnabled) target.Enabled = source.Enabled;
 
 	const moved = new Map<InputBinding, InputBinding>();
-	for (const binding of source.GetChildren()) {
-		if (!binding.IsA("InputBinding")) continue;
-		const existing = target.FindFirstChild(binding.Name);
-		if (existing === undefined || !existing.IsA("InputBinding") || !IsPackageMade(existing)) {
-			binding.Parent = target;
-			moved.set(binding, binding);
-		} else if (IsButtonBindingName(source.Name, binding.Name)) {
-			binding.Name = FreeButtonName(target, source.Name);
-			binding.Parent = target;
-			moved.set(binding, binding);
-		} else {
-			// Ours stays in the stand-in and goes with it. What it changed from its defaults (rebinds,
-			// an import) is written onto the one that stands for it, whose defaults every handle on it
-			// shares: the first handle's snapshot. One that handle made unbound, for a device its schema
-			// left out, takes ours first when our schema names the device
-			const source = GetEntry(binding);
-			const defaults = source?.Defaults;
-			if (defaults !== undefined && existing.Type === binding.Type) {
-				if (source?.Placeholder !== true) FillPlaceholder(existing, defaults);
-				GetEntry(existing)!.Defaults ??= defaults;
-				WriteBindings([CarryChanges(ReadBinding(binding), defaults, existing)]);
+	AddingBindings(target, () => {
+		for (const binding of source.GetChildren()) {
+			if (!binding.IsA("InputBinding")) continue;
+			const existing = target.FindFirstChild(binding.Name);
+			if (existing === undefined || !existing.IsA("InputBinding") || !IsPackageMade(existing)) {
+				binding.Parent = target;
+				moved.set(binding, binding);
+			} else if (IsButtonBindingName(source.Name, binding.Name)) {
+				binding.Name = FreeButtonName(target, source.Name);
+				binding.Parent = target;
+				moved.set(binding, binding);
+			} else {
+				// Ours stays in the stand-in and goes with it. What it changed from its defaults
+				// (rebinds, an import) is written onto the one that stands for it, whose defaults every
+				// handle on it shares: the first handle's snapshot. One that handle made unbound, for a
+				// device its schema left out, takes ours first when our schema names the device (a fill
+				// changes keys: `AddingBindings` lets go of the action if IAS resets it)
+				const entry = GetEntry(binding);
+				const defaults = entry?.Defaults;
+				if (defaults !== undefined && existing.Type === binding.Type) {
+					if (entry?.Placeholder !== true) FillPlaceholder(existing, defaults);
+					GetEntry(existing)!.Defaults ??= defaults;
+					WriteBindings([CarryChanges(ReadBinding(binding), defaults, existing)]);
+				}
+				moved.set(binding, existing);
 			}
-			moved.set(binding, existing);
 		}
-	}
+	});
 	return {
 		Target: target,
 		Moved: moved,
@@ -140,7 +163,7 @@ export function MoveBindings(
 	};
 }
 
-/** Fires again the values `MoveBindings` released, on the bindings that now live under the copy */
+/** Fires again the values `ReleaseHeldValues` released, on the bindings that now live under the copy */
 export function RefireHeldValues(moved: IMovedBindings) {
 	const target = moved.Target;
 	for (const [binding, held] of moved.Held) {
@@ -558,9 +581,15 @@ export class ActionHandle {
 		const binding = new Instance("InputBinding");
 		binding.Name = FreeButtonName(this.Instance, this.Name);
 		binding.UIButton = button;
-		binding.Parent = this.Instance;
 		this._runtime.TrackCreated(binding);
 		this._buttons.add(binding);
+		// Added to a held action, it makes IAS reset it: let go of then (hunts HL4-4, HL4-5)
+		const action = this.Instance;
+		AddingBindings(action, () => {
+			binding.Parent = action;
+		});
+		// Under Immediate signals that ran listeners, and one may have destroyed the root handle
+		if (this._runtime.IsDestroyed()) return () => {};
 
 		let removed = false;
 		let destroying: RBXScriptConnection | undefined;
@@ -627,18 +656,27 @@ export class ActionHandle {
 	 * simulation step later). A value another handle fired too, on the same binding, stays theirs. A
 	 * held binding that is destroyed leaves the action stuck on (probed): when bindings that go with
 	 * this root handle (its buttons, its own slots, a template's bindings it cloned) go while the
-	 * action is not at rest and nothing another handle fired holds it, a same-frame pair on
-	 * `<Action>Script` releases it, as removing a held button does (hunt HL3-2). IAS doesn't tell
-	 * which binding holds the action, so that also lets go of a key held through another handle's.
+	 * action is not at rest and nothing another handle fired holds it, the action is released (hunt
+	 * HL3-2). A value another handle fired holds it only while the action shows the latest one they
+	 * fired: a key or a button that wrote after it holds the action instead, and would leave it at
+	 * its value (hunt HL4-1). IAS doesn't tell which binding holds the action, so that also lets go
+	 * of a key held through another handle's. On a copy under the player in a place that runs Server
+	 * Authority a same-frame pair on `<Action>Script` releases it, on both sides. Anywhere else IAS
+	 * would answer a pair on a binding made then with a release and a press of its own (adding a
+	 * binding to a held action resets it, hunt HL4-3), so the caller resets the action (`Enabled`
+	 * toggled) once the bindings are gone, as for an action no other handle uses: nothing another
+	 * handle fired holds it then.
+	 * @returns whether the action is to be reset once this root handle's bindings are gone
 	 */
-	ReleaseOwn() {
+	ReleaseOwn(): boolean {
 		const action = this.Instance;
 		const live = IsLive(action);
 		const state = action.GetState();
 		let latest: InputBinding | undefined;
 		let latestOrder = 0;
 		const own = new Array<[InputBinding, IHeldValue]>();
-		let heldByOthers = false;
+		/** The latest value another live root handle fired and still holds */
+		let others: IHeldValue | undefined;
 		for (const child of action.GetChildren()) {
 			if (!child.IsA("InputBinding")) continue;
 			const held = GetHeldValue(child);
@@ -647,13 +685,14 @@ export class ActionHandle {
 				latest = child;
 				latestOrder = held.Order;
 			}
-			if (!held.Holders.has(this._runtime)) {
-				if (held.Holders.size() > 0) heldByOthers = true;
-				continue;
-			}
-			held.Holders.delete(this._runtime);
-			if (held.Holders.size() > 0) heldByOthers = true;
-			else own.push([child, held]);
+			if (held.Holders.has(this._runtime)) {
+				held.Holders.delete(this._runtime);
+				if (held.Holders.size() === 0) {
+					own.push([child, held]);
+					continue;
+				}
+			} else if (held.Holders.size() === 0) continue;
+			if (others === undefined || held.Order > others.Order) others = held;
 		}
 		for (const [binding, held] of own) {
 			// Left in place otherwise, holding no one's value: IAS keeps it for the binding, and a later
@@ -663,14 +702,16 @@ export class ActionHandle {
 			if (live && (state === held.Value || state === this._neutral))
 				pcall(() => binding.Fire(this._neutral));
 		}
-		if (!live || heldByOthers || !this.LosesHoldingBinding()) return;
+		if (!live || !this.LosesHoldingBinding()) return false;
 		const now = action.GetState();
-		if (now === this._neutral) return;
+		if (now === this._neutral || (others !== undefined && others.Value === now)) return false;
+		if (!IsServerAuthorityCopy(action)) return true;
 		const binding = this.GetScriptBinding();
 		pcall(() => {
 			binding.Fire(now);
 			binding.Fire(this._neutral);
 		});
+		return false;
 	}
 
 	/**

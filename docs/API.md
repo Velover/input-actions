@@ -198,7 +198,7 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |
-| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
+| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held and doesn't show the last value the other handles fired (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
 
 ### Context handle
 
@@ -256,7 +256,7 @@ Bool actions add:
 | `Pressed`, `Released: RBXScriptSignal<() => void>` | forward the IAS signals; they always alternate (a repeat of the last one, which IAS can send on a Server Authority copy, is dropped) |
 | `IsPressed(): boolean` | |
 | `Tap()` | `Fire(true)`, then `Fire(false)` on the next frame (on a Server Authority context, once the press shows in the state, so the server sees it) |
-| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none |
+| `AttachButton(button: GuiButton): () => void` | adds a UIButton binding `<Action>UIButton<n>`; the function (or destroying the button) removes it. A button destroyed already gets none. Adding the binding releases the action if it is held (IAS resets an action's bindings when one is added; see [IAS behaviours to know](Advanced.md#ias-behaviours-to-know)) |
 
 Actions with `TrackPrevious: true` add `GetPrevious(): V` and `HasChanged(): boolean`; tracked Bool
 actions also add `IsJustPressed()` and `IsJustReleased()`. See [TrackPrevious](Advanced.md#trackprevious).
