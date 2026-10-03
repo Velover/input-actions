@@ -390,7 +390,10 @@ export class HunterFeatures2Tests implements OnStart {
 				frames(3);
 				real.Release(K.N);
 				frames(3);
-				// No frame step saw the press before the listeners heard it: nothing to reset in between
+				// No frame step saw the press before the listeners heard it: nothing to reset in between.
+				// Measured on 2026-10-03 in all six projects: none does, under either signal mode (IAS's
+				// deferred events go out before the next frame step), so this skips; it tests HF2-1
+				// should that change
 				if (where === undefined)
 					return skip(`no frame step saw N pressed before the listeners (${signalMode()})`);
 				expectEqual(
