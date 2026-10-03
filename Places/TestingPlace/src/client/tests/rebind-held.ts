@@ -37,6 +37,25 @@ function server(...args: unknown[]): unknown {
 	return remote.InvokeServer(...args) as unknown;
 }
 
+/** Two schemas on one Move: the second gives it a composite (T/G/F/H) the first lacks */
+const MOVE_SHARED_SMALL = InputActions.Schema({
+	HeldShared: {
+		Priority: 2000,
+		Actions: { Move: InputActions.Direction2D({ Virtual: InputActions.Scriptable }) },
+	},
+});
+const MOVE_SHARED_BIG = InputActions.Schema({
+	HeldShared: {
+		Priority: 2000,
+		Actions: {
+			Move: InputActions.Direction2D({
+				Virtual: InputActions.Scriptable,
+				Keys: { Up: K.T, Down: K.G, Left: K.F, Right: K.H },
+			}),
+		},
+	},
+});
+
 const serverJump = () => server("state", "sa", "SaGameplay", "Jump");
 const serverMove = () => server("state", "sa", "SaGameplay", "Move");
 
@@ -238,6 +257,47 @@ export class RebindHeldTests implements OnStart {
 					staysFalse(() => action.GetState() !== Vector2.zero),
 					`Move after W came up: ${action.GetState()}`,
 				);
+			});
+
+			// The same on an action another root handle still uses (hunt HL3-2, the Bool form is in
+			// hunter-label-3): the composite only the destroyed root handle had goes, and a pair on
+			// MoveScript lets go of what it held
+			test("Destroy while a real key holds a shared Direction2D action through a composite only that root handle has: at rest", () => {
+				const real = realInput();
+				if (typeIs(real, "string")) return skip(real);
+				const folder = newFolder();
+				const first = InputActions.Create(MOVE_SHARED_SMALL, {
+					Folder: folder,
+					ResetOnFocusLoss: false,
+				});
+				defer(() => first.Destroy());
+				const second = InputActions.Create(MOVE_SHARED_BIG, {
+					Folder: folder,
+					ResetOnFocusLoss: false,
+				});
+				defer(() => second.Destroy());
+				const move = first.HeldShared.Actions.Move;
+				expectEqual(second.HeldShared.Actions.Move.Instance, move.Instance, "one shared Move");
+				const keys = second.HeldShared.Actions.Move.Bindings.Keys.Instance;
+				real.Press(K.T);
+				eventually(
+					() => move.GetState() === new Vector2(0, 1),
+					`T moves Move up${real.FocusNote()}`,
+				);
+				second.Destroy();
+				expectEqual(keys.Parent, undefined, "the composite only the second had went");
+				eventually(
+					() => move.GetState() === Vector2.zero,
+					`Move at rest after the second's Destroy (reads ${move.GetState()})${real.FocusNote()}`,
+				);
+				real.Release(K.T);
+				expectTrue(
+					staysFalse(() => move.GetState() !== Vector2.zero),
+					`Move after T came up: ${move.GetState()}`,
+				);
+				move.Fire(new Vector2(1, 0));
+				eventually(() => move.GetState() === new Vector2(1, 0), "the first's Fire still drives it");
+				move.Fire(Vector2.zero);
 			});
 
 			// The same on the server's copy, which is local without Server Authority: there the package

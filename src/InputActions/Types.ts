@@ -294,6 +294,10 @@ export interface IActionHandle<T extends Enum.InputActionType, B> {
 	readonly Instance: InputAction;
 	readonly Name: string;
 	readonly Type: T;
+	/**
+	 * Forwards the action's `StateChanged`, from whichever instance the handle wraps; it never
+	 * repeats the value it passed on last (the Server Authority swap can bring such a repeat)
+	 */
 	readonly StateChanged: RBXScriptSignal<(value: ActionValue<T>) => void>;
 	readonly Bindings: BindingHandles<T, B>;
 	GetState(): ActionValue<T>;

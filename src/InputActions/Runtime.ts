@@ -23,6 +23,7 @@ import {
 	IMovedBindings,
 	MoveBindings,
 	RefireHeldValues,
+	ReleaseHeldValues,
 } from "./Handles/ActionHandle";
 import { BindingHandle, ScriptableBindingHandle } from "./Handles/BindingHandle";
 import { ContextHandle, ContextState } from "./Handles/ContextHandle";
@@ -31,6 +32,7 @@ import {
 	AddUser,
 	ClaimCopy,
 	GetEntry,
+	IHeldValue,
 	ISharedEntry,
 	IsPackageMade,
 	IsShared,
@@ -227,6 +229,10 @@ export class InputRuntime implements IRuntime {
 
 	UntrackConnection(connection: RBXScriptConnection) {
 		this._connections.delete(connection);
+	}
+
+	GoesWithRoot(instance: Instance) {
+		return this._used.has(instance) && IsPackageMade(instance) && !IsShared(instance);
 	}
 
 	IsDestroyed() {
@@ -617,12 +623,13 @@ export class InputRuntime implements IRuntime {
 	 * handles point at the copy and are marked linked, the context's state (base state and every
 	 * handle's requests) goes with them, the labels follow and the listeners hear the copy's state,
 	 * the stand-in is destroyed, the values the Scriptable bindings held are fired again, and
-	 * `LinkedToServer` fires. Under Immediate signals listeners run inside the swap: none between
-	 * the moves and the marks, and a root handle one destroys takes no further part (hunt HL2-2,
-	 * HL2-3). Defaults don't change, so `Reset` still returns to the same ones, except on a binding
-	 * adopted from a root handle already on the copy: the stand-in's rebinds are written onto it,
-	 * and it keeps that handle's defaults, which every handle on it shares. A copy whose actions are
-	 * of another Type leaves the handles on the stand-in.
+	 * `LinkedToServer` fires. Under Immediate signals listeners run inside the swap: first in the
+	 * releases of the held values, before the copy is touched, then none between the moves and the
+	 * marks, and a root handle one destroys takes no further part (hunt HL2-2, HL2-3, HL3-1).
+	 * Defaults don't change, so `Reset` still returns to the same ones, except on a binding adopted
+	 * from a root handle already on the copy: the stand-in's rebinds are written onto it, and it
+	 * keeps that handle's defaults, which every handle on it shares. A copy whose actions are of
+	 * another Type leaves the handles on the stand-in.
 	 */
 	private static LinkStandIn(standIn: IStandIn, copy: InputContext) {
 		const links = [...standIn.Links];
@@ -645,23 +652,30 @@ export class InputRuntime implements IRuntime {
 			}
 		}
 
-		// Every action of the stand-in moves its bindings once, a template's extras included. The
-		// server's copy is enabled, and the client owns Enabled: the copy takes the stand-in's, unless
-		// another root handle took it up first
+		// The held values are released first, on every action, before anything touches the copy:
+		// under Immediate signals the releases run listeners, which find everything on the stand-in
 		const source = standIn.Instance;
-		const moves = new Map<InputAction, IMovedBindings>();
-		ClaimCopy(copy);
+		const releases = new Array<[InputAction, InputAction, Array<[InputBinding, IHeldValue]>]>();
 		for (const action of source.GetChildren()) {
 			if (!action.IsA("InputAction")) continue;
 			const target = copy.FindFirstChild(action.Name);
 			if (target === undefined || !target.IsA("InputAction")) continue;
-			ClaimCopy(target);
-			moves.set(action, MoveBindings(action, target, GetEntry(target) === undefined));
+			releases.push([action, target, ReleaseHeldValues(action)]);
 		}
-		// Under Immediate signals the releases above ran listeners. A root handle one of them
-		// destroyed takes no further part: its uses of the copy would outlive it (hunt HL2-3)
+		// A root handle a listener destroyed takes no further part: its uses of the copy would
+		// outlive it (hunt HL2-3). With none left, the copy stays as the server made it, unclaimed:
+		// the next Create takes it up first, and a Create made by a listener has done so (HL3-1)
 		const live = links.filter((link) => !link.Runtime._destroyed);
 		if (live.isEmpty()) return;
+		// Every action of the stand-in moves its bindings once, a template's extras included. The
+		// server's copy is enabled, and the client owns Enabled: the copy takes the stand-in's, unless
+		// another root handle took it up first
+		const moves = new Map<InputAction, IMovedBindings>();
+		ClaimCopy(copy);
+		for (const [action, target, held] of releases) {
+			ClaimCopy(target);
+			moves.set(action, MoveBindings(action, target, GetEntry(target) === undefined, held));
+		}
 		// No listener runs from here until every handle is on the copy and marked linked
 		const linked = new Array<ActionHandle>();
 		for (const link of live) {

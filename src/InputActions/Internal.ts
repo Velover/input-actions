@@ -15,6 +15,8 @@ export interface IRuntime {
 	TrackConnection(connection: RBXScriptConnection): void;
 	/** Drops a connection already disconnected */
 	UntrackConnection(connection: RBXScriptConnection): void;
+	/** Whether `Destroy` destroys the instance: the package made it, and no other root handle uses it */
+	GoesWithRoot(instance: Instance): boolean;
 	IsDestroyed(): boolean;
 }
 

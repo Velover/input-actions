@@ -13,6 +13,7 @@ import {
 } from "@flamework-experimental/testing";
 import { InputActions } from "@rbxts/input-actions";
 import { HttpService, Players } from "@rbxts/services";
+import { expectedSignalBehavior } from "shared/fixtures/projects";
 import { TEST_SCHEMA } from "shared/fixtures/schemas";
 import {
 	countSignal,
@@ -620,6 +621,50 @@ export class SharedHandlesTests implements OnStart {
 				expectArrayEqual(heardOnCopy, [false], "the copy's handle went from on to off");
 				expectArrayEqual(heardFirst, [], "the first joining handle was off and stays off");
 				expectArrayEqual(heardSecond, [], "the second joining handle was off and stays off");
+			});
+
+			// Hunt HL3-3: a joining handle is on the copy before the Join's releases, and hears them
+			// before the swap tells it the copy's state. One that never heard its action passed them
+			// on: a StateChanged to the value it had, and a Released with no Pressed before it
+			test("a stand-in handle that never heard its action, joining a copy the Join turns off: nothing out of turn", () => {
+				const { Copy: copy, OnCopy: onCopy, Waiting: waiting, Arrive: arrive } = copyThenStandIn();
+				const poke = waiting.SharedStandIn.Actions.Poke;
+				const pokeCopy = copy.FindFirstChild("Poke") as InputAction;
+				const states = recordSignal(poke.StateChanged);
+				const edges = new Array<string>();
+				const connections = [
+					poke.Pressed.Connect(() => edges.push("P")),
+					poke.Released.Connect(() => edges.push("R")),
+				];
+				defer(() => connections.forEach((connection) => connection.Disconnect()));
+				// the stand-in is off from now on; its request carries over to the copy
+				defer(waiting.SharedStandIn.Request(false));
+				onCopy.SharedStandIn.Actions.Poke.Fire(true);
+				eventually(
+					() => pokeCopy.GetState() === true,
+					"the other root handle holds the copy's Poke",
+				);
+				frames(2);
+				arrive();
+				frames(4);
+				expectFalse(copy.Enabled, "the Request(false) holds the copy off");
+				expectFalse(poke.IsPressed(), "at rest on the copy");
+				const problems = new Array<string>();
+				let shown: unknown = false;
+				for (const value of states) {
+					if (value === shown) problems.push(`StateChanged ${value} repeats`);
+					shown = value;
+				}
+				let expectedEdge = "P";
+				for (const edge of edges) {
+					if (edge !== expectedEdge) problems.push(`${edge} out of turn`);
+					expectedEdge = edge === "P" ? "R" : "P";
+				}
+				expectEqual(
+					problems.join(", "),
+					"",
+					`signals ${expectedSignalBehavior()}: StateChanged ${states.map((value) => tostring(value)).join(", ")}; edges ${edges.join("")}`,
+				);
 			});
 
 			test("the swap fires the held values again in the order they were fired", () => {

@@ -65,19 +65,12 @@ export interface IMovedBindings {
 }
 
 /**
- * Moves every binding of a stand-in's action under the server's copy of it (Server Authority swap).
- * Held Scriptable values are released first; `RefireHeldValues` fires them again in the order they
- * were fired, so the action ends on the same latest write. A binding another root handle already
- * made there under the same name is adopted rather than doubled, with the stand-in's rebinds
- * written onto it (button bindings are renamed instead).
- * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
- * `Enabled` (the server's copy is always enabled; the client owns it)
+ * Releases the values the package's Scriptable bindings hold on a stand-in's action, the first step
+ * of a Server Authority swap, before anything touches the copy: under Immediate signals the
+ * listeners run here, with everything still on the stand-in (hunt HL3-1). Returns the values to
+ * carry over, oldest first, for `MoveBindings`.
  */
-export function MoveBindings(
-	source: InputAction,
-	target: InputAction,
-	carryEnabled: boolean,
-): IMovedBindings {
+export function ReleaseHeldValues(source: InputAction): Array<[InputBinding, IHeldValue]> {
 	const neutral = NEUTRAL_VALUES[source.Type.Name];
 	const held = new Array<[InputBinding, IHeldValue]>();
 	for (const binding of source.GetChildren()) {
@@ -90,6 +83,25 @@ export function MoveBindings(
 		if (value.Holders.size() > 0) held.push([binding, value]);
 	}
 	held.sort((a, b) => a[1].Order < b[1].Order);
+	return held;
+}
+
+/**
+ * Moves every binding of a stand-in's action under the server's copy of it (Server Authority swap),
+ * once `ReleaseHeldValues` released its held values; `RefireHeldValues` fires them again in the
+ * order they were fired, so the action ends on the same latest write. A binding another root handle
+ * already made there under the same name is adopted rather than doubled, with the stand-in's
+ * rebinds written onto it (button bindings are renamed instead).
+ * @param carryEnabled no live root handle uses the copy's action yet: it takes the stand-in's
+ * `Enabled` (the server's copy is always enabled; the client owns it)
+ * @param held what `ReleaseHeldValues` returned for `source`
+ */
+export function MoveBindings(
+	source: InputAction,
+	target: InputAction,
+	carryEnabled: boolean,
+	held: Array<[InputBinding, IHeldValue]>,
+): IMovedBindings {
 	if (carryEnabled) target.Enabled = source.Enabled;
 
 	const moved = new Map<InputBinding, InputBinding>();
@@ -175,6 +187,13 @@ export class ActionHandle {
 	private readonly _neutral: unknown;
 	/** What the listeners were last told (or the state when the handle was made) */
 	private _shownState: unknown;
+	/**
+	 * Whether the listeners have `_shownState`: a `StateChanged` was passed on or told, or the swap
+	 * took it as theirs. A `StateChanged` repeating it is dropped from then on: on the Join path the
+	 * copy's own events can reach a handle the swap already told, or that heard the value from the
+	 * stand-in (hunt HL3-3). Until then anything is passed on, as for `_lastEdge`.
+	 */
+	private _stateKnown = false;
 	private _shownPressed: boolean;
 	/**
 	 * The last of `Pressed` and `Released` the listeners were sent. IAS can send the same one twice in
@@ -233,11 +252,14 @@ export class ActionHandle {
 		this._forwards.clear();
 		this.Instance = action;
 		const stateChanged = this._stateChanged;
-		// An event still on its way from an instance the handle left is not passed on
+		// An event still on its way from an instance the handle left is not passed on, nor one
+		// repeating what the listeners have
 		this._forwards.push(
 			action.StateChanged.Connect((value) => {
 				if (this.Instance !== action) return;
+				if (this._stateKnown && value === this._shownState) return;
 				this._shownState = value;
+				this._stateKnown = true;
 				stateChanged.Fire(value);
 			}),
 		);
@@ -271,7 +293,9 @@ export class ActionHandle {
 	 * Points the handle at the server's copy of its action once `MoveBindings` moved the bindings
 	 * there (Server Authority swap). The stand-in sends no more events, including those still on
 	 * their way. Runs no listener: `FinishLink` tells them, once every handle on the stand-in is on
-	 * the copy and linked (hunt HL2-2).
+	 * the copy and linked (hunt HL2-2). From here what the listeners were last told (or the state
+	 * when the handle was made) is theirs: the copy's events repeating it are dropped, also those
+	 * a `ContextState.Join` causes before `FinishLink` (hunt HL3-3).
 	 */
 	LinkTo(target: InputAction, moved: ReadonlyMap<InputBinding, InputBinding>) {
 		for (const [, handle] of pairs(this.Bindings)) {
@@ -281,6 +305,9 @@ export class ActionHandle {
 			this._scriptBinding = moved.get(this._scriptBinding) ?? this._scriptBinding;
 		}
 		this.Attach(target);
+		this._stateKnown = true;
+		if (this.Type === Enum.InputActionType.Bool)
+			this._lastEdge ??= this._shownPressed ? "Pressed" : "Released";
 	}
 
 	/**
@@ -301,6 +328,7 @@ export class ActionHandle {
 		const state = this.Instance.GetState();
 		if (state !== this._shownState) {
 			this._shownState = state;
+			this._stateKnown = true;
 			this._stateChanged.Fire(state);
 			if (this._runtime.IsDestroyed()) return;
 		}
@@ -510,9 +538,11 @@ export class ActionHandle {
 	 * this handle alone fired goes back to rest only when no value the package fired after it is
 	 * held, and the action shows it or still rests (a Server Authority copy shows a Fire one
 	 * simulation step later). A value another handle fired too, on the same binding, stays theirs. A
-	 * held binding that is destroyed leaves the action stuck on (probed): when this handle's buttons
-	 * go while the action is pressed and nothing another handle fired holds it, a same-frame pair on
-	 * `<Action>Script` releases it, as removing a held button does.
+	 * held binding that is destroyed leaves the action stuck on (probed): when bindings that go with
+	 * this root handle (its buttons, its own slots, a template's bindings it cloned) go while the
+	 * action is not at rest and nothing another handle fired holds it, a same-frame pair on
+	 * `<Action>Script` releases it, as removing a held button does (hunt HL3-2). IAS doesn't tell
+	 * which binding holds the action, so that also lets go of a key held through another handle's.
 	 */
 	ReleaseOwn() {
 		const action = this.Instance;
@@ -546,12 +576,31 @@ export class ActionHandle {
 			if (live && (state === held.Value || state === this._neutral))
 				pcall(() => binding.Fire(this._neutral));
 		}
-		if (!live || heldByOthers || this._buttons.size() === 0 || !this.IsPressed()) return;
+		if (!live || heldByOthers || !this.LosesHoldingBinding()) return;
+		const now = action.GetState();
+		if (now === this._neutral) return;
 		const binding = this.GetScriptBinding();
 		pcall(() => {
-			binding.Fire(true);
-			binding.Fire(false);
+			binding.Fire(now);
+			binding.Fire(this._neutral);
 		});
+	}
+
+	/**
+	 * Whether a binding that a key or a button can hold the action through goes with this root
+	 * handle's `Destroy`. A Scriptable one holds only what the package fired, which `ReleaseOwn`
+	 * lets go of already.
+	 */
+	private LosesHoldingBinding(): boolean {
+		for (const child of this.Instance.GetChildren()) {
+			if (
+				child.IsA("InputBinding") &&
+				child.Type !== Enum.InputBindingType.Scriptable &&
+				this._runtime.GoesWithRoot(child)
+			)
+				return true;
+		}
+		return false;
 	}
 
 	/** Releases the action, then resets it: IAS resets the state of a disabled action */

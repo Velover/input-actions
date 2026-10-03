@@ -58,8 +58,12 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   itself: a value its `Fire`, `Tap` or Scriptable slots left goes back to rest, unless the package
   fired a value after it (IAS shows the last write), even an equal one on another binding. A value
   another live handle fired too, on the same binding, stays: IAS ignored that repeat, but the value
-  is that handle's as well. Its attached buttons go too; as when a held button is detached, the
-  action is released if it is pressed and nothing the other handles fired holds it.
+  is that handle's as well. Its attached buttons go too, and so do the bindings only it has (its
+  own slots, the template's bindings it cloned). A binding destroyed while it holds its action
+  would leave the action stuck on, so, as when a held button is detached, the action is released
+  if it is not at rest and nothing the other handles fired holds it. IAS doesn't tell which
+  binding holds an action, so that also lets go of a key held through a binding the other handles
+  keep, until the key is pressed again.
 - `Input.Destroy()` disconnects everything, releases what the package was holding, and destroys
   what it created. Adopted instances stay: adopted contexts get their base state back, and adopted
   bindings their defaults (rebinds are undone, so a later `Create` starts from the same defaults).
@@ -73,7 +77,8 @@ Input.Ui.Instance.Priority = 3500; // the InputContext itself, for Priority and 
   on in IAS. So an action that stays after `Destroy` (an adopted one, or one of the server's copy)
   and is still not at rest once the package's bindings are gone is reset (`InputAction.Enabled`
   toggled), whatever its type: a key held through the package's binding doesn't keep a `Move` or a
-  `Jump` held after the handle is gone.
+  `Jump` held after the handle is gone. An action another handle still uses is released instead,
+  as above.
 
 ## Driving actions from code
 
@@ -388,7 +393,10 @@ the caller's thread) when the handle wraps it already, else once when the stand-
 returned function cancels a call still to come, and so does `Destroy`. Under Immediate signals the
 swap's events run inside it: the copy's state, the held values fired again, the labels moving and
 `LinkedToServer` come once every root handle on the stand-in wraps the copy and
-`IsLinkedToServer()` is `true`.
+`IsLinkedToServer()` is `true`. Before them come the releases of the held values, with everything
+still on the stand-in: a root handle a listener destroys there takes no part in the swap, and when
+none is left the copy stays untouched, for the next `Create` to take up with the template's or the
+schema's `Enabled`.
 
 A context marked `ServerAuthority: true` in a place without Server Authority still works on the
 client (the server's copy replicates either way), but the server never receives its state:
@@ -432,7 +440,8 @@ when you mark contexts this way. The package warns you when it can tell that you
     Listeners hear that: at the swap each handle passes on the copy's state (a `Released`, and a
     `StateChanged` to the value at rest, when the copy doesn't show the stand-in's value yet), then
     the copy's own events, so a value fired again reads as a release and a new press, never as two
-    presses in a row. `Reset` still returns to the same defaults.
+    presses in a row, and `StateChanged` never repeats a value. `Reset` still returns to the same
+    defaults.
   - The handles' signals (`StateChanged`, `Pressed`, `Released`, `EnabledChanged`,
     `BindingsChanged`) are the package's own and forward from whichever instance a handle wraps, so
     connections made before the swap keep working. Read `Instance` when you need it: it changes at
@@ -634,7 +643,8 @@ IAS code, with or without this package. The package's tests run under both `Defe
   the IAS ones, so under Deferred a listener connected right after a `Fire` can still receive that
   `Fire`'s event, and under Immediate a handle's `Pressed` has run by the time `Fire` returns. A
   handle's `Pressed` and `Released` always alternate: on a Server Authority copy IAS has sent
-  `Released` twice in a row, and the handle passes such a repeat on once.
+  `Released` twice in a row, and the handle passes such a repeat on once. Likewise a handle's
+  `StateChanged` never repeats the value it passed on last.
 - A repeated `Fire` of the same value does nothing. `Fire` on a disabled action or context is
   silently ignored.
 - Under Server Authority, disabling a context or action on the client doesn't release the server's

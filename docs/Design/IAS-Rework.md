@@ -190,14 +190,18 @@ adopted from existing instances.
   - a context has one enabled state (base state and requests, §5), whichever handle changes it;
     each handle's requests end with it;
   - every handle on a binding has the same defaults (the first handle's snapshot);
-  - destroying one handle never releases input that another live handle's actions hold. It lets
-    go of what it holds itself, on a shared action too: a value its `Fire`/`Tap`/Scriptable slots
-    left goes back to rest (the package records which root handles fired each held value, and the
-    order of its Fires), unless the package fired a value after it (the action shows the last
-    write, whatever the values). A value another live handle fired on the same binding too is
-    theirs as well (IAS ignored the repeat) and stays. When its attached buttons go while the
-    action is pressed and nothing another handle fired holds it, the action is released (a
-    destroyed held binding would leave it stuck on);
+  - destroying one handle doesn't release input that another live handle's actions hold, but for
+    the one case below. It lets go of what it holds itself, on a shared action too: a value its
+    `Fire`/`Tap`/Scriptable slots left goes back to rest (the package records which root handles
+    fired each held value, and the order of its Fires), unless the package fired a value after it
+    (the action shows the last write, whatever the values). A value another live handle fired on
+    the same binding too is theirs as well (IAS ignored the repeat) and stays. When bindings that
+    go with it (those it made that no other handle uses: its attached buttons, its own slots, a
+    template's bindings it cloned) go while the action is not at rest and nothing another handle
+    fired holds it, a same-frame pair on `<Action>Script` releases the action: a destroyed held
+    binding would leave it stuck on (buttons since validator round 3, the other bindings since hunt
+    HL3-2). IAS doesn't tell which binding holds an action, so that also lets go of a key held
+    through a binding the other handles keep, until it is pressed again;
   - a Server Authority template stays disabled (§8) until the last handle using it is destroyed.
 - `Input.Destroy()` disconnects everything, destroys what the package created, and leaves adopted
   instances in place. Adopted bindings get their defaults back (rebinds are undone, so a later
@@ -213,10 +217,10 @@ adopted from existing instances.
 - A binding `Destroy` removes while it holds its action (a key, a button, a template's binding the
   package gave an extra action) leaves the action stuck on **(probed)**, whatever its type. So once
   the bindings are gone, every action that stays (adopted, or the server's copy) and that no other
-  live root handle uses is reset when its state is not at rest: `Enabled` toggled off and back on.
-  Under Server Authority the release pairs of §8 have let go of the server's copy already; the
-  reset covers a local context, and the copy in a place without Server Authority, where no pair is
-  fired.
+  live root handle uses is reset when its state is not at rest: `Enabled` toggled off and back on
+  (one another root handle uses is released before, as above). Under Server Authority the release
+  pairs of §8 have let go of the server's copy already; the reset covers a local context, and the
+  copy in a place without Server Authority, where no pair is fired.
 - The root handle is a table of its own: the contexts by name beside the five public members, so a
   context name can shadow nothing internal. `Schema` (and `Create`) refuse those five names.
 
@@ -255,7 +259,11 @@ Action handle (all types):
   Authority context swaps from a local stand-in to the server's copy (§8); connections made before
   the swap must keep working after it. `Instance` always returns the current instance.
 - `Instance: InputAction`, `Name`, `Type`.
-- `GetState(): V`, `StateChanged: RBXScriptSignal<(value: V) => void>`.
+- `GetState(): V`, `StateChanged: RBXScriptSignal<(value: V) => void>`. `StateChanged` never
+  repeats the value it passed on last: once it passed one on, and from the Server Authority swap
+  on, an IAS event repeating what the listeners have is dropped (on the Join path of the swap a
+  joining handle heard the copy's own events before the swap told it the copy's state: hunt
+  HL3-3). Until then anything is passed on, as for `Pressed`/`Released` below.
 - `Fire(value: V)`: fires a Scriptable binding named `<Action>Script` that the package creates on
   first use. Values go straight into the action state: IAS applies no `Scale`, clamp or
   `Vector2Scale` to fired values **(probed)**.
@@ -282,9 +290,10 @@ Action handle (all types):
 
 Bool actions add `Pressed`, `Released` (IAS signals, passed on so that the two always alternate:
 an IAS signal repeating the last one passed on is dropped, as a Server Authority copy once sent
-`Released` twice in a row after the stand-in swap, 2026-10-02; until the first one, anything is
-passed on, so a handle made while its action is held still hears that press's `Pressed` if it is
-on its way), `IsPressed()`, `Tap()` (fires `true`, then
+`Released` twice in a row after the stand-in swap, 2026-10-02; until the first one or the swap,
+anything is passed on, so a handle made while its action is held still hears that press's
+`Pressed` if it is on its way; at the swap the last one told, or the state when the handle was
+made, counts as the last one), `IsPressed()`, `Tap()` (fires `true`, then
 `false` on the next frame; on a Server Authority copy, once the press shows in the state, at most
 0.5 s later: that copy's state moves on simulation steps, and a release in the same step as the
 press would reach the server as no press at all), and:
@@ -529,11 +538,13 @@ client; the server only reads action state, which IAS replicates on its own.
     on the next input; `Pressed`/`Released` listeners see that. The stand-in's events still on
     their way are dropped, so at the swap each handle tells its listeners the copy's state
     (`Released`, `StateChanged` to rest) before the copy's own events: a value fired again reads
-    as a release and a new press, never two `Pressed` in a row (nor two `Released`: the copy's own
-    events repeating what the swap told them are dropped, §6). After the swap, `Reset` still
-    returns to the same defaults. When another root handle is on the same copy already (it swapped
-    first, or found the copy there), its bindings of the same name are adopted rather than doubled
-    (attached buttons are renamed). What the stand-in's binding changed from its defaults (rebinds,
+    as a release and a new press, never two `Pressed` in a row (nor two `Released`, nor a
+    `StateChanged` repeating a value: the copy's own events repeating what the listeners have are
+    dropped, §6; on the Join path a joining handle is on the copy before the Join's releases, and
+    hears them before the swap tells it the copy's state, hunt HL3-3). After the swap, `Reset`
+    still returns to the same defaults. When another root handle is on the same copy already (it
+    swapped first, or found the copy there), its bindings of the same name are adopted rather than
+    doubled (attached buttons are renamed). What the stand-in's binding changed from its defaults (rebinds,
     an import) is written onto the adopted one, which keeps its defaults, the first handle's
     snapshot (§4), so the stand-in handle's export reads the same after the swap. A value the
     stand-in held on a Scriptable binding that the adopted one already holds stays held by both
@@ -549,17 +560,23 @@ client; the server only reads action state, which IAS replicates on its own.
     every root handle on the stand-in is marked linked before any of them fires, so listeners see
     the others linked under Immediate signals too (hunt HL-3).
   - **Listeners inside the swap (Immediate signals).** The swap runs in this order: release the
-    held Scriptable values on the stand-in (its listeners run, everything still on the stand-in);
-    move the bindings and point every handle at the copy, which runs no listener; mark every
-    handle linked; move the context's state (`EnabledChanged`, releases); move the labels and tell
-    each handle's listeners the copy's state; destroy the stand-in; fire the held values again;
-    `LinkedToServer`. So a listener that hears an event from the copy finds every handle on it and
-    `IsLinkedToServer()` true (hunt HL2-2). A root handle a listener destroys takes no further
+    held Scriptable values on every action of the stand-in (its listeners run, everything still
+    on the stand-in, the copy untouched); drop the root handles destroyed meanwhile, and stop when
+    none is left; claim the copy, move the bindings and point every handle at the copy, which runs
+    no listener; mark every handle linked; move the context's state (`EnabledChanged`, releases);
+    move the labels and tell each handle's listeners the copy's state; destroy the stand-in; fire
+    the held values again; `LinkedToServer`. So a listener that hears an event from the copy
+    finds every handle on it and `IsLinkedToServer()` true (hunt HL2-2). A root handle a listener destroys takes no further
     part: one destroyed during the releases is dropped from the swap, so it takes no use of the
     copy that nothing would give back (that left the last live root handle's `Destroy` treating the
     action as shared, and a key held through its binding stayed held); one destroyed later gave
     its uses back itself, its handles skip the rest, and a held value only destroyed root handles
-    held isn't fired again (hunt HL2-3).
+    held isn't fired again (hunt HL2-3). The copy is claimed (§8, `Enabled`) only after the
+    releases: when every root handle was destroyed in them, the copy stays unclaimed, so the next
+    `Create` takes it up first, with the template's or the schema's `Enabled`; a `Create` a
+    listener makes there takes it up itself, and the swap joins it (its state wins, as for any
+    root handle already on the copy). Claimed before the releases, the copy kept the server's
+    `true` and the destroyed stand-in's action `Enabled` (hunt HL3-1).
   - After `Timeout` seconds (default 10) without the server's copy, `warn` once, naming the
     contexts, the expected path, and the likely causes: `ProvideToPlayers` was not called on the
     server, or it uses a different `PlayerFolderName`. Keep the stand-in, and still swap if the

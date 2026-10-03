@@ -173,7 +173,7 @@ What `Create` returns: one property per context, by name, plus:
 | `ExportBindings(): string` | the saved rebinds of every context ([format](Advanced.md#saving-keybinds)) |
 | `ImportBindings(json): { Applied; Skipped }` | resets to the defaults, then applies the save (a binding that ends as it was isn't touched); never throws |
 | `ResetBindings()` | every binding back to its defaults |
-| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
+| `Destroy()` | disconnects, releases what it held, destroys what it created once no other handle uses it; adopted instances stay (adopted bindings get their defaults back); later calls on the handles change nothing; under Deferred signals, an event fired before it and not delivered yet still arrives. On an action another root handle still uses, it releases only what it held itself, and the action when bindings only it had (its buttons, its own slots) go while the action is held (see [Get-or-create](Advanced.md#get-or-create-in-detail)) |
 
 ### Context handle
 
@@ -208,7 +208,7 @@ All action types:
 | --- | --- |
 | `Instance: InputAction`, `Name: string`, `Type: Enum.InputActionType` | `Instance` is the action it wraps now |
 | `GetState(): V` | the current value (`boolean`, `number`, `Vector2`, `Vector3`) |
-| `StateChanged: RBXScriptSignal<(value: V) => void>` | forwards the IAS signal |
+| `StateChanged: RBXScriptSignal<(value: V) => void>` | forwards the IAS signal; never repeats the value it passed on last (the Server Authority swap can bring such a repeat, which is dropped) |
 | `Fire(value: V)` | drives the action through a Scriptable binding `<Action>Script`, made on first use |
 | `SetEnabled(enabled)`, `IsEnabled()` | `InputAction.Enabled`; disabling resets the state (on the server too, under Server Authority) |
 | `GetPreferredBinding(): InputBinding \| undefined` | `InputAction.PreferredBinding` |
