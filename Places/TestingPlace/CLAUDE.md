@@ -85,6 +85,41 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
     a test holds. A test that holds keys and doesn't test that reset can create its input with
     `ResetOnFocusLoss: false`; `real.FocusNote()` adds to a failure message whether the window lost
     focus during the test.
+- **Real gamepad input (plugging in tried in Studio; no button or stick input yet):**
+  `tools/virtual-pad` is a Rust service that plugs a virtual Xbox 360 pad into Windows through the
+  ViGEmBus driver and sets its state over HTTP on `127.0.0.1:47110` (the API is at the top of its
+  `src/main.rs`). `bun run test` starts it before the projects run and stops it after them
+  (`scripts/virtual-pad.mjs`; a service already running is used and left running), building it with
+  `cargo build --release` when its sources are newer; without cargo or the driver the run warns and
+  goes on. It plugs no pad until a test asks, and unplugs it when it stops (Ctrl+C, its stdin
+  closing, its parent ending; ViGEmBus unplugs a killed one's pad itself). HttpService works on
+  the server only, so `src/server/tests/virtual-pad.ts` forwards the client's calls through
+  `ReplicatedStorage.InputActionsVirtualPad` (about 0.2 s a call from the client; 3 ms from the
+  server), and `virtualPad()` in `src/client/tests/virtual-pad.ts` gives a test a `VirtualPad`
+  (`Connect`, `Disconnect`, `Press`, `Release`, `Tap`, `SetStick`, `SetTrigger`, `Reset`, by
+  Roblox KeyCodes) or the reason there is none. What a test holds is released and the pad unplugged
+  when the test ends, pass or fail. Measured on 2026-10-03 (`default`, `ias`, `touch`):
+  - plugging the pad in, with no input, fires `GamepadConnected` (Gamepad1) and switches
+    `PreferredInput` to `Gamepad` within 0.3 s; every action without a gamepad binding then has no
+    `PreferredBinding` and its `InputActionLabel` shows nothing. Unplugging switches back as fast.
+    Under `touch`, after a tap (`MouseEnabled`, `KeyboardEnabled` then read false) plugging in
+    leaves `PreferredInput` at `Touch` and `GamepadEnabled` false;
+  - IAS never prefers an empty `InputBinding` (no KeyCode, no composite): empty bindings named
+    `Gamepad` or `Touch` beside a Space binding change nothing, and an empty `Touch` binding doesn't
+    beat a UIButton binding (under `touch` the UIButton binding is preferred; its label reads
+    `None`). A Space binding's label reads `" "`;
+  - Steam's Xbox controller support is on here, so while Steam runs, its desktop configuration also
+    turns the pad's buttons and sticks into keys and mouse input for the focused window: no button
+    or stick input has been sent yet.
+- **Touch from Windows (`POST /touch`, `POST /window`) reaches Studio as mouse input:** injected
+  touches (InitializeTouchInjection) arrive as `MouseButton1` and `MouseMovement`, never as touch,
+  whether injection started before Studio or during the session; `TouchEnabled` stays false; of two
+  contacts only the first arrives (a drag), so no `TouchPinch`. A tap lands 1:1 at a fixed offset
+  from GUI coordinates: `POST /window` (`{title, front}`) finds the run's window, keeps it on top so
+  the touch lands on it, and gives its client area in screen pixels. Starting injection makes
+  Windows report a touch screen to every process (`SM_DIGITIZER` 140 to 205, `SM_MAXIMUMTOUCHES` 1
+  to 10) until the service exits, so only a test that asks starts it. Use `VirtualInput` under
+  the `touch` project for touch instead.
 - **Skipping:** a test that can't run here (another project, no VirtualInput, a cursor that never
   locked, a window that renders nothing) calls `skip(reason)` from `@flamework-experimental/testing`,
   as `return skip(reason)` at the top level of its body. It ends the test, and each realm's summary
@@ -94,7 +129,8 @@ A roblox-ts place on Flamework v2 whose only job is to test the package in the r
   wheel half of `hunter-r1`'s UiNavigation test under `touch`. Keep `skip` out of `pcall`,
   `expectThrows`, `eventually` and spawned threads.
 - Gamepad input, window focus and the Roblox menu can't be simulated from Luau: those paths are
-  driven through Scriptable bindings (`Fire`) and the TextBox focus path.
+  driven through Scriptable bindings (`Fire`) and the TextBox focus path (the virtual pad above
+  may change that for gamepads).
 - The server's `server-authority` provider hosts `ReplicatedStorage.InputActionsTestServer`, a
   RemoteFunction the client's section calls to have `SA_SCHEMA` (`"sa"`) or `SA_LATE_SCHEMA`
   (`"late"`, provided only after the client's `Create`, to test the stand-in swap) provided, and to

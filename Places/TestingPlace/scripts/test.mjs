@@ -8,9 +8,12 @@
 // the device back: scripts/device-test.mjs). A project that needs Studio's device
 // simulator (`--project tests/touch.project.json`) runs through scripts/device-test.mjs instead,
 // after the others; and a device an earlier run left set is set back before any project runs.
+// While the projects run, the virtual-pad service (scripts/virtual-pad.mjs) serves the tests'
+// gamepad input.
 
 import { dlopen, FFIType } from "bun:ffi";
 import { DEVICE_PROJECTS, projectName, restoreLeftDevice, runOnDevice } from "./device-test.mjs";
+import { startVirtualPad } from "./virtual-pad.mjs";
 
 /**
  * How long one realm's run may take, unless `--timeout` is given: flamework-test's own 120 s is too
@@ -106,6 +109,8 @@ if (code === undefined) {
 if (code === 0) code = run(["rojo", "build", "-o", "test.rbxl"]) ?? 127;
 // A device left set by a run killed during the touch pass would put every project on a phone
 if (code === 0 && !(await restoreLeftDevice("test.rbxl"))) code = 1;
+// The virtual gamepad the tests drive (scripts/virtual-pad.mjs), stopped once the projects have run
+const virtualPad = code === 0 ? await startVirtualPad() : undefined;
 if (code === 0) {
 	// Projects that need Studio's device simulator (`touch`) run through scripts/device-test.mjs,
 	// after the others, which flamework-test runs as they are. A `--timeout` given comes later, and
@@ -130,6 +135,7 @@ if (code === 0) {
 	}
 	if (outcomes.length > 0) console.log(`\nprojects on a simulated device: ${outcomes.join(", ")}`);
 }
+await virtualPad?.stop();
 
 // The scope is set to nothing rather than left out, so that a scope in .env.local, or one exported
 // in the shell, cannot come back through this build.
